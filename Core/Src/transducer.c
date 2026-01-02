@@ -76,8 +76,8 @@ void Set_Plane_Wave()
     }
 }
 
-// Update Simulation to Transducers Parameters
-void Set_Focus_Point(float *position)
+// Update Point to Transducers Parameters
+void Set_Point_Focus(float *position)
 {
     for (int i = 0; i < NumTransducer-1; i++)
     {

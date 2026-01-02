@@ -4,7 +4,7 @@
 #include "dma_manager.h"
 #include "utiles.h"
 
-int calibration_mode = 1;
+int calibration_mode = 0;
 
 // 校准参数说明：每个元素对应换能器的延迟校准值（单位：微秒us）
 float Transducer_Calibration_Array[] = {
@@ -30,7 +30,7 @@ void Switch_Calibration_Mode()
     {
         calibration_mode = 1 - calibration_mode;
 
-        if(calibration_mode)
+        if(calibration_mode == 0)
         {
             Clean_Transducers_Calib();
         }

@@ -1,6 +1,10 @@
 #define _USE_MATH_DEFINES
 #include "dma_manager.h"
 #include "utiles.h"
+#include "calibration.h"
+#include "stimulation.h"
+
+extern int led0_state;
 
 const float GPIO_Group_Output_Offset[DMA_CHANNELS] = {0U, 3, 6.5, 9, 11.5};
 // const float GPIO_Group_Output_Offset[DMA_CHANNELS] = {0U, 0U, 0U, 0U, 0U};
@@ -40,15 +44,87 @@ void Start_DMAs()
 void Update_All_DMABuffer()
 {
     uint32_t start_cyc = DWT->CYCCNT;
-    Clean_DMABuffer();
+
+    // 1. Pre-calculate active ranges for all transducers
+    typedef struct {
+        uint8_t port_num;
+        uint16_t pin;
+        uint32_t start_idx;
+        uint32_t end_idx;
+        uint8_t wrap; // 0 or 1
+    } TransducerState;
+
+    TransducerState states[NumTransducer];
+    
     for (size_t i = 0; i < NumTransducer; i++)
     {
-        Update_Single_DMABuffer(&TransducerArray[i]);
+        Transducer *t = &TransducerArray[i];
+        states[i].port_num = t->port_num;
+        states[i].pin = t->pin;
+        
+        uint16_t phase_offset = t->calib + t->shift_buffer_bits;
+        phase_offset += (uint16_t)(GPIO_Group_Output_Offset[t->port_num] * BufferGapPerMicroseconds);
+        phase_offset %= BufferResolution;
+        
+        states[i].start_idx = (BufferResolution - phase_offset) % BufferResolution;
+        uint32_t end = states[i].start_idx + half_period;
+        
+        if (end <= BufferResolution) {
+            states[i].end_idx = end;
+            states[i].wrap = 0;
+        } else {
+            states[i].end_idx = end; // Used for logic check
+            states[i].wrap = 1;
+        }
     }
+
+    // 2. Prepare LED Base State (Port 0)
+    // Logic from Restore_LED_State in utiles.c
+    uint16_t led_mask = 0;
+    
+    // LED0
+    if (!led0_state) led_mask |= LED0_Pin; // Restore_LED: if(state) &= ~Pin (OFF). So if(!state) ON.
+    
+    // LED1 (Calibration)
+    if (!Get_Calibration_Mode()) led_mask |= LED1_Pin; // Restore_LED: if(Mode) &= ~Pin.
+    
+    // LED2 (Plane)
+    if (!Get_Plane_Mode()) led_mask |= LED2_Pin; // Restore_LED: if(Mode) &= ~Pin.
+
+    // 3. Iterate Buffer and Fill
+    for (uint32_t i = 0; i < BufferResolution; i++)
+    {
+        uint16_t port_vals[DMA_CHANNELS] = {0};
+        
+        // Initialize Port 0 with LEDs
+        port_vals[0] = led_mask;
+        
+        // Accumulate Transducers
+        for (size_t k = 0; k < NumTransducer; k++)
+        {
+            uint8_t active = 0;
+            if (states[k].wrap) {
+                if (i >= states[k].start_idx || i < (states[k].end_idx - BufferResolution)) active = 1;
+            } else {
+                if (i >= states[k].start_idx && i < states[k].end_idx) active = 1;
+            }
+            
+            if (active) {
+                port_vals[states[k].port_num] |= states[k].pin;
+            }
+        }
+        
+        // Write to DMA Buffer
+        for (int p = 0; p < DMA_CHANNELS; p++) {
+            DMA_Buffer[p][i] = port_vals[p];
+        }
+    }
+
     uint32_t end_cyc = DWT->CYCCNT;
     updateDMABufferDeltaTime =  (double)((double)(end_cyc - start_cyc) / (double)SystemCoreClock);
 }
 
+// Legacy function to update a single transducer's DMA buffer
 void Update_Single_DMABuffer(Transducer *currentTransducer)
 {
     const uint8_t port_num = currentTransducer->port_num;
@@ -87,6 +163,7 @@ void Update_Single_DMABuffer(Transducer *currentTransducer)
     }
 }
 
+// Legacy function to clean all DMA buffers
 void Clean_DMABuffer()
 {
     memset(DMA_Buffer, 0x0000, sizeof(DMA_Buffer));

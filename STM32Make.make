@@ -80,7 +80,7 @@ Core/Src/communication.c \
 Core/Src/custom_math.c \
 Core/Src/dma_manager.c \
 Core/Src/main.c \
-Core/Src/simulation.c \
+Core/Src/stimulation.c \
 Core/Src/stm32h7xx_hal_msp.c \
 Core/Src/stm32h7xx_it.c \
 Core/Src/system_stm32h7xx.c \

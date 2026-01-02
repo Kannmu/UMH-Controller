@@ -1,6 +1,6 @@
 #define _USE_MATH_DEFINES
 #include "utiles.h"
-#include "simulation.h"
+#include "stimulation.h"
 #include "calibration.h"
 
 // debug.c
@@ -21,6 +21,18 @@ void Init_DWT()
     }
     DWT->CYCCNT = 0;
     DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+}
+
+// 获取系统启动后的CPU周期数
+uint32_t DWT_GetCycles(void)
+{
+    return DWT->CYCCNT;
+}
+
+// 转换为微秒（根据系统时钟频率调整）
+uint32_t DWT_GetMicroseconds(void)
+{
+    return DWT_GetCycles() / (SystemCoreClock / 1000000);
 }
 
 void Calculate_FPS()
@@ -87,31 +99,32 @@ void Restore_LED_State()
         // Restore Indicate LED State
         if (led0_state)
         {
-            DMA_Buffer[0][i] |= LED0_Pin; // LED 亮
+            DMA_Buffer[0][i] &= ~LED0_Pin; 
         }
         else
         {
-            DMA_Buffer[0][i] &= ~LED0_Pin; // LED 灭
+            DMA_Buffer[0][i] |= LED0_Pin; 
         }
 
         // Restore Calibration LED State
         if (Get_Calibration_Mode())
         {
-            DMA_Buffer[0][i] |= LED1_Pin; // LED 亮
+            DMA_Buffer[0][i] &= ~LED1_Pin; 
         }
         else
         {
-            DMA_Buffer[0][i] &= ~LED1_Pin; // LED 灭
+            DMA_Buffer[0][i] |= LED1_Pin; 
+
         }
 
-        // Restore Simulation LED State
-        if (Get_Simulation_Mode())
+        // Restore Plane LED State
+        if (Get_Plane_Mode())
         {
-            DMA_Buffer[0][i] |= LED2_Pin; // LED 亮
+            DMA_Buffer[0][i] &= ~LED2_Pin;
         }
         else
         {
-            DMA_Buffer[0][i] &= ~LED2_Pin; // LED 灭
+            DMA_Buffer[0][i] |= LED2_Pin; 
         }
     }
 }
@@ -122,11 +135,11 @@ void Set_LED_State(uint16_t pin, int state)
     {
         if (state)
         {
-            DMA_Buffer[0][i] |= pin; // LED 亮
+            DMA_Buffer[0][i] &= ~pin; // LED 灭
         }
         else
         {
-            DMA_Buffer[0][i] &= ~pin; // LED 灭
+            DMA_Buffer[0][i] |= pin; // LED 亮
         }
     }
 }

@@ -1,6 +1,6 @@
 #pragma once
 #include "main.h"
-#include "simulation.h"
+#include "stimulation.h"
 
 # define ArraySize 8
 
@@ -16,7 +16,7 @@
 
 # define WaveLength (TransducerPeriod*SoundSpeed)
 
-typedef struct Point Point;
+typedef struct Stimulation Stimulation;
 
 // Transducer Class
 typedef struct Transducer
@@ -48,7 +48,7 @@ void Transducer_Init(void);
 void Clean_Transducers_Calib(void);
 void Set_Transducers_Calib(void);
 
-void Set_Focus_Point(float *position);
+void Set_Point_Focus(float *position);
 void Set_Phases(float phases[]);
 void Set_Plane_Wave(void);
 

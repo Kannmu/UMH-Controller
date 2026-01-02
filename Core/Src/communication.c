@@ -188,34 +188,70 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                             temperature = Get_Temperature();
                             float loop_freq = System_Loop_Freq;
                             uint32_t calibration_mode =  Get_Calibration_Mode();
-                            uint32_t simulation_mode = Get_Simulation_Mode();
-                            uint8_t response_data[20];
+                            uint32_t plane_mode = Get_Plane_Mode();
+                            uint8_t response_data[24];
                             memcpy(response_data + offset, &voltage, sizeof(voltage)); offset += sizeof(voltage);
                             memcpy(response_data + offset, &temperature, sizeof(temperature)); offset += sizeof(temperature);
                             memcpy(response_data + offset, &loop_freq, sizeof(loop_freq)); offset += sizeof(loop_freq);
+                            memcpy(response_data + offset, &CurrentStimulation.type, sizeof(CurrentStimulation.type)); offset += sizeof(CurrentStimulation.type);
                             memcpy(response_data + offset, &calibration_mode, sizeof(calibration_mode)); offset += sizeof(calibration_mode);
-                            memcpy(response_data + offset, &simulation_mode, sizeof(simulation_mode)); offset += sizeof(simulation_mode);
+                            memcpy(response_data + offset, &plane_mode, sizeof(plane_mode)); offset += sizeof(plane_mode);
                             
                             Comm_Send_Response(RSP_RETURN_STATUS, response_data, sizeof(response_data));
                             break;
                         }
-                        case CMD_SET_POINT:
+                        case CMD_SET_STIMULATION:
                         {
-                            if (rx_buffer.frame.data_length >= 32)
+                            if (rx_buffer.frame.data_length >= 20)
                             {
-                                Point point;
+                                Stimulation stimulation;
                                 uint8_t *pData = rx_buffer.frame.data;
                                 int offset = 0;
-                                memcpy(&point.position[0], &pData[offset], 4); offset += 4;
-                                memcpy(&point.position[1], &pData[offset], 4); offset += 4;
-                                memcpy(&point.position[2], &pData[offset], 4); offset += 4;
-                                memcpy(&point.strength,    &pData[offset], 4); offset += 4;
-                                memcpy(&point.vibration[0],&pData[offset], 4); offset += 4;
-                                memcpy(&point.vibration[1],&pData[offset], 4); offset += 4;
-                                memcpy(&point.vibration[2],&pData[offset], 4); offset += 4;
-                                memcpy(&point.frequency,   &pData[offset], 4); 
-                                Comm_Send_Response(RSP_PACK, (uint8_t*)&updateDMABufferDeltaTime, sizeof(double));
-                                Update_Focus_Point(&point);
+                                StimulationType type = (StimulationType)pData[offset]; offset += 1;
+                                switch (type)
+                                {
+                                case PointStimulation:
+                                    memcpy(&stimulation.position[0], &pData[offset], 4); offset += 4;
+                                    memcpy(&stimulation.position[1], &pData[offset], 4); offset += 4;
+                                    memcpy(&stimulation.position[2], &pData[offset], 4); offset += 4;
+                                    break;
+                                case VibrationStimulation:
+                                    memcpy(&stimulation.startPoint[0], &pData[offset], 4); offset += 4;
+                                    memcpy(&stimulation.startPoint[1], &pData[offset], 4); offset += 4;
+                                    memcpy(&stimulation.startPoint[2], &pData[offset], 4); offset += 4;
+                                    memcpy(&stimulation.endPoint[0], &pData[offset], 4); offset += 4;
+                                    memcpy(&stimulation.endPoint[1], &pData[offset], 4); offset += 4;
+                                    memcpy(&stimulation.endPoint[2], &pData[offset], 4); offset += 4;
+                                    break;
+                                case LinearSTM:
+                                    memcpy(&stimulation.startPoint[0], &pData[offset], 4); offset += 4;
+                                    memcpy(&stimulation.startPoint[1], &pData[offset], 4); offset += 4;
+                                    memcpy(&stimulation.startPoint[2], &pData[offset], 4); offset += 4;
+                                    memcpy(&stimulation.endPoint[0], &pData[offset], 4); offset += 4;
+                                    memcpy(&stimulation.endPoint[1], &pData[offset], 4); offset += 4;
+                                    memcpy(&stimulation.endPoint[2], &pData[offset], 4); offset += 4;
+                                    break;
+                                case CircularSTM:
+                                    memcpy(&stimulation.centerPoint[0], &pData[offset], 4); offset += 4;
+                                    memcpy(&stimulation.centerPoint[1], &pData[offset], 4); offset += 4;
+                                    memcpy(&stimulation.centerPoint[2], &pData[offset], 4); offset += 4;
+                                    memcpy(&stimulation.normalVector[0], &pData[offset], 4); offset += 4;
+                                    memcpy(&stimulation.normalVector[1], &pData[offset], 4); offset += 4;
+                                    memcpy(&stimulation.normalVector[2], &pData[offset], 4); offset += 4;
+                                    memcpy(&stimulation.radius, &pData[offset], 4); offset += 4;
+                                    break;
+                                default:
+                                    break;
+                                }
+
+                                memcpy(&stimulation.strength,    &pData[offset], 4); offset += 4;
+                                memcpy(&stimulation.frequency,   &pData[offset], 4); 
+                                
+                                phase_set_mode = 0;
+
+                                Comm_Send_Response(RSP_SACK, (uint8_t*)&updateDMABufferDeltaTime, sizeof(double));
+                                
+                                Set_Stimulation(&stimulation);
                             }
                             else
                             {
@@ -230,9 +266,10 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                                 float phases[NumTransducer-1];
                                 uint8_t *pData = rx_buffer.frame.data; // float[NumTransducer-1]
                                 memcpy(phases, pData, sizeof(phases));
-                                Comm_Send_Response(RSP_ACK, NULL, 0);
+                                Comm_Send_Response(RSP_SACK, NULL, 0);
                                 Set_Phases(phases);
-                                FocusPoint = IdlePoint;
+                                CurrentStimulation = EmptyStimulation;
+                                phase_set_mode = 1;
                                 Update_All_DMABuffer();
                             }
                             else

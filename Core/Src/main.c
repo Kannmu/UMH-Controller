@@ -25,7 +25,7 @@
 
 #include "dma_manager.h"
 #include "transducer.h"
-#include "simulation.h"
+#include "stimulation.h"
 #include "calibration.h"
 #include "custom_math.h"
 #include "utiles.h"
@@ -145,7 +145,6 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  
 
   while (1)
   {
@@ -157,14 +156,13 @@ int main(void)
       last_check_tick = HAL_GetTick();
     }
 
-
     // Calibration Mode Switch
     Switch_Calibration_Mode();
 
-    // Simulation Mode Switch
-    Switch_Simulation_Mode();
+    // Plane Mode Switch
+    Switch_Plane_Mode();
 
-    Apply_Vibration();
+    Apply_Stimulation();
 
     sysTickDelta = SysTick->VAL;
     LED_Indicate_Blink();
