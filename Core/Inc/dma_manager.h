@@ -4,13 +4,14 @@
 
 # define DMA_CHANNELS 5
 # define _USE_MATH_DEFINES
-# define DMABaseNum (1024 * 7850)
 
-# define DMA_Buffer_Resolution ((uint32_t)(DMABaseNum/Transducer_Base_Freq))
+// DMA Sampling Frequency (Must match TIM1 Update Frequency)
+# define DMA_SAMPLING_FREQ 8000000UL
+
+# define DMA_Buffer_Resolution ((uint32_t)(DMA_SAMPLING_FREQ/Transducer_Base_Freq))
 # define MainWaveLengthInBuffer (DMA_Buffer_Resolution)
 
-# define TimeGapPerDMABufferBit ((long double)(1.0/(Transducer_Base_Freq * DMA_Buffer_Resolution)))
-// # define BufferGapPerMicroseconds ((float)(1e-6)/TimeGapPerDMABufferBit)
+# define TimeGapPerDMABufferBit ((long double)(1.0/(DMA_SAMPLING_FREQ)))
 
 // dma_manager.h
 extern const float GPIO_Group_Output_Offset[DMA_CHANNELS];

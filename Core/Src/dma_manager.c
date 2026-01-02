@@ -21,6 +21,8 @@ DMA_HandleTypeDef* DMA_Stream_Handles[DMA_CHANNELS];
 
 __ALIGNED(32) uint16_t DMA_Buffer[DMA_CHANNELS][DMA_Buffer_Resolution] __attribute__((section(".dma")));
 
+extern TIM_HandleTypeDef htim1;
+
 void DMA_Init()
 {
     DMA_Stream_Handles[0] = &hdma_memtomem_dma1_stream0;
@@ -39,133 +41,145 @@ void Start_DMAs()
     HAL_DMA_Start(&hdma_memtomem_dma1_stream2, (uint32_t)(DMA_Buffer[2]), (uint32_t)(&(GPIOC->ODR)), sizeof(DMA_Buffer[2]) / sizeof(DMA_Buffer[2][0]));
     HAL_DMA_Start(&hdma_memtomem_dma2_stream0, (uint32_t)(DMA_Buffer[3]), (uint32_t)(&(GPIOD->ODR)), sizeof(DMA_Buffer[3]) / sizeof(DMA_Buffer[3][0]));
     HAL_DMA_Start(&hdma_memtomem_dma2_stream1, (uint32_t)(DMA_Buffer[4]), (uint32_t)(&(GPIOE->ODR)), sizeof(DMA_Buffer[4]) / sizeof(DMA_Buffer[4][0]));
+
+    __HAL_TIM_ENABLE_DMA(&htim1, TIM_DMA_UPDATE);
+    HAL_TIM_Base_Start(&htim1);
 }
 
 void Update_All_DMABuffer()
 {
     uint32_t start_cyc = DWT->CYCCNT;
 
-    // 1. Pre-calculate active ranges for all transducers
+    // Optimization: Use Sweep-Line algorithm to reduce complexity from O(N*M) to O(N+M).
+    // This avoids nested loops and global buffer clears, ensuring high performance.
+
+    // 1. Define Event Structure for Sweep-Line
     typedef struct {
         uint8_t port_num;
-        uint16_t pin;
-        uint32_t start_idx;
-        uint32_t end_idx;
-        uint8_t wrap; // 0 or 1
-    } TransducerState;
+        uint8_t pin_index; // 0-15
+        int8_t change;     // +1 (Start) or -1 (End)
+        int16_t next_event_idx; // Linked list next pointer
+    } EventNode;
 
-    TransducerState states[NumTransducer];
-    
+    // 2. Prepare Data Structures
+    // Event pool: Max 2 events (Start, End) per transducer.
+    EventNode event_pool[NumTransducer * 2];
+    uint16_t event_pool_count = 0;
+
+    // Timeline buckets: Head index of event list for each buffer position
+    // Initialize to -1 (No events)
+    int16_t timeline[DMA_Buffer_Resolution];
+    for (uint32_t i = 0; i < DMA_Buffer_Resolution; i++) {
+        timeline[i] = -1;
+    }
+
+    // Active counters (handle overlaps) and current state
+    uint16_t pin_active_counts[DMA_CHANNELS][16] = {0}; 
+    uint16_t port_states[DMA_CHANNELS] = {0};
+
+    // 3. Generate Events from Transducers
     for (size_t i = 0; i < NumTransducer; i++)
     {
         Transducer *t = &TransducerArray[i];
-        states[i].port_num = t->port_num;
-        states[i].pin = t->pin;
         
+        // Calculate Phase & Indices
         uint16_t phase_offset = t->calib + t->shift_buffer_bits;
         phase_offset += (uint16_t)(GPIO_Group_Output_Offset[t->port_num] * BufferGapPerMicroseconds);
         phase_offset %= BufferResolution;
         
-        states[i].start_idx = (BufferResolution - phase_offset) % BufferResolution;
-        uint32_t end = states[i].start_idx + half_period;
+        uint32_t start_idx = (BufferResolution - phase_offset) % BufferResolution;
+        uint32_t end_idx = start_idx + half_period;
         
-        if (end <= BufferResolution) {
-            states[i].end_idx = end;
-            states[i].wrap = 0;
+        uint8_t p_num = t->port_num;
+        uint8_t p_idx = __builtin_ctz(t->pin); // Get bit position (0-15)
+
+        // Handle Wrap-around logic
+        if (end_idx > BufferResolution) {
+            // Wrapped: Active at index 0
+            pin_active_counts[p_num][p_idx]++;
+            port_states[p_num] |= (1 << p_idx);
+            
+            // Event: End at (end_idx % BufferResolution)
+            uint32_t real_end = end_idx % BufferResolution;
+            if (real_end < BufferResolution) {
+                int idx = event_pool_count++;
+                event_pool[idx].port_num = p_num;
+                event_pool[idx].pin_index = p_idx;
+                event_pool[idx].change = -1;
+                event_pool[idx].next_event_idx = timeline[real_end];
+                timeline[real_end] = idx;
+            }
+            
+            // Event: Start at start_idx
+            if (start_idx < BufferResolution) {
+                int idx = event_pool_count++;
+                event_pool[idx].port_num = p_num;
+                event_pool[idx].pin_index = p_idx;
+                event_pool[idx].change = 1;
+                event_pool[idx].next_event_idx = timeline[start_idx];
+                timeline[start_idx] = idx;
+            }
         } else {
-            states[i].end_idx = end; // Used for logic check
-            states[i].wrap = 1;
+            // Normal
+            if (start_idx < BufferResolution) {
+                int idx = event_pool_count++;
+                event_pool[idx].port_num = p_num;
+                event_pool[idx].pin_index = p_idx;
+                event_pool[idx].change = 1;
+                event_pool[idx].next_event_idx = timeline[start_idx];
+                timeline[start_idx] = idx;
+            }
+            if (end_idx < BufferResolution) {
+                int idx = event_pool_count++;
+                event_pool[idx].port_num = p_num;
+                event_pool[idx].pin_index = p_idx;
+                event_pool[idx].change = -1;
+                event_pool[idx].next_event_idx = timeline[end_idx];
+                timeline[end_idx] = idx;
+            }
         }
     }
 
-    // 2. Prepare LED Base State (Port 0)
-    // Logic from Restore_LED_State in utiles.c
+    // 4. Prepare LED Base State (Port 0)
     uint16_t led_mask = 0;
-    
-    // LED0
-    if (!led0_state) led_mask |= LED0_Pin; // Restore_LED: if(state) &= ~Pin (OFF). So if(!state) ON.
-    
-    // LED1 (Calibration)
-    if (!Get_Calibration_Mode()) led_mask |= LED1_Pin; // Restore_LED: if(Mode) &= ~Pin.
-    
-    // LED2 (Plane)
-    if (!Get_Plane_Mode()) led_mask |= LED2_Pin; // Restore_LED: if(Mode) &= ~Pin.
+    if (!led0_state) led_mask |= LED0_Pin;
+    if (!Get_Calibration_Mode()) led_mask |= LED1_Pin;
+    if (!Get_Plane_Mode()) led_mask |= LED2_Pin;
 
-    // 3. Iterate Buffer and Fill
+    // 5. Process Timeline and Fill Buffer
     for (uint32_t i = 0; i < BufferResolution; i++)
     {
-        uint16_t port_vals[DMA_CHANNELS] = {0};
-        
-        // Initialize Port 0 with LEDs
-        port_vals[0] = led_mask;
-        
-        // Accumulate Transducers
-        for (size_t k = 0; k < NumTransducer; k++)
+        // Process events at this time step
+        int16_t e_idx = timeline[i];
+        while (e_idx != -1)
         {
-            uint8_t active = 0;
-            if (states[k].wrap) {
-                if (i >= states[k].start_idx || i < (states[k].end_idx - BufferResolution)) active = 1;
+            EventNode *e = &event_pool[e_idx];
+            uint8_t p = e->port_num;
+            uint8_t bit = e->pin_index;
+            
+            pin_active_counts[p][bit] += e->change;
+            
+            if (pin_active_counts[p][bit] > 0) {
+                port_states[p] |= (1 << bit);
             } else {
-                if (i >= states[k].start_idx && i < states[k].end_idx) active = 1;
+                port_states[p] &= ~(1 << bit);
             }
             
-            if (active) {
-                port_vals[states[k].port_num] |= states[k].pin;
-            }
+            e_idx = e->next_event_idx;
         }
-        
-        // Write to DMA Buffer
-        for (int p = 0; p < DMA_CHANNELS; p++) {
-            DMA_Buffer[p][i] = port_vals[p];
+
+        // Write Output
+        DMA_Buffer[0][i] = port_states[0] | led_mask;
+        for (int p = 1; p < DMA_CHANNELS; p++) {
+            DMA_Buffer[p][i] = port_states[p];
         }
     }
 
     uint32_t end_cyc = DWT->CYCCNT;
-    updateDMABufferDeltaTime =  (double)((double)(end_cyc - start_cyc) / (double)SystemCoreClock);
+    updateDMABufferDeltaTime = (double)((double)(end_cyc - start_cyc) / (double)SystemCoreClock);
 }
 
-// Legacy function to update a single transducer's DMA buffer
-void Update_Single_DMABuffer(Transducer *currentTransducer)
-{
-    const uint8_t port_num = currentTransducer->port_num;
-    const uint16_t pin = currentTransducer->pin;
-    
-    uint16_t phase_offset = currentTransducer->calib + currentTransducer->shift_buffer_bits;
-
-    phase_offset += (uint16_t)(GPIO_Group_Output_Offset[port_num] * BufferGapPerMicroseconds);
-
-    phase_offset %= BufferResolution;
-    
-    uint32_t start_idx = (BufferResolution - phase_offset) % BufferResolution;
-    uint32_t end_idx = start_idx + half_period;
-    uint16_t* pBuffer = DMA_Buffer[port_num];
-
-    if (end_idx <= BufferResolution)
-    {
-        // No wrap-around
-        for (size_t j = start_idx; j < end_idx; j++)
-        {
-            pBuffer[j] |= pin;
-        }
-    }
-    else
-    {
-        // Wrap-around: Fill to end, then start from beginning
-        for (size_t j = start_idx; j < BufferResolution; j++)
-        {
-            pBuffer[j] |= pin;
-        }
-        size_t remaining = end_idx - BufferResolution;
-        for (size_t j = 0; j < remaining; j++)
-        {
-            pBuffer[j] |= pin;
-        }
-    }
-}
-
-// Legacy function to clean all DMA buffers
 void Clean_DMABuffer()
 {
     memset(DMA_Buffer, 0x0000, sizeof(DMA_Buffer));
-    Restore_LED_State();
 }

@@ -2,11 +2,11 @@
 #include "main.h"
 #include "stimulation.h"
 
-# define ArraySize 8
+# define ArraySize 5
 
-# define TransducerGap (16.602 * (1e-3))
+# define TransducerGap (10.0 * (1e-3))
 
-# define NumTransducer 65U
+# define NumTransducer 61U
 
 # define SoundSpeed 343.2
 

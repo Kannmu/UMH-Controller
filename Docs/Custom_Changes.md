@@ -9,7 +9,7 @@
 ```c
 .dma (NOLOAD) : ALIGN(4) {
         KEEP(*(.dma))
-  } >RAM_D1
+  } >RAM_D2
 ```
 
 Insert the code above after the `.ARM` section in the linker script (.ld file), below the image location.

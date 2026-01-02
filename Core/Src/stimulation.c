@@ -43,19 +43,36 @@ Stimulation EmptyStimulation = {
 
 void Switch_Plane_Mode()
 {
-    static GPIO_PinState lastKey1State = GPIO_PIN_SET;
-    GPIO_PinState currentKey1State = HAL_GPIO_ReadPin(KEY1_GPIO_Port, KEY1_Pin);
-    // Toggle Plane Mode
-    if (lastKey1State == GPIO_PIN_SET && currentKey1State == GPIO_PIN_RESET)
+    static GPIO_PinState debouncedState = GPIO_PIN_SET;
+    static GPIO_PinState lastRawState = GPIO_PIN_SET;
+    static uint32_t lastDebounceTime = 0;
+    const uint32_t debounceDelay = 50;
+
+    GPIO_PinState currentRawState = HAL_GPIO_ReadPin(KEY1_GPIO_Port, KEY1_Pin);
+
+    if (currentRawState != lastRawState)
     {
-        plane_mode = 1 - plane_mode;
-        if (plane_mode == 1)
-        {
-            Set_Plane_Wave();
-        }
-        Update_All_DMABuffer();
+        lastDebounceTime = HAL_GetTick();
     }
-    lastKey1State = currentKey1State;
+    lastRawState = currentRawState;
+
+    if ((HAL_GetTick() - lastDebounceTime) > debounceDelay)
+    {
+        if (currentRawState != debouncedState)
+        {
+            // Toggle Plane Mode on Falling Edge
+            if (debouncedState == GPIO_PIN_SET && currentRawState == GPIO_PIN_RESET)
+            {
+                plane_mode = 1 - plane_mode;
+                if (plane_mode == 1)
+                {
+                    Set_Plane_Wave();
+                }
+                Update_All_DMABuffer();
+            }
+            debouncedState = currentRawState;
+        }
+    }
 }
 
 int Get_Plane_Mode()

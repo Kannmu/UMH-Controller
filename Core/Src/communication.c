@@ -189,9 +189,11 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                             float loop_freq = System_Loop_Freq;
                             uint32_t calibration_mode =  Get_Calibration_Mode();
                             uint32_t plane_mode = Get_Plane_Mode();
-                            uint8_t response_data[24];
+                            uint8_t response_data[29];
                             memcpy(response_data + offset, &voltage, sizeof(voltage)); offset += sizeof(voltage);
                             memcpy(response_data + offset, &temperature, sizeof(temperature)); offset += sizeof(temperature);
+                            // updateDMABufferDeltaTime
+                            memcpy(response_data + offset, &updateDMABufferDeltaTime, sizeof(updateDMABufferDeltaTime)); offset += sizeof(updateDMABufferDeltaTime);
                             memcpy(response_data + offset, &loop_freq, sizeof(loop_freq)); offset += sizeof(loop_freq);
                             memcpy(response_data + offset, &CurrentStimulation.type, sizeof(CurrentStimulation.type)); offset += sizeof(CurrentStimulation.type);
                             memcpy(response_data + offset, &calibration_mode, sizeof(calibration_mode)); offset += sizeof(calibration_mode);
@@ -249,7 +251,7 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                                 
                                 phase_set_mode = 0;
 
-                                Comm_Send_Response(RSP_SACK, (uint8_t*)&updateDMABufferDeltaTime, sizeof(double));
+                                Comm_Send_Response(RSP_SACK, NULL, 0);
                                 
                                 Set_Stimulation(&stimulation);
                             }

@@ -9,21 +9,23 @@ float Wave_K = ((2.0*M_PI*Transducer_Base_Freq)/SoundSpeed);
 // Transducer Array
 const char *TransducerPins[] =
     {
-        "PC11", "PD2", "PD4", "PD6", "PB4", "PB6", "PB8", "PE0",
+        "PB8", "PE1", "PE2", "PE3", "PE5", 
+        
+        "PD7", "PB7", "PE0", "PE4", "PE6", "PC15", 
+        
+        "PD3", "PD6", "PB6", "PB9", "PC13", "PC0", "PC3",
 
-        "PC12", "PD3", "PD5", "PD7", "PB5", "PB7", "PB9", "PE1",
+        "PD1", "PD2", "PD5", "PB5", "PC14", "PC1", "PA0", "PA1",
 
-        "PA3", "PA1", "PC3", "PC1", "PC15", "PC13", "PE5", "PE3",
+        "PC8", "PD0", "PC6", "PD4", "PC2", "PC5", "PA2", "PA7",
 
-        "PA2", "PA0", "PC2", "PC0", "PC14", "PE6", "PE4", "PE2",
+        "PC7", "PD15", "PD13", "PD10", "PE9", "PB2", "PB0", "PC4",
 
-        "PC9", "PC7", "PD15", "PD13", "PD11", "PD9", "PB15", "PB13",
+        "PD14", "PD12", "PD9", "PE13", "PE10", "PE7", "PB1",
 
-        "PC8", "PC6", "PD14", "PD12", "PD10", "PD8", "PB14", "PB12",
+        "PD11", "PD8", "PB14", "PE14", "PE11", "PE8",
 
-        "PE15", "PE13", "PE11", "PE9", "PE7", "PB1", "PC5", "PA7",
-
-        "PE14", "PE12", "PE10", "PE8", "PB2", "PB0", "PC4", "PA6",
+        "PB15", "PB13", "PB12", "PE15", "PE12",
 
         "PC10"};
 
@@ -31,6 +33,9 @@ Transducer TransducerArray[NumTransducer];
 
 void Transducer_Init(void)
 {
+    const int row_lengths[] = {5, 6, 7, 8, 9, 8, 7, 6, 5};
+    const float dy = TransducerGap * 0.86602540378f; // sqrt(3)/2
+
     for (size_t i = 0; i < NumTransducer; i++)
     {
         // TransducerArray[i] = (Transducer *)malloc(sizeof(Transducer));
@@ -39,11 +44,33 @@ void Transducer_Init(void)
         TransducerArray[i].port_num = map_pin_name_to_gpio_port_num(TransducerPins[i]);
         TransducerArray[i].pin = map_pin_name_to_pin_number(TransducerPins[i]);
         TransducerArray[i].calib = Transducer_Calibration_Array[i] * BufferGapPerMicroseconds;
-        TransducerArray[i].row = i / ArraySize;
-        TransducerArray[i].column = i % ArraySize;
-        TransducerArray[i].position3D[0] = (TransducerArray[i].row - (ArraySize / 2.0) + 0.5) * TransducerGap;    // X
-        TransducerArray[i].position3D[1] = (TransducerArray[i].column - (ArraySize / 2.0) + 0.5) * TransducerGap; // Y
-        TransducerArray[i].position3D[2] = 0;                                                                      // Z
+
+        if (i < 60)
+        {
+            int r = 0, k = i;
+            for (r = 0; r < 9; r++)
+            {
+                int row_count = (r == 4) ? 8 : row_lengths[r];
+                if (k < row_count)
+                    break;
+                k -= row_count;
+            }
+            int j = (r == 4 && k >= 4) ? k + 1 : k;
+
+            TransducerArray[i].row = r;
+            TransducerArray[i].column = j;
+            TransducerArray[i].position3D[0] = (j - (row_lengths[r] - 1.0f) / 2.0f) * TransducerGap; // X
+            TransducerArray[i].position3D[1] = (4 - r) * dy;                                        // Y
+        }
+        else
+        {
+            TransducerArray[i].row = 0;
+            TransducerArray[i].column = 0;
+            TransducerArray[i].position3D[0] = 0;
+            TransducerArray[i].position3D[1] = 0;
+        }
+
+        TransducerArray[i].position3D[2] = 0; // Z
         TransducerArray[i].distance = 0;
         TransducerArray[i].phase = 0;
         TransducerArray[i].duty = 0.5;
