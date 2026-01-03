@@ -68,7 +68,7 @@ void Switch_Plane_Mode()
                 {
                     Set_Plane_Wave();
                 }
-                Update_All_DMABuffer(1);
+                Update_All_DMABuffer(2);
             }
             debouncedState = currentRawState;
         }

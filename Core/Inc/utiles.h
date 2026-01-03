@@ -28,6 +28,8 @@ extern float System_Loop_Freq;
 extern double updateDMABufferDeltaTime;
 
 void Init_DWT(void);
+uint32_t DWT_GetCycles(void);
+uint32_t DWT_GetMicroseconds(void);
 void LED_Indicate_Blink();
 void Calculate_FPS();
 void HAL_Delay_us(uint32_t nus);

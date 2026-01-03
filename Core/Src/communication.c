@@ -177,6 +177,7 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                     // 处理完整的帧
                     switch (rx_buffer.frame.cmd_type) {
                         case CMD_ENABLE_DISABLE:
+                            break;
                         case CMD_PING:
                             Comm_Handle_Ping_Command(rx_buffer.frame.data, rx_buffer.frame.data_length);
                             break;
@@ -279,7 +280,7 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                                 Set_Phases(phases);
                                 CurrentStimulation = EmptyStimulation;
                                 phase_set_mode = 1;
-                                Update_All_DMABuffer(1);
+                                Update_All_DMABuffer(2);
                             }
                             else
                             {

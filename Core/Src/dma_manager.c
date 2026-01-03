@@ -6,7 +6,7 @@
 
 extern int led0_state;
 
-const float GPIO_Group_Output_Offset[DMA_CHANNELS] = {0U, 10.56, 5.66, 3.56, 11.02};
+const float GPIO_Group_Output_Offset[DMA_CHANNELS] = {0U, 0.06, 0.09, 0.16, 0.12};
 // const float GPIO_Group_Output_Offset[DMA_CHANNELS] = {0U, 0U, 0U, 0U, 0U};
 
 const uint32_t BufferResolution = DMA_Buffer_Resolution;
@@ -15,13 +15,13 @@ const uint16_t half_period = DMA_Buffer_Resolution / 2;
 
 const uint16_t BufferGapPerMicroseconds = ((float)(1e-6)/TimeGapPerDMABufferBit);;
 
-const uint16_t preserved_pins_mask = KEY0_Pin | KEY1_Pin | LED2_Pin | LED1_Pin | LED0_Pin;
-
 DMA_HandleTypeDef* DMA_Stream_Handles[DMA_CHANNELS];
 
 __ALIGNED(32) uint16_t DMA_Buffer[DMA_CHANNELS][DMA_FULL_BUFFER_SIZE] __attribute__((section(".dma")));
 
 extern TIM_HandleTypeDef htim1;
+
+static uint16_t Group_Offset_Ticks[DMA_CHANNELS];
 
 void DMA_Init()
 {
@@ -30,6 +30,12 @@ void DMA_Init()
     DMA_Stream_Handles[2] = &hdma_memtomem_dma1_stream2;
     DMA_Stream_Handles[3] = &hdma_memtomem_dma2_stream0;
     DMA_Stream_Handles[4] = &hdma_memtomem_dma2_stream1;
+
+    for (int i = 0; i < DMA_CHANNELS; i++)
+    {
+        Group_Offset_Ticks[i] = (uint16_t)(GPIO_Group_Output_Offset[i] * BufferGapPerMicroseconds);
+    }
+
     Clean_DMABuffer();
     Start_DMAs();
 }
@@ -75,8 +81,24 @@ void Update_All_DMABuffer(int force)
     }
     last_cpu_half = cpu_half;
     
+    // Wait-for-All Logic: Ensure ALL streams are clear of cpu_half
+    for (int i = 0; i < DMA_CHANNELS; i++)
+    {
+        while (1)
+        {
+            uint32_t cnt = __HAL_DMA_GET_COUNTER(DMA_Stream_Handles[i]);
+            uint32_t pos = DMA_FULL_BUFFER_SIZE - cnt;
+            int current_half = (pos < DMA_Buffer_Resolution) ? 0 : 1;
+            
+            // If any stream is currently reading the half we want to write to, wait.
+            if (current_half != cpu_half)
+            {
+                break;
+            }
+        }
+    }
+
     uint32_t start_cyc = DWT->CYCCNT;
-    uint32_t offset = cpu_half * DMA_Buffer_Resolution;
 
     // Pre-calculate LED Mask (Port 0)
     uint16_t led_mask = 0;
@@ -87,6 +109,10 @@ void Update_All_DMABuffer(int force)
     // Temporary arrays for Channel-Slice processing
     uint16_t turn_on[DMA_Buffer_Resolution];
     uint16_t turn_off[DMA_Buffer_Resolution];
+    
+    // Event indices array
+    uint16_t event_indices[NumTransducer * 2 + 2]; 
+    int event_count;
 
     // Channel-Slice Loop
     for (int p = 0; p < DMA_CHANNELS; p++)
@@ -94,6 +120,9 @@ void Update_All_DMABuffer(int force)
         // 1. Reset Event Arrays
         memset(turn_on, 0, sizeof(turn_on));
         memset(turn_off, 0, sizeof(turn_off));
+        
+        event_count = 0;
+        event_indices[event_count++] = 0;
         
         uint16_t current_state = 0;
 
@@ -105,7 +134,7 @@ void Update_All_DMABuffer(int force)
 
             // Phase Calculation
             uint16_t phase_offset = t->calib + t->shift_buffer_bits;
-            phase_offset += (uint16_t)(GPIO_Group_Output_Offset[p] * BufferGapPerMicroseconds);
+            phase_offset += Group_Offset_Ticks[p];
             phase_offset %= BufferResolution;
 
             uint32_t start_idx = (BufferResolution - phase_offset) % BufferResolution;
@@ -113,7 +142,10 @@ void Update_All_DMABuffer(int force)
             uint16_t pin_bit = (1 << __builtin_ctz(t->pin));
 
             // Record Events
+            if (turn_on[start_idx] == 0 && turn_off[start_idx] == 0) event_indices[event_count++] = (uint16_t)start_idx;
             turn_on[start_idx] |= pin_bit;
+            
+            if (turn_on[end_idx] == 0 && turn_off[end_idx] == 0) event_indices[event_count++] = (uint16_t)end_idx;
             turn_off[end_idx] |= pin_bit;
 
             // Handle Wrap-around Initial State
@@ -121,20 +153,88 @@ void Update_All_DMABuffer(int force)
                 current_state |= pin_bit;
             }
         }
-
-        // 3. Fill Buffer
-        uint16_t *buffer_ptr = &DMA_Buffer[p][offset];
         
-        for (uint32_t i = 0; i < DMA_Buffer_Resolution; i++)
-        {
-            current_state |= turn_on[i];
-            current_state &= ~turn_off[i];
-            
-            if (p == 0) current_state |= led_mask;
+        // Sort event_indices (Insertion Sort)
+        for (int i = 1; i < event_count; i++) {
+            uint16_t key = event_indices[i];
+            int j = i - 1;
+            while (j >= 0 && event_indices[j] > key) {
+                event_indices[j + 1] = event_indices[j];
+                j = j - 1;
+            }
+            event_indices[j + 1] = key;
+        }
 
-            buffer_ptr[i] = current_state;
+        // 3. Fill Buffer (Run-Length Encoded)
+        int start_h = (force == 2) ? 0 : cpu_half;
+        int end_h   = (force == 2) ? 1 : cpu_half;
+
+        for (int h = start_h; h <= end_h; h++)
+        {
+            uint32_t base_offset = h * DMA_Buffer_Resolution;
+            uint16_t *buffer_ptr_base = &DMA_Buffer[p][base_offset];
+            
+            uint16_t running_state = current_state;
+            if (p == 0) running_state |= led_mask; // Apply initial LED mask
+
+            // Previous event index
+            int prev_idx = 0;
+            
+            // Process sorted unique indices
+            for (int i = 0; i < event_count; i++) {
+                int idx = event_indices[i];
+                
+                // Skip duplicates
+                if (i > 0 && idx == event_indices[i-1]) continue;
+                
+                // Fill gap from prev_idx to idx
+                int count = idx - prev_idx;
+                if (count > 0) {
+                    uint16_t *ptr = &buffer_ptr_base[prev_idx];
+                    while (count >= 4) {
+                        ptr[0] = running_state;
+                        ptr[1] = running_state;
+                        ptr[2] = running_state;
+                        ptr[3] = running_state;
+                        ptr += 4;
+                        count -= 4;
+                    }
+                    while (count-- > 0) {
+                        *ptr++ = running_state;
+                    }
+                }
+                
+                // Update state AT idx
+                if (idx < DMA_Buffer_Resolution) {
+                    running_state |= turn_on[idx];
+                    running_state &= ~turn_off[idx];
+                    if (p == 0) running_state |= led_mask;
+                }
+                
+                prev_idx = idx;
+            }
+            
+            // Fill remaining tail
+            int count = DMA_Buffer_Resolution - prev_idx;
+            if (count > 0) {
+                uint16_t *ptr = &buffer_ptr_base[prev_idx];
+                while (count >= 4) {
+                    ptr[0] = running_state;
+                    ptr[1] = running_state;
+                    ptr[2] = running_state;
+                    ptr[3] = running_state;
+                    ptr += 4;
+                    count -= 4;
+                }
+                while (count-- > 0) {
+                    *ptr++ = running_state;
+                }
+            }
         }
     }
+    
+    // Ensure data is written to RAM before DMA reads it
+    __DSB();
 
     uint32_t end_cyc = DWT->CYCCNT;
     updateDMABufferDeltaTime = (double)((double)(end_cyc - start_cyc) / (double)SystemCoreClock);

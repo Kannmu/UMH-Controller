@@ -216,6 +216,7 @@ int main(void)
   static uint32_t loop_count = 0;
   static uint32_t last_check_tick = 0;
 
+
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -250,6 +251,7 @@ int main(void)
 
   while (1)
   {
+    uint32_t loop_start_time = DWT_GetMicroseconds();
     loop_count++;
     if (HAL_GetTick() - last_check_tick >= 1000)
     {
@@ -272,6 +274,13 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+
+    // Throttle loop to target frequency
+    while ((DWT_GetMicroseconds() - loop_start_time) < target_loop_period_us)
+    {
+        // Busy wait
+        __NOP();
+    }
   }
   /* USER CODE END 3 */
 }

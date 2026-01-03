@@ -6,7 +6,7 @@
 
 # define TransducerGap (10.0 * (1e-3))
 
-# define NumTransducer 61U
+# define NumTransducer 61U // The first 60 is real transducers, the last one is virtual transducer for calibration
 
 # define SoundSpeed 343.2
 
