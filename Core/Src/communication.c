@@ -183,14 +183,21 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                         case CMD_GET_STATUS:
                         {
                             int offset = 0;
-                            float voltage, temperature;
-                            voltage = Get_Voltage();
+                            float voltage_VDDA, voltage_3V3, voltage_5V0, temperature;
+                            voltage_VDDA = Get_Voltage_VDDA();
+                            voltage_3V3 = Get_Voltage_3V3();
+                            voltage_5V0 = Get_Voltage_5V0();
                             temperature = Get_Temperature();
                             float loop_freq = System_Loop_Freq;
                             uint32_t calibration_mode =  Get_Calibration_Mode();
                             uint32_t plane_mode = Get_Plane_Mode();
-                            uint8_t response_data[29];
-                            memcpy(response_data + offset, &voltage, sizeof(voltage)); offset += sizeof(voltage);
+
+                            uint8_t response_data[37];
+
+                            memcpy(response_data + offset, &voltage_VDDA, sizeof(voltage_VDDA)); offset += sizeof(voltage_VDDA);
+                            memcpy(response_data + offset, &voltage_3V3, sizeof(voltage_3V3)); offset += sizeof(voltage_3V3);
+                            memcpy(response_data + offset, &voltage_5V0, sizeof(voltage_5V0)); offset += sizeof(voltage_5V0);
+
                             memcpy(response_data + offset, &temperature, sizeof(temperature)); offset += sizeof(temperature);
                             // updateDMABufferDeltaTime
                             memcpy(response_data + offset, &updateDMABufferDeltaTime, sizeof(updateDMABufferDeltaTime)); offset += sizeof(updateDMABufferDeltaTime);

@@ -43,6 +43,16 @@ void Start_DMAs()
     HAL_DMA_Start(&hdma_memtomem_dma2_stream1, (uint32_t)(DMA_Buffer[4]), (uint32_t)(&(GPIOE->ODR)), sizeof(DMA_Buffer[4]) / sizeof(DMA_Buffer[4][0]));
 
     __HAL_TIM_ENABLE_DMA(&htim1, TIM_DMA_UPDATE);
+    __HAL_TIM_ENABLE_DMA(&htim1, TIM_DMA_CC1);
+    __HAL_TIM_ENABLE_DMA(&htim1, TIM_DMA_CC2);
+    __HAL_TIM_ENABLE_DMA(&htim1, TIM_DMA_CC3);
+    __HAL_TIM_ENABLE_DMA(&htim1, TIM_DMA_CC4);
+
+    HAL_TIM_OC_Start(&htim1, TIM_CHANNEL_1);
+    HAL_TIM_OC_Start(&htim1, TIM_CHANNEL_2);
+    HAL_TIM_OC_Start(&htim1, TIM_CHANNEL_3);
+    HAL_TIM_OC_Start(&htim1, TIM_CHANNEL_4);
+
     HAL_TIM_Base_Start(&htim1);
 }
 

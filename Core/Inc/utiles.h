@@ -34,6 +34,8 @@ void HAL_Delay_us(uint32_t nus);
 void Restore_LED_State();
 void Set_LED_State(uint16_t pin, int state);
 void Toggle_LED_State(uint16_t pin);
-float Get_Voltage(void);
+float Get_Voltage_VDDA(void);
+float Get_Voltage_3V3(void);
+float Get_Voltage_5V0(void);
 float Get_Temperature(void);
 
