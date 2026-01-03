@@ -68,7 +68,7 @@ void LED_Indicate_Blink()
     if (led0_state != last_led0_state)
     {
         last_led0_state = led0_state;
-        // Set_LED_State(LED0_Pin, led0_state);
+        Set_LED_State(LED0_Pin, led0_state);
     }
 }
 
@@ -94,7 +94,7 @@ void HAL_Delay_us(uint32_t nus)
 
 void Restore_LED_State()
 {
-    for (int i = 0; i < DMA_Buffer_Resolution; i++)
+    for (int i = 0; i < DMA_FULL_BUFFER_SIZE; i++)
     {
         // Restore Indicate LED State
         if (led0_state)
@@ -131,7 +131,7 @@ void Restore_LED_State()
 
 void Set_LED_State(uint16_t pin, int state)
 {
-    for (int i = 0; i < DMA_Buffer_Resolution; i++)
+    for (int i = 0; i < DMA_FULL_BUFFER_SIZE; i++)
     {
         if (state)
         {
@@ -146,7 +146,7 @@ void Set_LED_State(uint16_t pin, int state)
 
 void Toggle_LED_State(uint16_t pin)
 {
-    for (int i = 0; i < DMA_Buffer_Resolution; i++)
+    for (int i = 0; i < DMA_FULL_BUFFER_SIZE; i++)
     {
         DMA_Buffer[0][i] ^= pin; // LED 切换状态
     }

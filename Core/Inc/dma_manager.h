@@ -9,6 +9,7 @@
 # define DMA_SAMPLING_FREQ 8000000UL
 
 # define DMA_Buffer_Resolution ((uint32_t)(DMA_SAMPLING_FREQ/Transducer_Base_Freq))
+# define DMA_FULL_BUFFER_SIZE (2 * DMA_Buffer_Resolution)
 # define MainWaveLengthInBuffer (DMA_Buffer_Resolution)
 
 # define TimeGapPerDMABufferBit ((long double)(1.0/(DMA_SAMPLING_FREQ)))
@@ -18,7 +19,7 @@ extern const float GPIO_Group_Output_Offset[DMA_CHANNELS];
 
 extern DMA_HandleTypeDef* DMA_Stream_Handles[DMA_CHANNELS];
 
-__ALIGNED(32) extern uint16_t DMA_Buffer[DMA_CHANNELS][DMA_Buffer_Resolution] __attribute__((section(".dma")));
+__ALIGNED(32) extern uint16_t DMA_Buffer[DMA_CHANNELS][DMA_FULL_BUFFER_SIZE] __attribute__((section(".dma")));
 
 extern const uint32_t BufferResolution;
 
@@ -27,6 +28,6 @@ extern const uint16_t BufferGapPerMicroseconds;
 
 void DMA_Init();
 void Start_DMAs();
-void Update_All_DMABuffer();
+void Update_All_DMABuffer(int force);
 void Update_Single_DMABuffer(Transducer *);
 void Clean_DMABuffer();

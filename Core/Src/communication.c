@@ -279,7 +279,7 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                                 Set_Phases(phases);
                                 CurrentStimulation = EmptyStimulation;
                                 phase_set_mode = 1;
-                                Update_All_DMABuffer();
+                                Update_All_DMABuffer(1);
                             }
                             else
                             {
