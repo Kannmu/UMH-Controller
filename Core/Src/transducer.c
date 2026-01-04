@@ -6,26 +6,28 @@
 
 float Wave_K = ((2.0*M_PI*Transducer_Base_Freq)/SoundSpeed);
 
+
 // Transducer Array
 const char *TransducerPins[] =
-    {
-        "PC11", "PD2", "PD4", "PD6", "PB4", "PB6", "PB8", "PE0",
+{
+    "PC11", "PD2", "PD4", "PD6", "PB4", "PB6", "PB8", "PE0",
 
-        "PC12", "PD3", "PD5", "PD7", "PB5", "PB7", "PB9", "PE1",
+    "PC12", "PD3", "PD5", "PD7", "PB5", "PB7", "PB9", "PE1",
 
-        "PA3", "PA1", "PC3", "PC1", "PC15", "PC13", "PE5", "PE3",
+    "PA3", "PA1", "PC3", "PC1", "PC15", "PC13", "PE5", "PE3",
 
-        "PA2", "PA0", "PC2", "PC0", "PC14", "PE6", "PE4", "PE2",
+    "PA2", "PA0", "PC2", "PC0", "PC14", "PE6", "PE4", "PE2",
 
-        "PC9", "PC7", "PD15", "PD13", "PD11", "PD9", "PB15", "PB13",
+    "PC9", "PC7", "PD15", "PD13", "PD11", "PD9", "PB15", "PB13",
 
-        "PC8", "PC6", "PD14", "PD12", "PD10", "PD8", "PB14", "PB12",
+    "PC8", "PC6", "PD14", "PD12", "PD10", "PD8", "PB14", "PB12",
 
-        "PE15", "PE13", "PE11", "PE9", "PE7", "PB1", "PC5", "PA7",
+    "PE15", "PE13", "PE11", "PE9", "PE7", "PB1", "PC5", "PA7",
 
-        "PE14", "PE12", "PE10", "PE8", "PB2", "PB0", "PC4", "PA6",
+    "PE14", "PE12", "PE10", "PE8", "PB2", "PB0", "PC4", "PA6",
 
-        "PC10"};
+    "PC10"};
+
 
 Transducer TransducerArray[NumTransducer];
 
@@ -39,11 +41,13 @@ void Transducer_Init(void)
         TransducerArray[i].port_num = map_pin_name_to_gpio_port_num(TransducerPins[i]);
         TransducerArray[i].pin = map_pin_name_to_pin_number(TransducerPins[i]);
         TransducerArray[i].calib = Transducer_Calibration_Array[i] * BufferGapPerMicroseconds;
+
         TransducerArray[i].row = i / ArraySize;
         TransducerArray[i].column = i % ArraySize;
         TransducerArray[i].position3D[0] = (TransducerArray[i].row - (ArraySize / 2.0) + 0.5) * TransducerGap;    // X
         TransducerArray[i].position3D[1] = (TransducerArray[i].column - (ArraySize / 2.0) + 0.5) * TransducerGap; // Y
         TransducerArray[i].position3D[2] = 0;                                                                      // Z
+
         TransducerArray[i].distance = 0;
         TransducerArray[i].phase = 0;
         TransducerArray[i].duty = 0.5;
