@@ -34,7 +34,7 @@ Transducer TransducerArray[NumTransducer];
 void Transducer_Init(void)
 {
     const int row_lengths[] = {5, 6, 7, 8, 9, 8, 7, 6, 5};
-    const float dy = TransducerGap * 0.86602540378f; // sqrt(3)/2
+    const float dy = TransducerSpacing * 0.86602540378f; // sqrt(3)/2
 
     for (size_t i = 0; i < NumTransducer; i++)
     {
@@ -59,7 +59,7 @@ void Transducer_Init(void)
 
             TransducerArray[i].row = r;
             TransducerArray[i].column = j;
-            TransducerArray[i].position3D[0] = (j - (row_lengths[r] - 1.0f) / 2.0f) * TransducerGap; // X
+            TransducerArray[i].position3D[0] = (j - (row_lengths[r] - 1.0f) / 2.0f) * TransducerSpacing; // X
             TransducerArray[i].position3D[1] = (4 - r) * dy;                                        // Y
         }
         else
@@ -76,30 +76,24 @@ void Transducer_Init(void)
         TransducerArray[i].duty = 0.5;
         TransducerArray[i].shift_buffer_bits = 0;
     }
+    
 }
 
-void Clean_Transducers_Calib()
+void Enter_Calibration_Mode()
 {
     for (int i = 0; i < NumTransducer-1; i++)
     {
         TransducerArray[i].calib = 0;
+        TransducerArray[i].phase = 0;
+        TransducerArray[i].shift_buffer_bits = 0;
     }
 }
 
-void Set_Transducers_Calib()
+void Load_Calib_to_Transducers()
 {
     for (int i = 0; i < NumTransducer-1; i++)
     {
         TransducerArray[i].calib = Transducer_Calibration_Array[i] * BufferGapPerMicroseconds;
-    }
-}
-
-void Set_Plane_Wave()
-{
-    for (int i = 0; i < NumTransducer-1; i++)
-    {
-        TransducerArray[i].phase = 0;
-        TransducerArray[i].shift_buffer_bits = 0;
     }
 }
 

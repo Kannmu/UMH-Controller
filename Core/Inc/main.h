@@ -72,6 +72,8 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 
 /* USER CODE BEGIN Private defines */
+# define VERSION 5U
+
 # define target_loop_freq 3000
 # define target_loop_period_us (1e6f/target_loop_freq)
 

@@ -94,61 +94,61 @@ void HAL_Delay_us(uint32_t nus)
 
 void Restore_LED_State()
 {
-    for (int i = 0; i < DMA_FULL_BUFFER_SIZE; i++)
+    for (int i = 0; i < WAVEFORM_FULL_BUFFER_SIZE; i++)
     {
         // Restore Indicate LED State
         if (led0_state)
         {
-            DMA_Buffer[0][i] &= ~LED0_Pin; 
+            Waveform_Buffer[0][i] &= ~LED0_Pin; 
         }
         else
         {
-            DMA_Buffer[0][i] |= LED0_Pin; 
+            Waveform_Buffer[0][i] |= LED0_Pin; 
         }
 
         // Restore Calibration LED State
         if (Get_Calibration_Mode())
         {
-            DMA_Buffer[0][i] &= ~LED1_Pin; 
+            Waveform_Buffer[0][i] &= ~LED1_Pin; 
         }
         else
         {
-            DMA_Buffer[0][i] |= LED1_Pin; 
+            Waveform_Buffer[0][i] |= LED1_Pin; 
 
         }
 
-        // Restore Plane LED State
-        if (Get_Plane_Mode())
+        // Restore Phase Set LED State
+        if (Get_Phase_Set_Mode())
         {
-            DMA_Buffer[0][i] &= ~LED2_Pin;
+            Waveform_Buffer[0][i] &= ~LED2_Pin;
         }
         else
         {
-            DMA_Buffer[0][i] |= LED2_Pin; 
+            Waveform_Buffer[0][i] |= LED2_Pin; 
         }
     }
 }
 
 void Set_LED_State(uint16_t pin, int state)
 {
-    for (int i = 0; i < DMA_FULL_BUFFER_SIZE; i++)
+    for (int i = 0; i < WAVEFORM_FULL_BUFFER_SIZE; i++)
     {
         if (state)
         {
-            DMA_Buffer[0][i] &= ~pin; // LED 灭
+            Waveform_Buffer[0][i] &= ~pin; // LED 灭
         }
         else
         {
-            DMA_Buffer[0][i] |= pin; // LED 亮
+            Waveform_Buffer[0][i] |= pin; // LED 亮
         }
     }
 }
 
 void Toggle_LED_State(uint16_t pin)
 {
-    for (int i = 0; i < DMA_FULL_BUFFER_SIZE; i++)
+    for (int i = 0; i < WAVEFORM_FULL_BUFFER_SIZE; i++)
     {
-        DMA_Buffer[0][i] ^= pin; // LED 切换状态
+        Waveform_Buffer[0][i] ^= pin; // LED 切换状态
     }
 }
 

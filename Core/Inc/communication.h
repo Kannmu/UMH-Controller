@@ -16,16 +16,18 @@
 // 命令类型 (PC -> UMH)
 #define CMD_ENABLE_DISABLE      0x01
 #define CMD_PING                0x02
-#define CMD_GET_STATUS          0x03
-#define CMD_SET_STIMULATION     0x04
-#define CMD_SET_PHASES          0x05
+#define COM_GET_CONFIG          0x03
+#define CMD_GET_STATUS          0x04
+#define CMD_SET_STIMULATION     0x05
+#define CMD_SET_PHASES          0x06
 
 // 响应类型 (UMH -> PC)
 #define RSP_ACK                 0x80
 #define RSP_NACK                0x81
 #define RSP_PING_ACK            0x82
-#define RSP_RETURN_STATUS       0x83
-#define RSP_SACK                0x84
+#define RSP_RETURN_CONFIG       0x83
+#define RSP_RETURN_STATUS       0x84
+#define RSP_SACK                0x85
 #define RSP_ERROR_CODE          0xFF
 
 // 协议帧结构

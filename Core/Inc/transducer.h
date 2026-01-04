@@ -3,8 +3,8 @@
 #include "stimulation.h"
 
 # define ArraySize 5
-
-# define TransducerGap (10.0 * (1e-3))
+# define TransducerSize (10.0e-3)
+# define TransducerSpacing (10.0e-3)
 
 # define NumTransducer 61U // The first 60 is real transducers, the last one is virtual transducer for calibration
 
@@ -42,11 +42,12 @@ typedef struct Transducer
 extern const char *TransducerPins[];
 extern Transducer TransducerArray[NumTransducer];
 
+
 extern float Wave_K;
 
 void Transducer_Init(void);
-void Clean_Transducers_Calib(void);
-void Set_Transducers_Calib(void);
+void Enter_Calibration_Mode(void);
+void Load_Calib_to_Transducers(void);
 
 void Set_Point_Focus(float *position);
 void Set_Phases(float phases[]);

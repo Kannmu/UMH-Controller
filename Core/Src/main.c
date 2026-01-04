@@ -263,9 +263,6 @@ int main(void)
     // Calibration Mode Switch
     Switch_Calibration_Mode();
 
-    // Plane Mode Switch
-    Switch_Plane_Mode();
-
     Apply_Stimulation();
 
     sysTickDelta = SysTick->VAL;
@@ -820,7 +817,7 @@ void MPU_Config(void)
   MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_ENABLE;
   MPU_InitStruct.IsShareable = MPU_ACCESS_NOT_SHAREABLE;
   MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
-  MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
+  MPU_InitStruct.IsBufferable = MPU_ACCESS_BUFFERABLE;
 
   HAL_MPU_ConfigRegion(&MPU_InitStruct);
   /* Enables the MPU */
@@ -837,11 +834,6 @@ void Error_Handler(void)
   /* USER CODE BEGIN Error_Handler_Debug */
   /* User can add his own implementation to report the HAL error return state */
   __disable_irq();
-
-  for (size_t i = 0; i < 64; ++i)
-  {
-    free(&TransducerArray[i]);
-  }
 
   while (1)
   {

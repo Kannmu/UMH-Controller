@@ -47,11 +47,11 @@ void Switch_Calibration_Mode()
 
                 if (calibration_mode == 1)
                 {
-                    Clean_Transducers_Calib();
+                    Enter_Calibration_Mode();
                 }
                 else
                 {
-                    Set_Transducers_Calib();
+                    Load_Calib_to_Transducers();
                 }
                 Update_All_DMABuffer(2);
             }

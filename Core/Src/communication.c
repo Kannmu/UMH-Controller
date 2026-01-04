@@ -181,6 +181,43 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                         case CMD_PING:
                             Comm_Handle_Ping_Command(rx_buffer.frame.data, rx_buffer.frame.data_length);
                             break;
+                        case COM_GET_CONFIG:
+                        {
+                            uint8_t config_data[21];
+                            uint8_t idx = 0;
+                            
+                            // Version: int (32-bit integer)
+                            uint32_t version = VERSION;
+                            memcpy(&config_data[idx], &version, 4);
+                            idx += 4;
+                            
+                            // ArrayType: byte (0x00: Rect, 0x01: Hex)
+                            uint8_t array_type = 0x01; 
+                            config_data[idx++] = array_type;
+                            
+                            // ArraySize: int (Number of transducers along the edge of the array)
+                            uint32_t array_size = ArraySize;
+                            memcpy(&config_data[idx], &array_size, 4);
+                            idx += 4;
+                            
+                            // NumTransducer: int (32-bit integer)
+                            uint32_t num_transducer = NumTransducer;
+                            memcpy(&config_data[idx], &num_transducer, 4);
+                            idx += 4;
+                            
+                            // TransducerSize: float
+                            float transducer_size = TransducerSize;
+                            memcpy(&config_data[idx], &transducer_size, 4);
+                            idx += 4;
+                            
+                            // TransducerSpace: float
+                            float transducer_space = TransducerSpacing;
+                            memcpy(&config_data[idx], &transducer_space, 4);
+                            idx += 4;
+                            
+                            Comm_Send_Response(RSP_RETURN_CONFIG, config_data, sizeof(config_data));
+                            break;
+                        }
                         case CMD_GET_STATUS:
                         {
                             int offset = 0;
@@ -191,7 +228,7 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                             temperature = Get_Temperature();
                             float loop_freq = System_Loop_Freq;
                             uint32_t calibration_mode =  Get_Calibration_Mode();
-                            uint32_t plane_mode = Get_Plane_Mode();
+                            uint32_t phase_set_mode = Get_Phase_Set_Mode();
 
                             uint8_t response_data[37];
 
@@ -205,7 +242,7 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                             memcpy(response_data + offset, &loop_freq, sizeof(loop_freq)); offset += sizeof(loop_freq);
                             memcpy(response_data + offset, &CurrentStimulation.type, sizeof(CurrentStimulation.type)); offset += sizeof(CurrentStimulation.type);
                             memcpy(response_data + offset, &calibration_mode, sizeof(calibration_mode)); offset += sizeof(calibration_mode);
-                            memcpy(response_data + offset, &plane_mode, sizeof(plane_mode)); offset += sizeof(plane_mode);
+                            memcpy(response_data + offset, &phase_set_mode, sizeof(phase_set_mode)); offset += sizeof(phase_set_mode);
                             
                             Comm_Send_Response(RSP_RETURN_STATUS, response_data, sizeof(response_data));
                             break;
@@ -233,7 +270,7 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                                     memcpy(&stimulation.endPoint[1], &pData[offset], 4); offset += 4;
                                     memcpy(&stimulation.endPoint[2], &pData[offset], 4); offset += 4;
                                     break;
-                                case LinearSTM:
+                                case Linear:
                                     memcpy(&stimulation.startPoint[0], &pData[offset], 4); offset += 4;
                                     memcpy(&stimulation.startPoint[1], &pData[offset], 4); offset += 4;
                                     memcpy(&stimulation.startPoint[2], &pData[offset], 4); offset += 4;
@@ -241,7 +278,7 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                                     memcpy(&stimulation.endPoint[1], &pData[offset], 4); offset += 4;
                                     memcpy(&stimulation.endPoint[2], &pData[offset], 4); offset += 4;
                                     break;
-                                case CircularSTM:
+                                case Circular:
                                     memcpy(&stimulation.centerPoint[0], &pData[offset], 4); offset += 4;
                                     memcpy(&stimulation.centerPoint[1], &pData[offset], 4); offset += 4;
                                     memcpy(&stimulation.centerPoint[2], &pData[offset], 4); offset += 4;

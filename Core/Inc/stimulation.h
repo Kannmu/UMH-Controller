@@ -6,8 +6,8 @@ typedef enum StimulationType
 {
     PointStimulation = 0,
     VibrationStimulation = 1,
-    LinearSTM = 2,
-    CircularSTM = 3,
+    Linear = 2,
+    Circular = 3,
 }StimulationType;
 
 
@@ -46,7 +46,6 @@ extern Stimulation CurrentStimulation;
 
 extern Stimulation EmptyStimulation;
 
-void Switch_Plane_Mode(void);
-int Get_Plane_Mode(void);
+int Get_Phase_Set_Mode(void);
 void Set_Stimulation(Stimulation *stimulation);
 void Apply_Stimulation(void);

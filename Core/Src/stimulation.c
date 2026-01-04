@@ -5,8 +5,6 @@
 #include "utiles.h"
 #include "custom_math.h"
 
-int plane_mode = 0;
-
 int phase_set_mode = 0;
 
 Stimulation CurrentStimulation = {
@@ -41,45 +39,6 @@ Stimulation EmptyStimulation = {
     .cached_v = {0.0f, 0.0f, 0.0f},
 };
 
-void Switch_Plane_Mode()
-{
-    static GPIO_PinState debouncedState = GPIO_PIN_SET;
-    static GPIO_PinState lastRawState = GPIO_PIN_SET;
-    static uint32_t lastDebounceTime = 0;
-    const uint32_t debounceDelay = 50;
-
-    GPIO_PinState currentRawState = HAL_GPIO_ReadPin(KEY1_GPIO_Port, KEY1_Pin);
-
-    if (currentRawState != lastRawState)
-    {
-        lastDebounceTime = HAL_GetTick();
-    }
-    lastRawState = currentRawState;
-
-    if ((HAL_GetTick() - lastDebounceTime) > debounceDelay)
-    {
-        if (currentRawState != debouncedState)
-        {
-            // Toggle Plane Mode on Falling Edge
-            if (debouncedState == GPIO_PIN_SET && currentRawState == GPIO_PIN_RESET)
-            {
-                plane_mode = 1 - plane_mode;
-                if (plane_mode == 1)
-                {
-                    Set_Plane_Wave();
-                }
-                Update_All_DMABuffer(2);
-            }
-            debouncedState = currentRawState;
-        }
-    }
-}
-
-int Get_Plane_Mode()
-{
-    return plane_mode;
-}
-
 void Set_Stimulation(Stimulation *stimulation)
 {
     CurrentStimulation = *stimulation;
@@ -94,8 +53,8 @@ void Set_Stimulation(Stimulation *stimulation)
         CurrentStimulation.cached_period_us = 0;
     }
 
-    // Pre-calculate CircularSTM vectors
-    if (CurrentStimulation.type == CircularSTM)
+    // Pre-calculate Circular vectors
+    if (CurrentStimulation.type == Circular)
     {
         float n[3] = {CurrentStimulation.normalVector[0], CurrentStimulation.normalVector[1], CurrentStimulation.normalVector[2]};
         Vector3Normalize(n);
@@ -120,9 +79,14 @@ void Set_Stimulation(Stimulation *stimulation)
     }
 }
 
+int Get_Phase_Set_Mode()
+{
+    return phase_set_mode;
+}
+
 void Apply_Stimulation()
 {
-    if (Get_Calibration_Mode() == 1 || Get_Plane_Mode() == 1)
+    if (Get_Calibration_Mode() == 1 || Get_Phase_Set_Mode() == 1)
     {
         return;
     }
@@ -155,14 +119,14 @@ void Apply_Stimulation()
     }
 
     break;
-    case LinearSTM:
+    case Linear:
     {
         float linearPosition[3];
         Vector3Lerp(linearPosition, CurrentStimulation.startPoint, CurrentStimulation.endPoint, CurrentStimulation.progress);
         Set_Point_Focus(linearPosition);
     }
     break;
-    case CircularSTM:
+    case Circular:
     {
         float angle = 2.0f * (float)M_PI * CurrentStimulation.progress;
         float cos_a = cosf(angle);
