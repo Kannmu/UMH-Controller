@@ -80,7 +80,7 @@ Core/Src/communication.c \
 Core/Src/custom_math.c \
 Core/Src/dma_manager.c \
 Core/Src/main.c \
-Core/Src/simulation.c \
+Core/Src/stimulation.c \
 Core/Src/stm32h7xx_hal_msp.c \
 Core/Src/stm32h7xx_it.c \
 Core/Src/system_stm32h7xx.c \
@@ -93,7 +93,6 @@ Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_cortex.c \
 Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_dma.c \
 Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_dma_ex.c \
 Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_exti.c \
-Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_fdcan.c \
 Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_flash.c \
 Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_flash_ex.c \
 Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_gpio.c \

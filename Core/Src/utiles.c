@@ -1,6 +1,6 @@
 #define _USE_MATH_DEFINES
 #include "utiles.h"
-#include "simulation.h"
+#include "stimulation.h"
 #include "calibration.h"
 
 // debug.c
@@ -21,6 +21,18 @@ void Init_DWT()
     }
     DWT->CYCCNT = 0;
     DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+}
+
+// 获取系统启动后的CPU周期数
+uint32_t DWT_GetCycles(void)
+{
+    return DWT->CYCCNT;
+}
+
+// 转换为微秒（根据系统时钟频率调整）
+uint32_t DWT_GetMicroseconds(void)
+{
+    return DWT_GetCycles() / (SystemCoreClock / 1000000);
 }
 
 void Calculate_FPS()
@@ -82,64 +94,80 @@ void HAL_Delay_us(uint32_t nus)
 
 void Restore_LED_State()
 {
-    for (int i = 0; i < DMA_Buffer_Resolution; i++)
+    for (int i = 0; i < WAVEFORM_FULL_BUFFER_SIZE; i++)
     {
         // Restore Indicate LED State
         if (led0_state)
         {
-            DMA_Buffer[0][i] |= LED0_Pin; // LED 亮
+            Waveform_Buffer[0][i] &= ~LED0_Pin; 
         }
         else
         {
-            DMA_Buffer[0][i] &= ~LED0_Pin; // LED 灭
+            Waveform_Buffer[0][i] |= LED0_Pin; 
         }
 
         // Restore Calibration LED State
         if (Get_Calibration_Mode())
         {
-            DMA_Buffer[0][i] |= LED1_Pin; // LED 亮
+            Waveform_Buffer[0][i] &= ~LED1_Pin; 
         }
         else
         {
-            DMA_Buffer[0][i] &= ~LED1_Pin; // LED 灭
+            Waveform_Buffer[0][i] |= LED1_Pin; 
+
         }
 
-        // Restore Simulation LED State
-        if (Get_Simulation_Mode())
+        // Restore Phase Set LED State
+        if (Get_Phase_Set_Mode())
         {
-            DMA_Buffer[0][i] |= LED2_Pin; // LED 亮
+            Waveform_Buffer[0][i] &= ~LED2_Pin;
         }
         else
         {
-            DMA_Buffer[0][i] &= ~LED2_Pin; // LED 灭
+            Waveform_Buffer[0][i] |= LED2_Pin; 
         }
     }
 }
 
 void Set_LED_State(uint16_t pin, int state)
 {
-    for (int i = 0; i < DMA_Buffer_Resolution; i++)
+    for (int i = 0; i < WAVEFORM_FULL_BUFFER_SIZE; i++)
     {
         if (state)
         {
-            DMA_Buffer[0][i] |= pin; // LED 亮
+            Waveform_Buffer[0][i] &= ~pin; // LED 灭
         }
         else
         {
-            DMA_Buffer[0][i] &= ~pin; // LED 灭
+            Waveform_Buffer[0][i] |= pin; // LED 亮
         }
     }
 }
 
 void Toggle_LED_State(uint16_t pin)
 {
-    for (int i = 0; i < DMA_Buffer_Resolution; i++)
+    for (int i = 0; i < WAVEFORM_FULL_BUFFER_SIZE; i++)
     {
-        DMA_Buffer[0][i] ^= pin; // LED 切换状态
+        Waveform_Buffer[0][i] ^= pin; // LED 切换状态
     }
 }
 
+extern ADC_HandleTypeDef hadc1;
 extern ADC_HandleTypeDef hadc3;
+
+static void Get_ADC1_Values(uint32_t *v33_raw, uint32_t *v50_raw)
+{
+    HAL_ADC_Start(&hadc1);
+    if (HAL_ADC_PollForConversion(&hadc1, 10) == HAL_OK)
+    {
+        *v33_raw = HAL_ADC_GetValue(&hadc1);
+    }
+    if (HAL_ADC_PollForConversion(&hadc1, 10) == HAL_OK)
+    {
+        *v50_raw = HAL_ADC_GetValue(&hadc1);
+    }
+    HAL_ADC_Stop(&hadc1);
+}
 
 static void Get_ADC3_Values(uint32_t *temp_raw, uint32_t *vref_raw)
 {
@@ -155,7 +183,7 @@ static void Get_ADC3_Values(uint32_t *temp_raw, uint32_t *vref_raw)
     HAL_ADC_Stop(&hadc3);
 }
 
-float Get_Voltage(void)
+float Get_Voltage_VDDA(void)
 {
     uint32_t temp_raw = 0, vref_raw = 0;
     Get_ADC3_Values(&temp_raw, &vref_raw);
@@ -166,6 +194,38 @@ float Get_Voltage(void)
     // Return Voltage in V
     return (float)vdda_mv / 1000.0f;
 }
+
+float Get_Voltage_3V3(void)
+{
+    // PA6 ADC1_INP3 Single-ended
+    uint32_t v33_raw = 0, v50_raw = 0;
+    uint32_t temp_raw = 0, vref_raw = 0;
+    
+    Get_ADC1_Values(&v33_raw, &v50_raw);
+    Get_ADC3_Values(&temp_raw, &vref_raw);
+    
+    uint32_t vdda_mv = __HAL_ADC_CALC_VREFANALOG_VOLTAGE(vref_raw, ADC_RESOLUTION_16B);
+    uint32_t v_mv = __HAL_ADC_CALC_DATA_TO_VOLTAGE(vdda_mv, v33_raw, ADC_RESOLUTION_16B);
+    
+    return (float)v_mv / 1000.0f * 2.0f; // 10k + 10k divider
+}
+
+float Get_Voltage_5V0(void)
+{
+    // PA3 ADC1_INP15 Single-ended
+    uint32_t v33_raw = 0, v50_raw = 0;
+    uint32_t temp_raw = 0, vref_raw = 0;
+    
+    Get_ADC1_Values(&v33_raw, &v50_raw);
+    Get_ADC3_Values(&temp_raw, &vref_raw);
+    
+    uint32_t vdda_mv = __HAL_ADC_CALC_VREFANALOG_VOLTAGE(vref_raw, ADC_RESOLUTION_16B);
+    uint32_t v_mv = __HAL_ADC_CALC_DATA_TO_VOLTAGE(vdda_mv, v50_raw, ADC_RESOLUTION_16B);
+    
+    return (float)v_mv / 1000.0f * 2.0f; // 10k + 10k divider
+}
+
+
 
 float Get_Temperature(void)
 {

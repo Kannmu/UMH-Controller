@@ -112,11 +112,9 @@ SECTIONS
     *(.ARM.exidx*)
     __exidx_end = .;
   } >FLASH
-
   .dma (NOLOAD) : ALIGN(4) {
         KEEP(*(.dma))
-  } >RAM_D1
-
+  } >RAM_D2
   .preinit_array     :
   {
     PROVIDE_HIDDEN (__preinit_array_start = .);
