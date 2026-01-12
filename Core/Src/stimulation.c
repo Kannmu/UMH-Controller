@@ -84,22 +84,14 @@ int Get_Phase_Set_Mode()
     return phase_set_mode;
 }
 
-void Apply_Stimulation()
+void Update_Stimulation_State(float progress)
 {
     if (Get_Calibration_Mode() == 1 || Get_Phase_Set_Mode() == 1)
     {
         return;
     }
 
-    // Calculate progress using cached period
-    if (CurrentStimulation.cached_period_us > 0)
-    {
-        CurrentStimulation.progress = (float)(DWT_GetMicroseconds() % CurrentStimulation.cached_period_us) / CurrentStimulation.cached_period_us;
-    }
-    else
-    {
-        CurrentStimulation.progress = 0.0f;
-    }
+    CurrentStimulation.progress = progress;
 
     switch (CurrentStimulation.type)
     {
@@ -144,6 +136,4 @@ void Apply_Stimulation()
     default:
         break;
     }
-
-    Update_All_DMABuffer(0);
 }

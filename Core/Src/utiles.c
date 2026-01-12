@@ -94,61 +94,72 @@ void HAL_Delay_us(uint32_t nus)
 
 void Restore_LED_State()
 {
-    for (int i = 0; i < WAVEFORM_FULL_BUFFER_SIZE; i++)
+    for (int i = 0; i < NUM_STIMULATION_SAMPLES; i++)
     {
-        // Restore Indicate LED State
-        if (led0_state)
-        {
-            Waveform_Buffer[0][i] &= ~LED0_Pin; 
-        }
-        else
-        {
-            Waveform_Buffer[0][i] |= LED0_Pin; 
-        }
 
-        // Restore Calibration LED State
-        if (Get_Calibration_Mode())
+        for (int j = 0; j < WAVEFORM_BUFFER_SIZE; j++)
         {
-            Waveform_Buffer[0][i] &= ~LED1_Pin; 
-        }
-        else
-        {
-            Waveform_Buffer[0][i] |= LED1_Pin; 
+            // Restore Indicate LED State
+            if (led0_state)
+            {
+                Waveform_Buffer[0][i][j] &= ~LED0_Pin; 
+            }
+            else
+            {
+                Waveform_Buffer[0][i][j] |= LED0_Pin; 
+            }
 
-        }
+            // Restore Calibration LED State
+            if (Get_Calibration_Mode())
+            {
+                Waveform_Buffer[0][i][j] &= ~LED1_Pin; 
+            }
+            else
+            {
+                Waveform_Buffer[0][i][j] |= LED1_Pin; 
 
-        // Restore Phase Set LED State
-        if (Get_Phase_Set_Mode())
-        {
-            Waveform_Buffer[0][i] &= ~LED2_Pin;
-        }
-        else
-        {
-            Waveform_Buffer[0][i] |= LED2_Pin; 
+            }
+
+            // Restore Phase Set LED State
+            if (Get_Phase_Set_Mode())
+            {
+                Waveform_Buffer[0][i][j] &= ~LED2_Pin;
+            }
+            else
+            {
+                Waveform_Buffer[0][i][j] |= LED2_Pin; 
+            }
         }
     }
 }
 
 void Set_LED_State(uint16_t pin, int state)
 {
-    for (int i = 0; i < WAVEFORM_FULL_BUFFER_SIZE; i++)
+    for (int i = 0; i < NUM_STIMULATION_SAMPLES; i++)
     {
-        if (state)
+
+        for (int j = 0; j < WAVEFORM_BUFFER_SIZE; j++)
         {
-            Waveform_Buffer[0][i] &= ~pin; // LED 灭
-        }
-        else
-        {
-            Waveform_Buffer[0][i] |= pin; // LED 亮
+            if (state)
+            {
+                Waveform_Buffer[0][i][j] &= ~pin; // LED 灭
+            }
+            else
+            {
+                Waveform_Buffer[0][i][j] |= pin; // LED 亮
+            }
         }
     }
 }
 
 void Toggle_LED_State(uint16_t pin)
 {
-    for (int i = 0; i < WAVEFORM_FULL_BUFFER_SIZE; i++)
+    for (int i = 0; i < NUM_STIMULATION_SAMPLES; i++)
     {
-        Waveform_Buffer[0][i] ^= pin; // LED 切换状态
+        for (int j = 0; j < WAVEFORM_BUFFER_SIZE; j++)
+        {
+            Waveform_Buffer[0][i][j] ^= pin; // LED 切换状态
+        }
     }
 }
 

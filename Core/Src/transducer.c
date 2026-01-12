@@ -4,7 +4,7 @@
 # include "dma_manager.h"
 # include "custom_math.h"
 
-float Wave_K = ((2.0*M_PI*Transducer_Base_Freq)/SoundSpeed);
+float Wave_K = ((2.0*M_PI*TRANSDUCER_BASE_FREQ)/SPEED_OF_SOUND);
 
 // Transducer Array
 const char *TransducerPins[] =
@@ -29,14 +29,14 @@ const char *TransducerPins[] =
 
         "PC10"};
 
-Transducer TransducerArray[NumTransducer];
+Transducer TransducerArray[NUM_TRANSDUCER];
 
 void Transducer_Init(void)
 {
     const int row_lengths[] = {5, 6, 7, 8, 9, 8, 7, 6, 5};
-    const float dy = TransducerSpacing * 0.86602540378f; // sqrt(3)/2
+    const float dy = TRANSDUCER_SPACING * 0.86602540378f; // sqrt(3)/2
 
-    for (size_t i = 0; i < NumTransducer; i++)
+    for (size_t i = 0; i < NUM_TRANSDUCER; i++)
     {
         // TransducerArray[i] = (Transducer *)malloc(sizeof(Transducer));
         TransducerArray[i].index = i;
@@ -59,7 +59,7 @@ void Transducer_Init(void)
 
             TransducerArray[i].row = r;
             TransducerArray[i].column = j;
-            TransducerArray[i].position3D[0] = (j - (row_lengths[r] - 1.0f) / 2.0f) * TransducerSpacing; // X
+            TransducerArray[i].position3D[0] = (j - (row_lengths[r] - 1.0f) / 2.0f) * TRANSDUCER_SPACING; // X
             TransducerArray[i].position3D[1] = (4 - r) * dy;                                        // Y
         }
         else
@@ -81,7 +81,7 @@ void Transducer_Init(void)
 
 void Enter_Calibration_Mode()
 {
-    for (int i = 0; i < NumTransducer-1; i++)
+    for (int i = 0; i < NUM_TRANSDUCER-1; i++)
     {
         TransducerArray[i].calib = 0;
         TransducerArray[i].phase = 0;
@@ -91,7 +91,7 @@ void Enter_Calibration_Mode()
 
 void Load_Calib_to_Transducers()
 {
-    for (int i = 0; i < NumTransducer-1; i++)
+    for (int i = 0; i < NUM_TRANSDUCER-1; i++)
     {
         TransducerArray[i].calib = Transducer_Calibration_Array[i] * BufferGapPerMicroseconds;
     }
@@ -100,7 +100,7 @@ void Load_Calib_to_Transducers()
 // Update Point to Transducers Parameters
 void Set_Point_Focus(float *position)
 {
-    for (int i = 0; i < NumTransducer-1; i++)
+    for (int i = 0; i < NUM_TRANSDUCER-1; i++)
     {
         // Distance Calculation
         TransducerArray[i].distance = Euler_Distance(TransducerArray[i].position3D, position);
@@ -116,7 +116,7 @@ void Set_Point_Focus(float *position)
 // Set Phases to Transducers
 void Set_Phases(float phases[])
 {
-    for (int i = 0; i < NumTransducer-1; i++)
+    for (int i = 0; i < NUM_TRANSDUCER-1; i++)
     {
         TransducerArray[i].phase = phases[i];
         TransducerArray[i].shift_buffer_bits = Phase_to_Gap_Ticks(TransducerArray[i].phase);
@@ -130,7 +130,7 @@ float Distance_to_Phase(float distance)
 
 float Phase_to_Gap_Ticks(float phase)
 {
-    return (phase / (2.0 * M_PI * Transducer_Base_Freq)) / TimeGapPerDMABufferBit;
+    return (phase / (2.0 * M_PI * TRANSDUCER_BASE_FREQ)) / TIME_GAP_PER_DMA_BUFFER_BIT;
 }
 
 GPIO_TypeDef *map_pin_name_to_gpio_port(const char *pin_name)

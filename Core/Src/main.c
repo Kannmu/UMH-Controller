@@ -251,7 +251,7 @@ int main(void)
 
   while (1)
   {
-    uint32_t loop_start_time = DWT_GetMicroseconds();
+    // uint32_t loop_start_time = DWT_GetMicroseconds();
     loop_count++;
     if (HAL_GetTick() - last_check_tick >= 1000)
     {
@@ -263,7 +263,7 @@ int main(void)
     // Calibration Mode Switch
     Switch_Calibration_Mode();
 
-    Apply_Stimulation();
+    // Apply_Stimulation();
 
     sysTickDelta = SysTick->VAL;
     LED_Indicate_Blink();
@@ -273,11 +273,11 @@ int main(void)
     /* USER CODE BEGIN 3 */
 
     // Throttle loop to target frequency
-    while ((DWT_GetMicroseconds() - loop_start_time) < target_loop_period_us)
-    {
-        // Busy wait
-        __NOP();
-    }
+    // while ((DWT_GetMicroseconds() - loop_start_time) < target_loop_period_us)
+    // {
+    //     // Busy wait
+    //     __NOP();
+    // }
   }
   /* USER CODE END 3 */
 }
@@ -810,7 +810,7 @@ void MPU_Config(void)
   MPU_InitStruct.Enable = MPU_REGION_ENABLE;
   MPU_InitStruct.Number = MPU_REGION_NUMBER0;
   MPU_InitStruct.BaseAddress = 0x30000000;
-  MPU_InitStruct.Size = MPU_REGION_SIZE_256KB;
+  MPU_InitStruct.Size = MPU_REGION_SIZE_512KB;
   MPU_InitStruct.SubRegionDisable = 0x0;
   MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL1;
   MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;

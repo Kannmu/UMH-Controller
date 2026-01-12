@@ -2,19 +2,19 @@
 #include "main.h"
 #include "stimulation.h"
 
-# define ArraySize 5
-# define TransducerSize (10.0e-3)
-# define TransducerSpacing (10.0e-3)
+# define ARRAY_SIZE 5
+# define TRANSDUCER_SIZE (10.0e-3)
+# define TRANSDUCER_SPACING (10.0e-3)
 
-# define NumTransducer 61U // The first 60 is real transducers, the last one is virtual transducer for calibration
+# define NUM_TRANSDUCER 61U // The first 60 is real transducers, the last one is virtual transducer for calibration
 
-# define SoundSpeed 343.2
+# define SPEED_OF_SOUND 343.2
 
-# define Transducer_Base_Freq 40000UL
+# define TRANSDUCER_BASE_FREQ 40000UL
 
-# define TransducerPeriod  ((long double)(1.0 / Transducer_Base_Freq))
+# define TRANSDUCER_PERIOD  ((long double)(1.0 / TRANSDUCER_BASE_FREQ))
 
-# define WaveLength (TransducerPeriod*SoundSpeed)
+# define WAVE_LENGTH (TRANSDUCER_PERIOD*SPEED_OF_SOUND)
 
 typedef struct Stimulation Stimulation;
 
@@ -40,7 +40,7 @@ typedef struct Transducer
 
 
 extern const char *TransducerPins[];
-extern Transducer TransducerArray[NumTransducer];
+extern Transducer TransducerArray[NUM_TRANSDUCER];
 
 
 extern float Wave_K;

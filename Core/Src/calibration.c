@@ -53,7 +53,7 @@ void Switch_Calibration_Mode()
                 {
                     Load_Calib_to_Transducers();
                 }
-                Update_All_DMABuffer(2);
+                Update_Full_Waveform_Buffer();
             }
             debouncedState = currentRawState;
         }

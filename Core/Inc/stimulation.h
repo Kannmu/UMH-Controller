@@ -2,6 +2,10 @@
 # include "main.h"
 # include "transducer.h"
 
+# define STIMULATION_FREQ (200U)
+# define STIMULATION_PERIOD (1.0 / STIMULATION_FREQ)
+# define NUM_STIMULATION_SAMPLES 100
+
 typedef enum StimulationType
 {
     PointStimulation = 0,
@@ -48,4 +52,4 @@ extern Stimulation EmptyStimulation;
 
 int Get_Phase_Set_Mode(void);
 void Set_Stimulation(Stimulation *stimulation);
-void Apply_Stimulation(void);
+void Update_Stimulation_State(float progress);

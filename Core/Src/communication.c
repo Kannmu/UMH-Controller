@@ -195,23 +195,23 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                             uint8_t array_type = 0x01; 
                             config_data[idx++] = array_type;
                             
-                            // ArraySize: int (Number of transducers along the edge of the array)
-                            uint32_t array_size = ArraySize;
+                            // ARRAY_SIZE: int (Number of transducers along the edge of the array)
+                            uint32_t array_size = ARRAY_SIZE;
                             memcpy(&config_data[idx], &array_size, 4);
                             idx += 4;
                             
-                            // NumTransducer: int (32-bit integer)
-                            uint32_t num_transducer = NumTransducer;
+                            // NUM_TRANSDUCER: int (32-bit integer)
+                            uint32_t num_transducer = NUM_TRANSDUCER;
                             memcpy(&config_data[idx], &num_transducer, 4);
                             idx += 4;
                             
-                            // TransducerSize: float
-                            float transducer_size = TransducerSize;
+                            // TRANSDUCER_SIZE: float
+                            float transducer_size = TRANSDUCER_SIZE;
                             memcpy(&config_data[idx], &transducer_size, 4);
                             idx += 4;
                             
                             // TransducerSpace: float
-                            float transducer_space = TransducerSpacing;
+                            float transducer_space = TRANSDUCER_SPACING;
                             memcpy(&config_data[idx], &transducer_space, 4);
                             idx += 4;
                             
@@ -299,6 +299,7 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                                 Comm_Send_Response(RSP_SACK, NULL, 0);
                                 
                                 Set_Stimulation(&stimulation);
+                                Update_Full_Waveform_Buffer();
                             }
                             else
                             {
@@ -310,14 +311,14 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                         {
                             if (rx_buffer.frame.data_length >= 4)
                             {
-                                float phases[NumTransducer-1];
+                                float phases[NUM_TRANSDUCER-1];
                                 uint8_t *pData = rx_buffer.frame.data; // float[NumTransducer-1]
                                 memcpy(phases, pData, sizeof(phases));
                                 Comm_Send_Response(RSP_SACK, NULL, 0);
                                 Set_Phases(phases);
                                 CurrentStimulation = EmptyStimulation;
                                 phase_set_mode = 1;
-                                Update_All_DMABuffer(2);
+                                Update_Full_Waveform_Buffer();
                             }
                             else
                             {
