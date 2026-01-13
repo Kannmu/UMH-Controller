@@ -294,11 +294,12 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                                 memcpy(&stimulation.strength,    &pData[offset], 4); offset += 4;
                                 memcpy(&stimulation.frequency,   &pData[offset], 4); 
                                 
+                                Set_Stimulation(&stimulation);
+                                
                                 phase_set_mode = 0;
 
                                 Comm_Send_Response(RSP_SACK, NULL, 0);
                                 
-                                Set_Stimulation(&stimulation);
                                 Update_Full_Waveform_Buffer();
                             }
                             else

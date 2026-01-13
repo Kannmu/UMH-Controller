@@ -115,6 +115,10 @@ SECTIONS
   .dma (NOLOAD) : ALIGN(4) {
         KEEP(*(.dma))
   } >RAM_D2
+
+  .ram_d1_data (NOLOAD) : ALIGN(32) {
+        KEEP(*(.ram_d1_data))
+  } >RAM_D1
   .preinit_array     :
   {
     PROVIDE_HIDDEN (__preinit_array_start = .);

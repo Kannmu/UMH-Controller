@@ -16,7 +16,12 @@ const uint16_t BufferGapPerMicroseconds = ((float)(1e-6) / TIME_GAP_PER_DMA_BUFF
 DMA_HandleTypeDef *DMA_Stream_Handles[DMA_CHANNELS];
 
 __ALIGNED(32)
-uint16_t Waveform_Buffer[DMA_CHANNELS][NUM_STIMULATION_SAMPLES][WAVEFORM_BUFFER_SIZE] __attribute__((section(".dma")));
+uint16_t Waveform_Storage[DMA_CHANNELS][NUM_STIMULATION_SAMPLES][WAVEFORM_BUFFER_SIZE] __attribute__((section(".ram_d1_data")));
+
+__ALIGNED(32)
+uint16_t Waveform_Play_Buffer[DMA_CHANNELS][PLAY_BUFFER_SAMPLES][WAVEFORM_BUFFER_SIZE] __attribute__((section(".dma")));
+
+MDMA_HandleTypeDef hmdma[DMA_CHANNELS];
 
 extern TIM_HandleTypeDef htim1;
 
@@ -25,8 +30,16 @@ static uint16_t Group_Offset_Ticks[DMA_CHANNELS];
 static Transducer *TransducersByPort[DMA_CHANNELS][NUM_TRANSDUCER];
 static int TransducersByPortCount[DMA_CHANNELS];
 
+static void MDMA_Config(void);
+static void DMA_HalfTransferComplete(DMA_HandleTypeDef *hdma);
+static void DMA_TransferComplete(DMA_HandleTypeDef *hdma);
+
+volatile uint32_t storage_load_index = 0;
+
 void DMA_Init()
 {
+    MDMA_Config();
+
     DMA_Stream_Handles[0] = &hdma_memtomem_dma1_stream0;
     DMA_Stream_Handles[1] = &hdma_memtomem_dma1_stream1;
     DMA_Stream_Handles[2] = &hdma_memtomem_dma1_stream2;
@@ -51,18 +64,76 @@ void DMA_Init()
 
     Clean_DMABuffer();
     Update_Full_Waveform_Buffer();
+
+    // Initial Fill of Play Buffer (First PLAY_BUFFER_SAMPLES)
+    // Storage has NUM_STIMULATION_SAMPLES (200). Play Buffer has PLAY_BUFFER_SAMPLES (100).
+    // Copy first 100 samples.
+    for (int i = 0; i < DMA_CHANNELS; i++)
+    {
+        HAL_MDMA_Start(&hmdma[i], 
+                       (uint32_t)&Waveform_Storage[i][0][0], 
+                       (uint32_t)&Waveform_Play_Buffer[i][0][0], 
+                       PLAY_BUFFER_SAMPLES * WAVEFORM_BUFFER_SIZE * 2,
+                       1);
+        HAL_MDMA_PollForTransfer(&hmdma[i], HAL_MDMA_FULL_TRANSFER, 100);
+    }
+    
+    // Initialize storage_load_index for next load
+    storage_load_index = PLAY_BUFFER_SAMPLES; 
+    if (storage_load_index >= NUM_STIMULATION_SAMPLES) storage_load_index = 0;
+
     Start_DMAs();
+}
+
+static void MDMA_Config(void)
+{
+    __HAL_RCC_MDMA_CLK_ENABLE();
+
+    for (int i = 0; i < DMA_CHANNELS; i++)
+    {
+        hmdma[i].Instance = (MDMA_Channel_TypeDef *)(MDMA_Channel0_BASE + (i * 0x40));
+        hmdma[i].Init.Request = MDMA_REQUEST_SW;
+        hmdma[i].Init.TransferTriggerMode = MDMA_BUFFER_TRANSFER;
+        hmdma[i].Init.Priority = MDMA_PRIORITY_HIGH;
+        hmdma[i].Init.Endianness = MDMA_LITTLE_ENDIANNESS_PRESERVE;
+        hmdma[i].Init.SourceInc = MDMA_SRC_INC_HALFWORD;
+        hmdma[i].Init.DestinationInc = MDMA_DEST_INC_HALFWORD;
+        hmdma[i].Init.SourceDataSize = MDMA_SRC_DATASIZE_HALFWORD;
+        hmdma[i].Init.DestDataSize = MDMA_DEST_DATASIZE_HALFWORD;
+        hmdma[i].Init.DataAlignment = MDMA_DATAALIGN_PACKENABLE;
+        hmdma[i].Init.BufferTransferLength = PLAY_BUFFER_HALF_SAMPLES * WAVEFORM_BUFFER_SIZE * 2; // Default length
+        hmdma[i].Init.SourceBurst = MDMA_SOURCE_BURST_SINGLE;
+        hmdma[i].Init.DestBurst = MDMA_DEST_BURST_SINGLE;
+        hmdma[i].Init.SourceBlockAddressOffset = 0;
+        hmdma[i].Init.DestBlockAddressOffset = 0;
+
+        if (HAL_MDMA_Init(&hmdma[i]) != HAL_OK)
+        {
+            Error_Handler();
+        }
+    }
 }
 
 void Start_DMAs()
 {
-    uint32_t total_length = NUM_STIMULATION_SAMPLES * WAVEFORM_BUFFER_SIZE;
+    uint32_t total_length = PLAY_BUFFER_SAMPLES * WAVEFORM_BUFFER_SIZE;
 
-    HAL_DMA_Start(&hdma_memtomem_dma1_stream0, (uint32_t)(Waveform_Buffer[0]), (uint32_t)(&(GPIOA->ODR)), total_length);
-    HAL_DMA_Start(&hdma_memtomem_dma1_stream1, (uint32_t)(Waveform_Buffer[1]), (uint32_t)(&(GPIOB->ODR)), total_length);
-    HAL_DMA_Start(&hdma_memtomem_dma1_stream2, (uint32_t)(Waveform_Buffer[2]), (uint32_t)(&(GPIOC->ODR)), total_length);
-    HAL_DMA_Start(&hdma_memtomem_dma2_stream0, (uint32_t)(Waveform_Buffer[3]), (uint32_t)(&(GPIOD->ODR)), total_length);
-    HAL_DMA_Start(&hdma_memtomem_dma2_stream1, (uint32_t)(Waveform_Buffer[4]), (uint32_t)(&(GPIOE->ODR)), total_length);
+    // Register Callbacks for Stream 0
+    hdma_memtomem_dma1_stream0.XferHalfCpltCallback = DMA_HalfTransferComplete;
+    hdma_memtomem_dma1_stream0.XferCpltCallback = DMA_TransferComplete;
+
+    // Stream 0: Start with IT
+    HAL_DMA_Start_IT(&hdma_memtomem_dma1_stream0, (uint32_t)(Waveform_Play_Buffer[0]), (uint32_t)(&(GPIOA->ODR)), total_length);
+    
+    // Enable NVIC for Stream 0
+    HAL_NVIC_SetPriority(DMA1_Stream0_IRQn, 0, 0);
+    HAL_NVIC_EnableIRQ(DMA1_Stream0_IRQn);
+
+    // Others: Start Normal
+    HAL_DMA_Start(&hdma_memtomem_dma1_stream1, (uint32_t)(Waveform_Play_Buffer[1]), (uint32_t)(&(GPIOB->ODR)), total_length);
+    HAL_DMA_Start(&hdma_memtomem_dma1_stream2, (uint32_t)(Waveform_Play_Buffer[2]), (uint32_t)(&(GPIOC->ODR)), total_length);
+    HAL_DMA_Start(&hdma_memtomem_dma2_stream0, (uint32_t)(Waveform_Play_Buffer[3]), (uint32_t)(&(GPIOD->ODR)), total_length);
+    HAL_DMA_Start(&hdma_memtomem_dma2_stream1, (uint32_t)(Waveform_Play_Buffer[4]), (uint32_t)(&(GPIOE->ODR)), total_length);
 
     __HAL_TIM_ENABLE_DMA(&htim1, TIM_DMA_UPDATE);
     __HAL_TIM_ENABLE_DMA(&htim1, TIM_DMA_CC1);
@@ -76,6 +147,47 @@ void Start_DMAs()
     HAL_TIM_OC_Start(&htim1, TIM_CHANNEL_4);
 
     HAL_TIM_Base_Start(&htim1);
+}
+
+static void DMA_HalfTransferComplete(DMA_HandleTypeDef *hdma)
+{
+    // First Half Finished Reading. We can overwrite First Half.
+    // Copy NEXT chunk from Storage to Play_Buffer[0..HALF-1]
+    
+    for (int i = 0; i < DMA_CHANNELS; i++)
+    {
+        HAL_MDMA_Start(&hmdma[i], 
+                       (uint32_t)&Waveform_Storage[i][storage_load_index][0], 
+                       (uint32_t)&Waveform_Play_Buffer[i][0][0], 
+                       PLAY_BUFFER_HALF_SAMPLES * WAVEFORM_BUFFER_SIZE * 2,
+                       1);
+    }
+
+    storage_load_index += PLAY_BUFFER_HALF_SAMPLES;
+    if (storage_load_index >= NUM_STIMULATION_SAMPLES) storage_load_index = 0;
+}
+
+static void DMA_TransferComplete(DMA_HandleTypeDef *hdma)
+{
+    // Second Half Finished Reading. We can overwrite Second Half.
+    // Copy NEXT chunk from Storage to Play_Buffer[HALF..FULL-1]
+
+    for (int i = 0; i < DMA_CHANNELS; i++)
+    {
+        HAL_MDMA_Start(&hmdma[i], 
+                       (uint32_t)&Waveform_Storage[i][storage_load_index][0], 
+                       (uint32_t)&Waveform_Play_Buffer[i][PLAY_BUFFER_HALF_SAMPLES][0], 
+                       PLAY_BUFFER_HALF_SAMPLES * WAVEFORM_BUFFER_SIZE * 2,
+                       1);
+    }
+
+    storage_load_index += PLAY_BUFFER_HALF_SAMPLES;
+    if (storage_load_index >= NUM_STIMULATION_SAMPLES) storage_load_index = 0;
+}
+
+void DMA1_Stream0_IRQHandler(void)
+{
+    HAL_DMA_IRQHandler(&hdma_memtomem_dma1_stream0);
 }
 
 void Update_Full_Waveform_Buffer()
@@ -163,7 +275,7 @@ void Update_Full_Waveform_Buffer()
             }
 
             // 3. Fill Buffer (Run-Length Encoded)
-            uint16_t *buffer_ptr_base = &Waveform_Buffer[p][s][0];
+            uint16_t *buffer_ptr_base = &Waveform_Storage[p][s][0];
 
             uint16_t running_state = current_state;
             if (p == 0)
@@ -238,5 +350,6 @@ void Update_Full_Waveform_Buffer()
 
 void Clean_DMABuffer()
 {
-    memset(Waveform_Buffer, 0x0000, sizeof(Waveform_Buffer));
+    memset(Waveform_Storage, 0x0000, sizeof(Waveform_Storage));
+    memset(Waveform_Play_Buffer, 0x0000, sizeof(Waveform_Play_Buffer));
 }

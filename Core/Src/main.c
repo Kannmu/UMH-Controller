@@ -263,8 +263,6 @@ int main(void)
     // Calibration Mode Switch
     Switch_Calibration_Mode();
 
-    // Apply_Stimulation();
-
     sysTickDelta = SysTick->VAL;
     LED_Indicate_Blink();
 

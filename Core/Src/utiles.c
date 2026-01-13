@@ -102,32 +102,32 @@ void Restore_LED_State()
             // Restore Indicate LED State
             if (led0_state)
             {
-                Waveform_Buffer[0][i][j] &= ~LED0_Pin; 
+                Waveform_Play_Buffer[0][i][j] &= ~LED0_Pin; 
             }
             else
             {
-                Waveform_Buffer[0][i][j] |= LED0_Pin; 
+                Waveform_Play_Buffer[0][i][j] |= LED0_Pin; 
             }
 
             // Restore Calibration LED State
             if (Get_Calibration_Mode())
             {
-                Waveform_Buffer[0][i][j] &= ~LED1_Pin; 
+                Waveform_Play_Buffer[0][i][j] &= ~LED1_Pin; 
             }
             else
             {
-                Waveform_Buffer[0][i][j] |= LED1_Pin; 
+                Waveform_Play_Buffer[0][i][j] |= LED1_Pin; 
 
             }
 
             // Restore Phase Set LED State
             if (Get_Phase_Set_Mode())
             {
-                Waveform_Buffer[0][i][j] &= ~LED2_Pin;
+                Waveform_Play_Buffer[0][i][j] &= ~LED2_Pin;
             }
             else
             {
-                Waveform_Buffer[0][i][j] |= LED2_Pin; 
+                Waveform_Play_Buffer[0][i][j] |= LED2_Pin; 
             }
         }
     }
@@ -142,11 +142,11 @@ void Set_LED_State(uint16_t pin, int state)
         {
             if (state)
             {
-                Waveform_Buffer[0][i][j] &= ~pin; // LED 灭
+                Waveform_Play_Buffer[0][i][j] &= ~pin; // LED 灭
             }
             else
             {
-                Waveform_Buffer[0][i][j] |= pin; // LED 亮
+                Waveform_Play_Buffer[0][i][j] |= pin; // LED 亮
             }
         }
     }
@@ -158,7 +158,7 @@ void Toggle_LED_State(uint16_t pin)
     {
         for (int j = 0; j < WAVEFORM_BUFFER_SIZE; j++)
         {
-            Waveform_Buffer[0][i][j] ^= pin; // LED 切换状态
+            Waveform_Play_Buffer[0][i][j] ^= pin; // LED 切换状态
         }
     }
 }
