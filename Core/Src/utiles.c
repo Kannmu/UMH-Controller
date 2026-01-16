@@ -1,18 +1,21 @@
 #define _USE_MATH_DEFINES
+#include <stdio.h>
 #include "utiles.h"
 #include "stimulation.h"
 #include "calibration.h"
+#include "dma_manager.h" // For Waveform_Storage if needed, but we removed Set_LED_State
 
 // debug.c
 const uint16_t HALF_LED_BLINK_PERIOD = 500U;
 uint16_t led0_ticks = 0;
 uint32_t sysTickDelta= 0;
 uint32_t FPS = 0;
-int led0_state = 0;
-int last_led0_state = 0;
-uint16_t stm_test_ticks = 0;
+// int led0_state = 0; // Removed
+// int last_led0_state = 0; // Removed
 float System_Loop_Freq = 0.0f;
 double updateDMABufferDeltaTime = 0;
+
+static int led2_active_state = 0;
 
 void Init_DWT()
 {
@@ -49,27 +52,98 @@ void Calculate_FPS()
     }
 }
 
-void LED_Indicate_Blink()
+static uint16_t last_led_mask = 0xFFFF; // Default All OFF (Active Low)
+
+void Update_LED_Status(void)
 {
-    uint8_t progress = led0_ticks / (HALF_LED_BLINK_PERIOD);
-    if (progress < 1)
+    uint32_t now = HAL_GetTick();
+
+    // --- LED0 Logic (1Hz Heartbeat) ---
+    // 500ms ON, 500ms OFF
+    // Active Low: 0 is ON
+    int led0_on = (now % 1000) < 500;
+    
+    // Update legacy led0_ticks for compatibility if needed (0-999)
+    led0_ticks = (uint16_t)(now % 1000);
+
+    // --- LED1 Logic (Calibration Mode) ---
+    int led1_on = Get_Calibration_Mode();
+
+    // --- LED2 Logic (Demo Mode 4-bit) ---
+    static int led2_on = 0;
+    static uint32_t led2_next_event = 0;
+    static int led2_bit_index = 3; // Start from MSB (Bit 3)
+    static int led2_seq_state = 0; // 0: Prepare Bit, 1: Bit Active, 2: Inter-bit Gap
+    
+    if (now >= led2_next_event)
     {
-        led0_state = 0U;
-    }
-    else if (progress >= 1 && progress < 2)
-    {
-        led0_state = 1;
-    }
-    else if (progress >= 2)
-    {
-        led0_ticks = 0U;
+        int mode = Get_Demo_Mode();
+        
+        switch (led2_seq_state)
+        {
+            case 0: // Prepare to show bit
+                if (led2_bit_index < 0)
+                {
+                    // Sequence finished
+                    led2_on = 0;
+                    led2_next_event = now + 1500; // Long gap between cycles
+                    led2_bit_index = 3; // Reset to MSB
+                    // State remains 0, next time will start sequence
+                }
+                else
+                {
+                    // Start showing bit
+                    led2_on = 1;
+                    int bit = (mode >> led2_bit_index) & 1;
+                    // 0: Short (200ms), 1: Long (600ms)
+                    led2_next_event = now + (bit ? 600 : 200); 
+                    led2_seq_state = 1;
+                }
+                break;
+                
+            case 1: // Bit finished, turn off
+                led2_on = 0;
+                led2_next_event = now + 300; // Gap between bits
+                led2_bit_index--;
+                led2_seq_state = 0;
+                break;
+        }
     }
     
-    if (led0_state != last_led0_state)
+    // Update legacy led2_active_state
+    led2_active_state = led2_on;
+
+    // --- Construct Mask ---
+    uint16_t mask = 0;
+    
+    // Active Low Logic: 
+    // Pin Bit 0 -> ON
+    // Pin Bit 1 -> OFF
+    
+    if (!led0_on) mask |= LED0_Pin;
+    if (!led1_on) mask |= LED1_Pin;
+    if (!led2_on) mask |= LED2_Pin;
+
+    // --- Update DMA if changed ---
+    if (mask != last_led_mask)
     {
-        last_led0_state = led0_state;
-        Set_LED_State(LED0_Pin, led0_state);
+        DMA_Update_LED_State(mask);
+        last_led_mask = mask;
     }
+}
+
+uint16_t Get_Current_LED_Mask(void)
+{
+    // Return the cached calculated mask
+    // If Update_LED_Status hasn't been called yet, calculate it or return default
+    if (last_led_mask == 0xFFFF && HAL_GetTick() < 100) 
+    {
+         // Fallback for early call before first Update loop
+         return 0; // All ON? Or use default logic. 
+         // Safest is to just call Update_LED_Status logic once or return a safe value.
+         // Let's just return last_led_mask which defaults to All OFF.
+    }
+    return last_led_mask;
 }
 
 void HAL_Delay_us(uint32_t nus)
@@ -92,75 +166,18 @@ void HAL_Delay_us(uint32_t nus)
     };
 }
 
-void Restore_LED_State()
+char* Get_Device_Serial_Number(void)
 {
-    for (int i = 0; i < NUM_STIMULATION_SAMPLES; i++)
-    {
+    static char serial_str[25]; // 96 bits = 12 bytes = 24 hex chars + 1 null terminator
+    
+    uint32_t uid0 = HAL_GetUIDw0();
+    uint32_t uid1 = HAL_GetUIDw1();
+    uint32_t uid2 = HAL_GetUIDw2();
 
-        for (int j = 0; j < WAVEFORM_BUFFER_SIZE; j++)
-        {
-            // Restore Indicate LED State
-            if (led0_state)
-            {
-                Waveform_Play_Buffer[0][i][j] &= ~LED0_Pin; 
-            }
-            else
-            {
-                Waveform_Play_Buffer[0][i][j] |= LED0_Pin; 
-            }
+    // Format as a 24-character hex string
+    snprintf(serial_str, sizeof(serial_str), "%08lX%08lX%08lX", (unsigned long)uid0, (unsigned long)uid1, (unsigned long)uid2);
 
-            // Restore Calibration LED State
-            if (Get_Calibration_Mode())
-            {
-                Waveform_Play_Buffer[0][i][j] &= ~LED1_Pin; 
-            }
-            else
-            {
-                Waveform_Play_Buffer[0][i][j] |= LED1_Pin; 
-
-            }
-
-            // Restore Phase Set LED State
-            if (Get_Phase_Set_Mode())
-            {
-                Waveform_Play_Buffer[0][i][j] &= ~LED2_Pin;
-            }
-            else
-            {
-                Waveform_Play_Buffer[0][i][j] |= LED2_Pin; 
-            }
-        }
-    }
-}
-
-void Set_LED_State(uint16_t pin, int state)
-{
-    for (int i = 0; i < NUM_STIMULATION_SAMPLES; i++)
-    {
-
-        for (int j = 0; j < WAVEFORM_BUFFER_SIZE; j++)
-        {
-            if (state)
-            {
-                Waveform_Play_Buffer[0][i][j] &= ~pin; // LED 灭
-            }
-            else
-            {
-                Waveform_Play_Buffer[0][i][j] |= pin; // LED 亮
-            }
-        }
-    }
-}
-
-void Toggle_LED_State(uint16_t pin)
-{
-    for (int i = 0; i < NUM_STIMULATION_SAMPLES; i++)
-    {
-        for (int j = 0; j < WAVEFORM_BUFFER_SIZE; j++)
-        {
-            Waveform_Play_Buffer[0][i][j] ^= pin; // LED 切换状态
-        }
-    }
+    return serial_str;
 }
 
 extern ADC_HandleTypeDef hadc1;
@@ -251,5 +268,3 @@ float Get_Temperature(void)
     
     return (float)temperature;
 }
-
-

@@ -263,8 +263,11 @@ int main(void)
     // Calibration Mode Switch
     Switch_Calibration_Mode();
 
+    // Demo Mode Switch
+    Switch_Demo_Mode();
+
     sysTickDelta = SysTick->VAL;
-    LED_Indicate_Blink();
+    Update_LED_Status();
 
     /* USER CODE END WHILE */
 
@@ -833,12 +836,16 @@ void Error_Handler(void)
   /* User can add his own implementation to report the HAL error return state */
   __disable_irq();
 
+  // Stop DMA to allow manual GPIO control
+  HAL_DMA_Abort(&hdma_memtomem_dma1_stream0);
+
   while (1)
   {
-    Toggle_LED_State(LED0_Pin);
-    Toggle_LED_State(LED1_Pin);
-    Toggle_LED_State(LED2_Pin);
-    HAL_Delay(500);
+    HAL_GPIO_TogglePin(LED0_GPIO_Port, LED0_Pin);
+    HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin);
+    HAL_GPIO_TogglePin(LED2_GPIO_Port, LED2_Pin);
+    // Busy wait loop since SysTick is disabled
+    for(volatile int i=0; i<10000000; i++); 
   }
   /* USER CODE END Error_Handler_Debug */
 }

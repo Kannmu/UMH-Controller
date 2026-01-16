@@ -183,68 +183,38 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                             break;
                         case COM_GET_CONFIG:
                         {
-                            uint8_t config_data[21];
-                            uint8_t idx = 0;
+                            device_config config;
+                            memset(&config, 0, sizeof(config));
                             
-                            // Version: int (32-bit integer)
-                            uint32_t version = VERSION;
-                            memcpy(&config_data[idx], &version, 4);
-                            idx += 4;
+                            // 设备序列号
+                            char* serial_number = Get_Device_Serial_Number();
+                            memcpy(config.serial_number, serial_number, 12);
                             
-                            // ArrayType: byte (0x00: Rect, 0x01: Hex)
-                            uint8_t array_type = 0x01; 
-                            config_data[idx++] = array_type;
+                            config.version = VERSION;
+                            config.array_type = 0x01; // 0x00: Rect, 0x01: Hex
+                            config.array_size = ARRAY_SIZE;
+                            config.num_transducer = NUM_TRANSDUCER;
+                            config.transducer_size = TRANSDUCER_SIZE;
+                            config.transducer_space = TRANSDUCER_SPACING;
                             
-                            // ARRAY_SIZE: int (Number of transducers along the edge of the array)
-                            uint32_t array_size = ARRAY_SIZE;
-                            memcpy(&config_data[idx], &array_size, 4);
-                            idx += 4;
-                            
-                            // NUM_TRANSDUCER: int (32-bit integer)
-                            uint32_t num_transducer = NUM_TRANSDUCER;
-                            memcpy(&config_data[idx], &num_transducer, 4);
-                            idx += 4;
-                            
-                            // TRANSDUCER_SIZE: float
-                            float transducer_size = TRANSDUCER_SIZE;
-                            memcpy(&config_data[idx], &transducer_size, 4);
-                            idx += 4;
-                            
-                            // TransducerSpace: float
-                            float transducer_space = TRANSDUCER_SPACING;
-                            memcpy(&config_data[idx], &transducer_space, 4);
-                            idx += 4;
-                            
-                            Comm_Send_Response(RSP_RETURN_CONFIG, config_data, sizeof(config_data));
+                            Comm_Send_Response(RSP_RETURN_CONFIG, (uint8_t*)&config, sizeof(config));
                             break;
                         }
                         case CMD_GET_STATUS:
                         {
-                            int offset = 0;
-                            float voltage_VDDA, voltage_3V3, voltage_5V0, temperature;
-                            voltage_VDDA = Get_Voltage_VDDA();
-                            voltage_3V3 = Get_Voltage_3V3();
-                            voltage_5V0 = Get_Voltage_5V0();
-                            temperature = Get_Temperature();
-                            float loop_freq = System_Loop_Freq;
-                            uint32_t calibration_mode =  Get_Calibration_Mode();
-                            uint32_t phase_set_mode = Get_Phase_Set_Mode();
+                            device_status status;
 
-                            uint8_t response_data[37];
-
-                            memcpy(response_data + offset, &voltage_VDDA, sizeof(voltage_VDDA)); offset += sizeof(voltage_VDDA);
-                            memcpy(response_data + offset, &voltage_3V3, sizeof(voltage_3V3)); offset += sizeof(voltage_3V3);
-                            memcpy(response_data + offset, &voltage_5V0, sizeof(voltage_5V0)); offset += sizeof(voltage_5V0);
-
-                            memcpy(response_data + offset, &temperature, sizeof(temperature)); offset += sizeof(temperature);
-                            // updateDMABufferDeltaTime
-                            memcpy(response_data + offset, &updateDMABufferDeltaTime, sizeof(updateDMABufferDeltaTime)); offset += sizeof(updateDMABufferDeltaTime);
-                            memcpy(response_data + offset, &loop_freq, sizeof(loop_freq)); offset += sizeof(loop_freq);
-                            memcpy(response_data + offset, &CurrentStimulation.type, sizeof(CurrentStimulation.type)); offset += sizeof(CurrentStimulation.type);
-                            memcpy(response_data + offset, &calibration_mode, sizeof(calibration_mode)); offset += sizeof(calibration_mode);
-                            memcpy(response_data + offset, &phase_set_mode, sizeof(phase_set_mode)); offset += sizeof(phase_set_mode);
+                            status.voltage_VDDA = Get_Voltage_VDDA();
+                            status.voltage_3V3 = Get_Voltage_3V3();
+                            status.voltage_5V0 = Get_Voltage_5V0();
+                            status.temperature = Get_Temperature();
+                            status.updateDMABufferDeltaTime = updateDMABufferDeltaTime;
+                            status.loop_freq = System_Loop_Freq;
+                            status.stimulation_type = (uint8_t)CurrentStimulation.type;
+                            status.calibration_mode = Get_Calibration_Mode();
+                            status.phase_set_mode = Get_Phase_Set_Mode();
                             
-                            Comm_Send_Response(RSP_RETURN_STATUS, response_data, sizeof(response_data));
+                            Comm_Send_Response(RSP_RETURN_STATUS, (uint8_t*)&status, sizeof(status));
                             break;
                         }
                         case CMD_SET_STIMULATION:
@@ -300,7 +270,6 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
 
                                 Comm_Send_Response(RSP_SACK, NULL, 0);
                                 
-                                Update_Full_Waveform_Buffer();
                             }
                             else
                             {
@@ -319,7 +288,6 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                                 Set_Phases(phases);
                                 CurrentStimulation = EmptyStimulation;
                                 phase_set_mode = 1;
-                                Update_Full_Waveform_Buffer();
                             }
                             else
                             {

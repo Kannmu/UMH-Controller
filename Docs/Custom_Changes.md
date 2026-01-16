@@ -7,8 +7,8 @@
 3. Modify `STM32H750VBTx_FLASH.ld` file with the following content:
 
 ```c
-.dma (NOLOAD) : ALIGN(4) {
-        KEEP(*(.dma))
+  .storage_buffer (NOLOAD) : ALIGN(4) {
+        KEEP(*(.storage_buffer))
   } >RAM_D2
 ```
 

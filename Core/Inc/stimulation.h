@@ -6,12 +6,14 @@
 # define STIMULATION_PERIOD (1.0 / STIMULATION_FREQ)
 # define NUM_STIMULATION_SAMPLES (uint32_t)(TRANSDUCER_BASE_FREQ / STIMULATION_FREQ)
 
+
 typedef enum StimulationType
 {
     PointStimulation = 0,
     VibrationStimulation = 1,
     Linear = 2,
     Circular = 3,
+    TwinTrap = 4,
 }StimulationType;
 
 
@@ -36,20 +38,26 @@ typedef struct Stimulation
   float strength;     // Overall strength Coefficient, Default to 100
   float frequency;
 
-  float progress; // from 0 to 1.
-
   // Cached Values (Internal Use)
   uint32_t cached_period_us;
-  float cached_u[3];
-  float cached_v[3];
+  float cached_circular_u[3];
+  float cached_circular_v[3];
+
 }Stimulation;
 
 extern int phase_set_mode;
+
+extern int demo_mode;
 
 extern Stimulation CurrentStimulation;
 
 extern Stimulation EmptyStimulation;
 
+extern const Stimulation *DemoStimulations[];
+
+void Switch_Demo_Mode(void);
+int Get_Demo_Mode(void);
+
 int Get_Phase_Set_Mode(void);
-void Set_Stimulation(Stimulation *stimulation);
+void Set_Stimulation(const Stimulation *stimulation);
 void Update_Stimulation_State(float progress);

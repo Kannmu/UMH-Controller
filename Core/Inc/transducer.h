@@ -50,6 +50,7 @@ void Enter_Calibration_Mode(void);
 void Load_Calib_to_Transducers(void);
 
 void Set_Point_Focus(float *position);
+void Set_Twin_Trap_Focus(float *position);
 void Set_Phases(float phases[]);
 void Set_Plane_Wave(void);
 

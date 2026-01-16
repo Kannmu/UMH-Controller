@@ -4,24 +4,16 @@
 #include "calibration.h"
 #include "stimulation.h"
 
-extern int led0_state;
-
 const float GPIO_Group_Output_Offset[DMA_CHANNELS] = {0U, 0.06, 0.09, 0.16, 0.12};
 
 const uint16_t half_period = WAVEFORM_BUFFER_SIZE / 2;
 
 const uint16_t BufferGapPerMicroseconds = ((float)(1e-6) / TIME_GAP_PER_DMA_BUFFER_BIT);
 
-
 DMA_HandleTypeDef *DMA_Stream_Handles[DMA_CHANNELS];
 
 __ALIGNED(32)
-uint16_t Waveform_Storage[DMA_CHANNELS][NUM_STIMULATION_SAMPLES][WAVEFORM_BUFFER_SIZE] __attribute__((section(".ram_d1_data")));
-
-__ALIGNED(32)
-uint16_t Waveform_Play_Buffer[DMA_CHANNELS][PLAY_BUFFER_SAMPLES][WAVEFORM_BUFFER_SIZE] __attribute__((section(".dma")));
-
-MDMA_HandleTypeDef hmdma[DMA_CHANNELS];
+uint16_t Waveform_Storage[DMA_CHANNELS][NUM_STIMULATION_SAMPLES][WAVEFORM_BUFFER_SIZE] __attribute__((section(".storage_buffer")));
 
 extern TIM_HandleTypeDef htim1;
 
@@ -30,16 +22,8 @@ static uint16_t Group_Offset_Ticks[DMA_CHANNELS];
 static Transducer *TransducersByPort[DMA_CHANNELS][NUM_TRANSDUCER];
 static int TransducersByPortCount[DMA_CHANNELS];
 
-static void MDMA_Config(void);
-static void DMA_HalfTransferComplete(DMA_HandleTypeDef *hdma);
-static void DMA_TransferComplete(DMA_HandleTypeDef *hdma);
-
-volatile uint32_t storage_load_index = 0;
-
 void DMA_Init()
 {
-    MDMA_Config();
-
     DMA_Stream_Handles[0] = &hdma_memtomem_dma1_stream0;
     DMA_Stream_Handles[1] = &hdma_memtomem_dma1_stream1;
     DMA_Stream_Handles[2] = &hdma_memtomem_dma1_stream2;
@@ -65,136 +49,63 @@ void DMA_Init()
     Clean_DMABuffer();
     Update_Full_Waveform_Buffer();
 
-    // Initial Fill of Play Buffer (First PLAY_BUFFER_SAMPLES)
-    // Storage has NUM_STIMULATION_SAMPLES (200). Play Buffer has PLAY_BUFFER_SAMPLES (100).
-    // Copy first 100 samples.
-    for (int i = 0; i < DMA_CHANNELS; i++)
-    {
-        HAL_MDMA_Start(&hmdma[i], 
-                       (uint32_t)&Waveform_Storage[i][0][0], 
-                       (uint32_t)&Waveform_Play_Buffer[i][0][0], 
-                       PLAY_BUFFER_SAMPLES * WAVEFORM_BUFFER_SIZE * 2,
-                       1);
-        HAL_MDMA_PollForTransfer(&hmdma[i], HAL_MDMA_FULL_TRANSFER, 100);
-    }
-    
-    // Initialize storage_load_index for next load
-    storage_load_index = PLAY_BUFFER_SAMPLES; 
-    if (storage_load_index >= NUM_STIMULATION_SAMPLES) storage_load_index = 0;
-
     Start_DMAs();
-}
-
-static void MDMA_Config(void)
-{
-    __HAL_RCC_MDMA_CLK_ENABLE();
-
-    for (int i = 0; i < DMA_CHANNELS; i++)
-    {
-        hmdma[i].Instance = (MDMA_Channel_TypeDef *)(MDMA_Channel0_BASE + (i * 0x40));
-        hmdma[i].Init.Request = MDMA_REQUEST_SW;
-        hmdma[i].Init.TransferTriggerMode = MDMA_BUFFER_TRANSFER;
-        hmdma[i].Init.Priority = MDMA_PRIORITY_HIGH;
-        hmdma[i].Init.Endianness = MDMA_LITTLE_ENDIANNESS_PRESERVE;
-        hmdma[i].Init.SourceInc = MDMA_SRC_INC_HALFWORD;
-        hmdma[i].Init.DestinationInc = MDMA_DEST_INC_HALFWORD;
-        hmdma[i].Init.SourceDataSize = MDMA_SRC_DATASIZE_HALFWORD;
-        hmdma[i].Init.DestDataSize = MDMA_DEST_DATASIZE_HALFWORD;
-        hmdma[i].Init.DataAlignment = MDMA_DATAALIGN_PACKENABLE;
-        hmdma[i].Init.BufferTransferLength = PLAY_BUFFER_HALF_SAMPLES * WAVEFORM_BUFFER_SIZE * 2; // Default length
-        hmdma[i].Init.SourceBurst = MDMA_SOURCE_BURST_SINGLE;
-        hmdma[i].Init.DestBurst = MDMA_DEST_BURST_SINGLE;
-        hmdma[i].Init.SourceBlockAddressOffset = 0;
-        hmdma[i].Init.DestBlockAddressOffset = 0;
-
-        if (HAL_MDMA_Init(&hmdma[i]) != HAL_OK)
-        {
-            Error_Handler();
-        }
-    }
 }
 
 void Start_DMAs()
 {
-    uint32_t total_length = PLAY_BUFFER_SAMPLES * WAVEFORM_BUFFER_SIZE;
-
-    // Register Callbacks for Stream 0
-    hdma_memtomem_dma1_stream0.XferHalfCpltCallback = DMA_HalfTransferComplete;
-    hdma_memtomem_dma1_stream0.XferCpltCallback = DMA_TransferComplete;
-
-    // Stream 0: Start with IT
-    HAL_DMA_Start_IT(&hdma_memtomem_dma1_stream0, (uint32_t)(Waveform_Play_Buffer[0]), (uint32_t)(&(GPIOA->ODR)), total_length);
+    uint32_t total_length = NUM_STIMULATION_SAMPLES * WAVEFORM_BUFFER_SIZE;
     
-    // Enable NVIC for Stream 0
-    HAL_NVIC_SetPriority(DMA1_Stream0_IRQn, 0, 0);
-    HAL_NVIC_EnableIRQ(DMA1_Stream0_IRQn);
+    // Output Registers for each channel
+    uint32_t *dest_addrs[DMA_CHANNELS] = {
+        (uint32_t *)(&(GPIOA->ODR)),
+        (uint32_t *)(&(GPIOB->ODR)),
+        (uint32_t *)(&(GPIOC->ODR)),
+        (uint32_t *)(&(GPIOD->ODR)),
+        (uint32_t *)(&(GPIOE->ODR))
+    };
 
-    // Others: Start Normal
-    HAL_DMA_Start(&hdma_memtomem_dma1_stream1, (uint32_t)(Waveform_Play_Buffer[1]), (uint32_t)(&(GPIOB->ODR)), total_length);
-    HAL_DMA_Start(&hdma_memtomem_dma1_stream2, (uint32_t)(Waveform_Play_Buffer[2]), (uint32_t)(&(GPIOC->ODR)), total_length);
-    HAL_DMA_Start(&hdma_memtomem_dma2_stream0, (uint32_t)(Waveform_Play_Buffer[3]), (uint32_t)(&(GPIOD->ODR)), total_length);
-    HAL_DMA_Start(&hdma_memtomem_dma2_stream1, (uint32_t)(Waveform_Play_Buffer[4]), (uint32_t)(&(GPIOE->ODR)), total_length);
+    for (int i = 0; i < DMA_CHANNELS; i++)
+    {
+        // Ensure Circular Mode is enabled for continuous playback
+        DMA_Stream_Handles[i]->Init.Mode = DMA_CIRCULAR;
+        
+        // Re-initialize the DMA with the new mode
+        if (HAL_DMA_Init(DMA_Stream_Handles[i]) != HAL_OK)
+        {
+             Error_Handler();
+        }
 
+        // Start DMA in Circular Mode directly from Storage Buffer
+        if (HAL_DMA_Start(DMA_Stream_Handles[i], 
+                      (uint32_t)&Waveform_Storage[i][0][0], 
+                      (uint32_t)dest_addrs[i], 
+                      total_length) != HAL_OK)
+        {
+            Error_Handler();
+        }
+    }
+
+    // Enable TIM1 DMA triggers
     __HAL_TIM_ENABLE_DMA(&htim1, TIM_DMA_UPDATE);
     __HAL_TIM_ENABLE_DMA(&htim1, TIM_DMA_CC1);
     __HAL_TIM_ENABLE_DMA(&htim1, TIM_DMA_CC2);
     __HAL_TIM_ENABLE_DMA(&htim1, TIM_DMA_CC3);
     __HAL_TIM_ENABLE_DMA(&htim1, TIM_DMA_CC4);
 
+    // Start TIM1 Output Compare channels
     HAL_TIM_OC_Start(&htim1, TIM_CHANNEL_1);
     HAL_TIM_OC_Start(&htim1, TIM_CHANNEL_2);
     HAL_TIM_OC_Start(&htim1, TIM_CHANNEL_3);
     HAL_TIM_OC_Start(&htim1, TIM_CHANNEL_4);
 
+    // Start TIM1
     HAL_TIM_Base_Start(&htim1);
-}
-
-static void DMA_HalfTransferComplete(DMA_HandleTypeDef *hdma)
-{
-    // First Half Finished Reading. We can overwrite First Half.
-    // Copy NEXT chunk from Storage to Play_Buffer[0..HALF-1]
-    
-    for (int i = 0; i < DMA_CHANNELS; i++)
-    {
-        HAL_MDMA_Start(&hmdma[i], 
-                       (uint32_t)&Waveform_Storage[i][storage_load_index][0], 
-                       (uint32_t)&Waveform_Play_Buffer[i][0][0], 
-                       PLAY_BUFFER_HALF_SAMPLES * WAVEFORM_BUFFER_SIZE * 2,
-                       1);
-    }
-
-    storage_load_index += PLAY_BUFFER_HALF_SAMPLES;
-    if (storage_load_index >= NUM_STIMULATION_SAMPLES) storage_load_index = 0;
-}
-
-static void DMA_TransferComplete(DMA_HandleTypeDef *hdma)
-{
-    // Second Half Finished Reading. We can overwrite Second Half.
-    // Copy NEXT chunk from Storage to Play_Buffer[HALF..FULL-1]
-
-    for (int i = 0; i < DMA_CHANNELS; i++)
-    {
-        HAL_MDMA_Start(&hmdma[i], 
-                       (uint32_t)&Waveform_Storage[i][storage_load_index][0], 
-                       (uint32_t)&Waveform_Play_Buffer[i][PLAY_BUFFER_HALF_SAMPLES][0], 
-                       PLAY_BUFFER_HALF_SAMPLES * WAVEFORM_BUFFER_SIZE * 2,
-                       1);
-    }
-
-    storage_load_index += PLAY_BUFFER_HALF_SAMPLES;
-    if (storage_load_index >= NUM_STIMULATION_SAMPLES) storage_load_index = 0;
-}
-
-void DMA1_Stream0_IRQHandler(void)
-{
-    HAL_DMA_IRQHandler(&hdma_memtomem_dma1_stream0);
 }
 
 void Update_Full_Waveform_Buffer()
 {
     // Temporary arrays for Channel-Slice processing
-    // Defined static or on stack? Stack is safer for reentrancy but this is large.
-    // 200 * 2 = 400 bytes. Stack is fine.
     uint16_t turn_on[WAVEFORM_BUFFER_SIZE];
     uint16_t turn_off[WAVEFORM_BUFFER_SIZE];
 
@@ -205,19 +116,16 @@ void Update_Full_Waveform_Buffer()
     for (int s = 0; s < NUM_STIMULATION_SAMPLES; s++)
     {
         float progress = (float)s / (float)NUM_STIMULATION_SAMPLES;
-        
+
         // Update Transducer State for this time slice
         Update_Stimulation_State(progress);
 
         // Pre-calculate LED Mask (Port 0)
-        uint16_t led_mask = 0;
-        if (!led0_state)
-            led_mask |= LED0_Pin;
-        if (!Get_Calibration_Mode())
-            led_mask |= LED1_Pin;
-        if (!Get_Phase_Set_Mode())
-            led_mask |= LED2_Pin;
-
+        // Note: With single buffer circular mode, this mask is fixed at generation time.
+        // Dynamic blinking based on 'led0_ticks' during playback is not supported 
+        // without re-generating the buffer or using a separate mechanism.
+        uint16_t led_mask = Get_Current_LED_Mask();
+        
         // Channel-Slice Loop
         for (int p = 0; p < DMA_CHANNELS; p++)
         {
@@ -351,5 +259,32 @@ void Update_Full_Waveform_Buffer()
 void Clean_DMABuffer()
 {
     memset(Waveform_Storage, 0x0000, sizeof(Waveform_Storage));
-    memset(Waveform_Play_Buffer, 0x0000, sizeof(Waveform_Play_Buffer));
+}
+
+void DMA_Update_LED_State(uint16_t led_mask)
+{
+    // LED Pins on Port A (Channel 0)
+    // LED0: PA10, LED1: PA9, LED2: PA8
+    const uint16_t LED_MASK_BITS = LED0_Pin | LED1_Pin | LED2_Pin;
+    
+    // We only touch Channel 0 (Port A)
+    // Waveform_Storage is [DMA_CHANNELS][NUM_STIMULATION_SAMPLES][WAVEFORM_BUFFER_SIZE]
+    // Accessing Channel 0
+    
+    // Optimize: Pre-calculate the masked value
+    // Note: If the bit in led_mask is 1, it means LED OFF (Active Low)
+    // If the bit in led_mask is 0, it means LED ON
+    uint16_t led_bits = led_mask & LED_MASK_BITS;
+
+    // Iterate over all samples for Channel 0
+    for (int s = 0; s < NUM_STIMULATION_SAMPLES; s++)
+    {
+        uint16_t *buffer_ptr = Waveform_Storage[0][s];
+        for (int i = 0; i < WAVEFORM_BUFFER_SIZE; i++)
+        {
+            // Read-Modify-Write
+            // Preserve other bits (Transducers), replace LED bits
+            buffer_ptr[i] = (buffer_ptr[i] & ~LED_MASK_BITS) | led_bits;
+        }
+    }
 }

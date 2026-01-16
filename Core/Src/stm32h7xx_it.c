@@ -94,10 +94,11 @@ void HardFault_Handler(void)
   while (1)
   {
     /* USER CODE BEGIN W1_HardFault_IRQn 0 */
-    Toggle_LED_State(LED0_Pin);
-    Toggle_LED_State(LED1_Pin);
-    Toggle_LED_State(LED2_Pin);
-    HAL_Delay(500);
+    HAL_DMA_Abort(&hdma_memtomem_dma1_stream0);
+    HAL_GPIO_TogglePin(LED0_GPIO_Port, LED0_Pin);
+    HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin);
+    HAL_GPIO_TogglePin(LED2_GPIO_Port, LED2_Pin);
+    for(volatile int i=0; i<10000000; i++); 
     /* USER CODE END W1_HardFault_IRQn 0 */
   }
 }
@@ -192,8 +193,7 @@ void PendSV_Handler(void)
 void SysTick_Handler(void)
 {
   /* USER CODE BEGIN SysTick_IRQn 0 */
-  led0_ticks++;
-  stm_test_ticks++;
+  // led0_ticks++;
   
   // CalculateFPS();
   /* USER CODE END SysTick_IRQn 0 */

@@ -45,7 +45,7 @@ void Transducer_Init(void)
         TransducerArray[i].pin = map_pin_name_to_pin_number(TransducerPins[i]);
         TransducerArray[i].calib = Transducer_Calibration_Array[i] * BufferGapPerMicroseconds;
 
-        if (i < 60)
+        if (i < NUM_TRANSDUCER-1)
         {
             int r = 0, k = i;
             for (r = 0; r < 9; r++)
@@ -107,6 +107,28 @@ void Set_Point_Focus(float *position)
 
         // Distance to Phase
         TransducerArray[i].phase = Distance_to_Phase(TransducerArray[i].distance);
+
+        // Phase to Gap Ticks
+        TransducerArray[i].shift_buffer_bits = Phase_to_Gap_Ticks(TransducerArray[i].phase);
+    }
+}
+
+void Set_Twin_Trap_Focus(float *position)
+{
+    int half_count = (NUM_TRANSDUCER - 1) / 2;
+    for (int i = 0; i < NUM_TRANSDUCER - 1; i++)
+    {
+        // 1. Focusing Lens Phase
+        TransducerArray[i].distance = Euler_Distance(TransducerArray[i].position3D, position);
+        float phi_focus = Distance_to_Phase(TransducerArray[i].distance);
+
+        // 2. Twin Signature
+        // Split array into two halves: first half gets 0 phase, second half gets PI phase
+        float phi_twin = (i < half_count) ? 0.0f : (float)M_PI;
+
+        // 3. Final Phase
+        // Sum the phases and take modulo 2*PI
+        TransducerArray[i].phase = fmod(phi_focus + phi_twin, 2.0 * M_PI);
 
         // Phase to Gap Ticks
         TransducerArray[i].shift_buffer_bits = Phase_to_Gap_Ticks(TransducerArray[i].phase);

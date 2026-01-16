@@ -61,6 +61,30 @@ typedef struct {
     uint8_t calculated_checksum;
 } rx_buffer_t;
 
+
+typedef struct __attribute__((packed)) {
+    char serial_number[12];
+    uint32_t version;
+    uint8_t array_type;
+    uint32_t array_size;
+    uint32_t num_transducer;
+    float transducer_size;
+    float transducer_space;
+} device_config;
+
+typedef struct __attribute__((packed)) {
+    float voltage_VDDA;
+    float voltage_3V3;
+    float voltage_5V0;
+    float temperature;
+    double updateDMABufferDeltaTime;
+    float loop_freq;
+    uint8_t stimulation_type;
+    uint32_t calibration_mode;
+    uint32_t phase_set_mode;
+} device_status;
+
+
 // 函数声明
 void Comm_Init(void);
 void Comm_Process_Received_Data(uint8_t* data, uint32_t length);
