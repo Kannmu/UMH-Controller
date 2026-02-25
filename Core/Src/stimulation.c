@@ -15,13 +15,12 @@ Stimulation CurrentStimulation = {
     .strength = 100,
     .startPoint = {0.0f, 0.0f, 0.1f},
     .endPoint = {0.0f, 0.0f, 0.1f},
-    .centerPoint = {0.0f, 0.0f, 0.1f},
     .normalVector = {0.0f, 0.0f, 0.0f},
     .radius = 0.0f,
     .frequency = 200.0f,
     .cached_period_us = 0,
-    .cached_circular_u = {0.0f, 0.0f, 0.0f},
-    .cached_circular_v = {0.0f, 0.0f, 0.0f},
+    .cached_circ_u = {0.0f, 0.0f, 0.0f},
+    .cached_circ_v = {0.0f, 0.0f, 0.0f},
 };
 
 Stimulation EmptyStimulation = {
@@ -30,58 +29,54 @@ Stimulation EmptyStimulation = {
     .strength = 0,
     .startPoint = {0.0f, 0.0f, 0.1f},
     .endPoint = {0.0f, 0.0f, 0.1f},
-    .centerPoint = {0.0f, 0.0f, 0.1f},
     .normalVector = {0.0f, 0.0f, 0.0f},
     .radius = 0.0f,
     .frequency = 0.0f,
     .cached_period_us = 0,
-    .cached_circular_u = {0.0f, 0.0f, 0.0f},
-    .cached_circular_v = {0.0f, 0.0f, 0.0f},
+    .cached_circ_u = {0.0f, 0.0f, 0.0f},
+    .cached_circ_v = {0.0f, 0.0f, 0.0f},
 };
 
 const Stimulation DemoPointStimulation = {
     .type = PointStimulation,
     .position = {0.0f, 0.0f, 0.1f},
     .strength = 100,
-    .startPoint = {0.0f, 0.0f, 0.1f},  
+    .startPoint = {0.0f, 0.0f, 0.1f},
     .endPoint = {0.0f, 0.0f, 0.1f},
-    .centerPoint = {0.0f, 0.0f, 0.1f},
     .normalVector = {0.0f, 0.0f, 1.0f},
     .radius = 0.0f,
     .frequency = 200.0f,
     .cached_period_us = 0,
-    .cached_circular_u = {0.0f, 0.0f, 0.0f},
-    .cached_circular_v = {0.0f, 0.0f, 0.0f},
+    .cached_circ_u = {0.0f, 0.0f, 0.0f},
+    .cached_circ_v = {0.0f, 0.0f, 0.0f},
 };
 
 const Stimulation DemoVibrationStimulation = {
     .type = VibrationStimulation,
     .position = {0.0f, 0.0f, 0.1f},
     .strength = 100,
-    .startPoint = {0.0f, 0.01f, 0.1f},
-    .endPoint = {0.0f, -0.01f, 0.1f},
-    .centerPoint = {0.0f, 0.0f, 0.1f},
+    .startPoint = {0.0f, 0.0125f, 0.1f},
+    .endPoint = {0.0f, -0.0125f, 0.1f},
     .normalVector = {0.0f, 0.0f, 1.0f},
     .radius = 0.0f,
     .frequency = 200.0f,
     .cached_period_us = 0,
-    .cached_circular_u = {0.0f, 0.0f, 0.0f},
-    .cached_circular_v = {0.0f, 0.0f, 0.0f},
+    .cached_circ_u = {0.0f, 0.0f, 0.0f},
+    .cached_circ_v = {0.0f, 0.0f, 0.0f},
 };
 
-const Stimulation DemoLinearStimulation = {
+const Stimulation DemoHorizontalLinearStimulation = {
     .type = Linear,
     .position = {0.0f, 0.0f, 0.1f},
     .strength = 100,
-    .startPoint = {0.0f, 0.01f, 0.1f},
-    .endPoint = {0.0f, -0.01f, 0.1f},
-    .centerPoint = {0.0f, 0.0f, 0.1f},
+    .startPoint = {0.0f, 0.0125f, 0.1f},
+    .endPoint = {0.0f, -0.0125f, 0.1f},
     .normalVector = {0.0f, 0.0f, 1.0f},
     .radius = 0.0f,
     .frequency = 200.0f,
     .cached_period_us = 0,
-    .cached_circular_u = {0.0f, 0.0f, 0.0f},
-    .cached_circular_v = {0.0f, 0.0f, 0.0f},
+    .cached_circ_u = {0.0f, 0.0f, 0.0f},
+    .cached_circ_v = {0.0f, 0.0f, 0.0f},
 };
 
 const Stimulation DemoCircularStimulation = {
@@ -90,13 +85,12 @@ const Stimulation DemoCircularStimulation = {
     .strength = 100,
     .startPoint = {0.0f, 0.0f, 0.1f},
     .endPoint = {0.0f, 0.0f, 0.1f},
-    .centerPoint = {0.0f, 0.0f, 0.1f},
     .normalVector = {0.0f, 0.0f, 1.0f},
-    .radius = 0.01f,
+    .radius = 0.02f,
     .frequency = 200.0f,
     .cached_period_us = 0,
-    .cached_circular_u = {0.0f, 0.0f, 0.0f},
-    .cached_circular_v = {0.0f, 0.0f, 0.0f},
+    .cached_circ_u = {0.0f, 0.0f, 0.0f},
+    .cached_circ_v = {0.0f, 0.0f, 0.0f},
 };
 
 const Stimulation DemoTwinTrapStimulation = {
@@ -105,33 +99,29 @@ const Stimulation DemoTwinTrapStimulation = {
     .strength = 100,
     .startPoint = {0.0f, 0.00f, 0.1f},
     .endPoint = {0.0f, 0.00f, 0.1f},
-    .centerPoint = {0.0f, 0.0f, 0.1f},
     .normalVector = {0.0f, 0.0f, 1.0f},
     .radius = 0.0f,
     .frequency = 200.0f,
     .cached_period_us = 0,
-    .cached_circular_u = {0.0f, 0.0f, 0.0f},
-    .cached_circular_v = {0.0f, 0.0f, 0.0f},
+    .cached_circ_u = {0.0f, 0.0f, 0.0f},
+    .cached_circ_v = {0.0f, 0.0f, 0.0f},
 };
 
-const Stimulation DemoRUSTStimulation = {
-
-
-};
 
 
 const Stimulation *DemoStimulations[] = {
-    &CurrentStimulation,
-    &DemoPointStimulation,
+    // &CurrentStimulation,
+    // &DemoPointStimulation,
+    // &DemoTwinTrapStimulation,
     &DemoVibrationStimulation,
-    &DemoLinearStimulation,
+    &DemoHorizontalLinearStimulation,
     &DemoCircularStimulation,
-    &DemoTwinTrapStimulation,
 };
 
 void Switch_Demo_Mode()
 {
-    if(Get_Calibration_Mode()) return;
+    if (Get_Calibration_Mode())
+        return;
 
     static GPIO_PinState debouncedState = GPIO_PIN_SET;
     static GPIO_PinState lastRawState = GPIO_PIN_SET;
@@ -162,19 +152,26 @@ void Switch_Demo_Mode()
 
 static int Is_Stimulation_Param_Equal(const Stimulation *s1, const Stimulation *s2)
 {
-    if (s1->type != s2->type) return 0;
+    if (s1->type != s2->type)
+        return 0;
 
     // Compare scalar parameters
-    if (s1->strength != s2->strength) return 0;
-    if (s1->frequency != s2->frequency) return 0;
-    if (s1->radius != s2->radius) return 0;
+    if (s1->strength != s2->strength)
+        return 0;
+    if (s1->frequency != s2->frequency)
+        return 0;
+    if (s1->radius != s2->radius)
+        return 0;
 
     // Compare vector parameters
-    if (memcmp(s1->position, s2->position, sizeof(s1->position)) != 0) return 0;
-    if (memcmp(s1->startPoint, s2->startPoint, sizeof(s1->startPoint)) != 0) return 0;
-    if (memcmp(s1->endPoint, s2->endPoint, sizeof(s1->endPoint)) != 0) return 0;
-    if (memcmp(s1->centerPoint, s2->centerPoint, sizeof(s1->centerPoint)) != 0) return 0;
-    if (memcmp(s1->normalVector, s2->normalVector, sizeof(s1->normalVector)) != 0) return 0;
+    if (memcmp(s1->position, s2->position, sizeof(s1->position)) != 0)
+        return 0;
+    if (memcmp(s1->startPoint, s2->startPoint, sizeof(s1->startPoint)) != 0)
+        return 0;
+    if (memcmp(s1->endPoint, s2->endPoint, sizeof(s1->endPoint)) != 0)
+        return 0;
+    if (memcmp(s1->normalVector, s2->normalVector, sizeof(s1->normalVector)) != 0)
+        return 0;
 
     return 1;
 }
@@ -201,44 +198,42 @@ void Set_Stimulation(const Stimulation *stimulation)
     // Pre-calculate Circular vectors
     switch (CurrentStimulation.type)
     {
-        case PointStimulation:
-            break;
-        case VibrationStimulation:
-            break;
-        case Linear:
-            break;
-        case Circular:
+    case PointStimulation:
+        break;
+    case VibrationStimulation:
+        break;
+    case Linear:
+        break;
+    case Circular:
+    {
+        float n[3] = {CurrentStimulation.normalVector[0], CurrentStimulation.normalVector[1], CurrentStimulation.normalVector[2]};
+        Vector3Normalize(n);
+
+        float t_vec[3];
+        if (fabsf(n[0]) < 0.9f)
         {
-            float n[3] = {CurrentStimulation.normalVector[0], CurrentStimulation.normalVector[1], CurrentStimulation.normalVector[2]};
-            Vector3Normalize(n);
-
-            float t_vec[3];
-            if (fabsf(n[0]) < 0.9f)
-            {
-                t_vec[0] = 1.0f;
-                t_vec[1] = 0.0f;
-                t_vec[2] = 0.0f;
-            }
-            else
-            {
-                t_vec[0] = 0.0f;
-                t_vec[1] = 1.0f;
-                t_vec[2] = 0.0f;
-            }
-
-            Vector3Cross(CurrentStimulation.cached_circular_u, t_vec, n);
-            Vector3Normalize(CurrentStimulation.cached_circular_u);
-            Vector3Cross(CurrentStimulation.cached_circular_v, n, CurrentStimulation.cached_circular_u);
-            break;
+            t_vec[0] = 1.0f;
+            t_vec[1] = 0.0f;
+            t_vec[2] = 0.0f;
         }
-        default:
-            break;
+        else
+        {
+            t_vec[0] = 0.0f;
+            t_vec[1] = 1.0f;
+            t_vec[2] = 0.0f;
+        }
+
+        Vector3Cross(CurrentStimulation.cached_circ_u, t_vec, n);
+        Vector3Normalize(CurrentStimulation.cached_circ_u);
+        Vector3Cross(CurrentStimulation.cached_circ_v, n, CurrentStimulation.cached_circ_u);
+        break;
     }
-    
+    default:
+        break;
+    }
+
     Update_Full_Waveform_Buffer();
 }
-
-
 
 void Update_Stimulation_State(float progress)
 {
@@ -279,9 +274,9 @@ void Update_Stimulation_State(float progress)
 
         float circularPosition[3];
         // Use cached u and v vectors
-        circularPosition[0] = CurrentStimulation.centerPoint[0] + CurrentStimulation.radius * (cos_a * CurrentStimulation.cached_circular_u[0] + sin_a * CurrentStimulation.cached_circular_v[0]);
-        circularPosition[1] = CurrentStimulation.centerPoint[1] + CurrentStimulation.radius * (cos_a * CurrentStimulation.cached_circular_u[1] + sin_a * CurrentStimulation.cached_circular_v[1]);
-        circularPosition[2] = CurrentStimulation.centerPoint[2] + CurrentStimulation.radius * (cos_a * CurrentStimulation.cached_circular_u[2] + sin_a * CurrentStimulation.cached_circular_v[2]);
+        circularPosition[0] = CurrentStimulation.position[0] + CurrentStimulation.radius * (cos_a * CurrentStimulation.cached_circ_u[0] + sin_a * CurrentStimulation.cached_circ_v[0]);
+        circularPosition[1] = CurrentStimulation.position[1] + CurrentStimulation.radius * (cos_a * CurrentStimulation.cached_circ_u[1] + sin_a * CurrentStimulation.cached_circ_v[1]);
+        circularPosition[2] = CurrentStimulation.position[2] + CurrentStimulation.radius * (cos_a * CurrentStimulation.cached_circ_u[2] + sin_a * CurrentStimulation.cached_circ_v[2]);
 
         Set_Point_Focus(circularPosition);
         break;

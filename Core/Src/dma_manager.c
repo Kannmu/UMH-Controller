@@ -55,32 +55,31 @@ void DMA_Init()
 void Start_DMAs()
 {
     uint32_t total_length = NUM_STIMULATION_SAMPLES * WAVEFORM_BUFFER_SIZE;
-    
+
     // Output Registers for each channel
     uint32_t *dest_addrs[DMA_CHANNELS] = {
         (uint32_t *)(&(GPIOA->ODR)),
         (uint32_t *)(&(GPIOB->ODR)),
         (uint32_t *)(&(GPIOC->ODR)),
         (uint32_t *)(&(GPIOD->ODR)),
-        (uint32_t *)(&(GPIOE->ODR))
-    };
+        (uint32_t *)(&(GPIOE->ODR))};
 
     for (int i = 0; i < DMA_CHANNELS; i++)
     {
         // Ensure Circular Mode is enabled for continuous playback
         DMA_Stream_Handles[i]->Init.Mode = DMA_CIRCULAR;
-        
+
         // Re-initialize the DMA with the new mode
         if (HAL_DMA_Init(DMA_Stream_Handles[i]) != HAL_OK)
         {
-             Error_Handler();
+            Error_Handler();
         }
 
         // Start DMA in Circular Mode directly from Storage Buffer
-        if (HAL_DMA_Start(DMA_Stream_Handles[i], 
-                      (uint32_t)&Waveform_Storage[i][0][0], 
-                      (uint32_t)dest_addrs[i], 
-                      total_length) != HAL_OK)
+        if (HAL_DMA_Start(DMA_Stream_Handles[i],
+                          (uint32_t)&Waveform_Storage[i][0][0],
+                          (uint32_t)dest_addrs[i],
+                          total_length) != HAL_OK)
         {
             Error_Handler();
         }
@@ -122,10 +121,10 @@ void Update_Full_Waveform_Buffer()
 
         // Pre-calculate LED Mask (Port 0)
         // Note: With single buffer circular mode, this mask is fixed at generation time.
-        // Dynamic blinking based on 'led0_ticks' during playback is not supported 
+        // Dynamic blinking based on 'led0_ticks' during playback is not supported
         // without re-generating the buffer or using a separate mechanism.
         uint16_t led_mask = Get_Current_LED_Mask();
-        
+
         // Channel-Slice Loop
         for (int p = 0; p < DMA_CHANNELS; p++)
         {
@@ -266,11 +265,11 @@ void DMA_Update_LED_State(uint16_t led_mask)
     // LED Pins on Port A (Channel 0)
     // LED0: PA10, LED1: PA9, LED2: PA8
     const uint16_t LED_MASK_BITS = LED0_Pin | LED1_Pin | LED2_Pin;
-    
+
     // We only touch Channel 0 (Port A)
     // Waveform_Storage is [DMA_CHANNELS][NUM_STIMULATION_SAMPLES][WAVEFORM_BUFFER_SIZE]
     // Accessing Channel 0
-    
+
     // Optimize: Pre-calculate the masked value
     // Note: If the bit in led_mask is 1, it means LED OFF (Active Low)
     // If the bit in led_mask is 0, it means LED ON

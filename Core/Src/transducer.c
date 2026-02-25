@@ -115,19 +115,16 @@ void Set_Point_Focus(float *position)
 
 void Set_Twin_Trap_Focus(float *position)
 {
-    int half_count = (NUM_TRANSDUCER - 1) / 2;
     for (int i = 0; i < NUM_TRANSDUCER - 1; i++)
     {
         // 1. Focusing Lens Phase
         TransducerArray[i].distance = Euler_Distance(TransducerArray[i].position3D, position);
         float phi_focus = Distance_to_Phase(TransducerArray[i].distance);
 
-        // 2. Twin Signature
-        // Split array into two halves: first half gets 0 phase, second half gets PI phase
-        float phi_twin = (i < half_count) ? 0.0f : (float)M_PI;
+        // 2. Twin Signature (基于几何位置分割)
+        float phi_twin = (TransducerArray[i].position3D[1] > 0) ? 0.0f : (float)M_PI;
 
         // 3. Final Phase
-        // Sum the phases and take modulo 2*PI
         TransducerArray[i].phase = fmod(phi_focus + phi_twin, 2.0 * M_PI);
 
         // Phase to Gap Ticks

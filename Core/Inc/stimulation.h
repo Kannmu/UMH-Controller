@@ -30,7 +30,6 @@ typedef struct Stimulation
   float endPoint[3]; // End Point for Vibration
   
   // Circular Stimulation Parameters
-  float centerPoint[3]; // Center Point for Circular Stimulation. In Meters.
   float normalVector[3]; // Normal Vector for Circular Stimulation. In Meters.
   float radius; // Radius for Circular Stimulation. In Meters.
 
@@ -40,8 +39,8 @@ typedef struct Stimulation
 
   // Cached Values (Internal Use)
   uint32_t cached_period_us;
-  float cached_circular_u[3];
-  float cached_circular_v[3];
+  float cached_circ_u[3]; // For Circular and CSF Stimulation
+  float cached_circ_v[3]; // For Circular and CSF Stimulation
 
 }Stimulation;
 

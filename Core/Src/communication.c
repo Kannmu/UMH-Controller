@@ -249,9 +249,6 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                                     memcpy(&stimulation.endPoint[2], &pData[offset], 4); offset += 4;
                                     break;
                                 case Circular:
-                                    memcpy(&stimulation.centerPoint[0], &pData[offset], 4); offset += 4;
-                                    memcpy(&stimulation.centerPoint[1], &pData[offset], 4); offset += 4;
-                                    memcpy(&stimulation.centerPoint[2], &pData[offset], 4); offset += 4;
                                     memcpy(&stimulation.normalVector[0], &pData[offset], 4); offset += 4;
                                     memcpy(&stimulation.normalVector[1], &pData[offset], 4); offset += 4;
                                     memcpy(&stimulation.normalVector[2], &pData[offset], 4); offset += 4;
