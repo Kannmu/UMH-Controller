@@ -177,7 +177,26 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                     // 处理完整的帧
                     switch (rx_buffer.frame.cmd_type) {
                         case CMD_ENABLE_DISABLE:
+                        {
+                            if (rx_buffer.frame.data_length >= 1)
+                            {
+                                uint8_t enable = rx_buffer.frame.data[0];
+                                if (enable)
+                                {
+                                    Stimulation_Enable();
+                                }
+                                else
+                                {
+                                    Stimulation_Disable();
+                                }
+                                Comm_Send_Response(RSP_ACK, NULL, 0);
+                            }
+                            else
+                            {
+                                Comm_Send_Response(RSP_ERROR_CODE, NULL, 0);
+                            }
                             break;
+                        }
                         case CMD_PING:
                             Comm_Handle_Ping_Command(rx_buffer.frame.data, rx_buffer.frame.data_length);
                             break;

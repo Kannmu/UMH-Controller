@@ -2,7 +2,7 @@
 # include "main.h"
 # include "transducer.h"
 
-# define STIMULATION_FREQ (250U)
+# define STIMULATION_FREQ (200U)
 # define STIMULATION_PERIOD (1.0 / STIMULATION_FREQ)
 # define NUM_STIMULATION_SAMPLES (uint32_t)(TRANSDUCER_BASE_FREQ / STIMULATION_FREQ)
 
@@ -62,5 +62,8 @@ int Get_Demo_Mode(void);
 int Get_Num_Demo_Stimulations(void);
 
 int Get_Phase_Set_Mode(void);
+int Get_Stimulation_Enabled(void);
+void Stimulation_Enable(void);
+void Stimulation_Disable(void);
 void Set_Stimulation(const Stimulation *stimulation);
 void Update_Stimulation_State(float progress);

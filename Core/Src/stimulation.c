@@ -4,8 +4,10 @@
 #include "calibration.h"
 #include "utiles.h"
 #include "custom_math.h"
+#include "dma_manager.h"
 
 int phase_set_mode = 0;
+int is_stimulation_enabled = 1;
 
 int demo_mode = -1;
 
@@ -66,7 +68,7 @@ const Stimulation DLM_2_Stimulation = {
     .endPoint = {0.0f, -0.0f, 0.1f},
     .segments = 2,
     .normalVector = {0.0f, 0.0f, 1.0f},
-    .radius = 0.0125,
+    .radius = 6.25e-3,
     .frequency = 200.0f,
     .cached_period_us = 0,
     .cached_circ_u = {0.0f, 0.0f, 0.0f},
@@ -82,7 +84,7 @@ const Stimulation DLM_3_Stimulation = {
     .endPoint = {0.0f, -0.0f, 0.1f},
     .segments = 3,
     .normalVector = {0.0f, 0.0f, 1.0f},
-    .radius = 0.025,
+    .radius = 4.81e-3,
     .frequency = 200.0f,
     .cached_period_us = 0,
     .cached_circ_u = {0.0f, 0.0f, 0.0f},
@@ -129,7 +131,7 @@ const Stimulation DemoLM_CStimulation = {
     .startPoint = {0.0f, 0.0f, 0.1f},
     .endPoint = {0.0f, 0.0f, 0.1f},
     .normalVector = {0.0f, 0.0f, 1.0f},
-    .radius = 0.025f,
+    .radius = 3.98e-3f,
     .frequency = 200.0f,
     .cached_period_us = 0,
     .cached_circ_u = {0.0f, 0.0f, 0.0f},
@@ -357,6 +359,25 @@ void Update_Stimulation_State(float progress)
     default:
         break;
     }
+}
+
+int Get_Stimulation_Enabled()
+{
+    return is_stimulation_enabled;
+}
+
+void Stimulation_Enable()
+{
+    if (is_stimulation_enabled) return;
+    is_stimulation_enabled = 1;
+    Update_Full_Waveform_Buffer();
+}
+
+void Stimulation_Disable()
+{
+    if (!is_stimulation_enabled) return;
+    is_stimulation_enabled = 0;
+    Update_Full_Waveform_Buffer();
 }
 
 int Get_Num_Demo_Stimulations()

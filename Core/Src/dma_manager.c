@@ -112,12 +112,17 @@ void Update_Full_Waveform_Buffer()
     uint16_t event_indices[NUM_TRANSDUCER * 2 + 2];
     int event_count;
 
+    int is_enabled = Get_Stimulation_Enabled();
+
     for (int s = 0; s < NUM_STIMULATION_SAMPLES; s++)
     {
         float progress = (float)s / (float)NUM_STIMULATION_SAMPLES;
 
         // Update Transducer State for this time slice
-        Update_Stimulation_State(progress);
+        if (is_enabled)
+        {
+            Update_Stimulation_State(progress);
+        }
 
         // Pre-calculate LED Mask (Port 0)
         // Note: With single buffer circular mode, this mask is fixed at generation time.
@@ -138,33 +143,36 @@ void Update_Full_Waveform_Buffer()
             uint16_t current_state = 0;
 
             // 2. Process Transducers for this Channel
-            int count = TransducersByPortCount[p];
-            for (int k = 0; k < count; k++)
+            if (is_enabled)
             {
-                Transducer *t = TransducersByPort[p][k];
-
-                // Phase Calculation
-                uint16_t phase_offset = t->calib + t->shift_buffer_bits;
-                phase_offset += Group_Offset_Ticks[p];
-                phase_offset %= WAVEFORM_BUFFER_SIZE;
-
-                uint32_t start_idx = (WAVEFORM_BUFFER_SIZE - phase_offset) % WAVEFORM_BUFFER_SIZE;
-                uint32_t end_idx = (start_idx + half_period) % WAVEFORM_BUFFER_SIZE;
-                uint16_t pin_bit = (1 << __builtin_ctz(t->pin));
-
-                // Record Events
-                if (turn_on[start_idx] == 0 && turn_off[start_idx] == 0)
-                    event_indices[event_count++] = (uint16_t)start_idx;
-                turn_on[start_idx] |= pin_bit;
-
-                if (turn_on[end_idx] == 0 && turn_off[end_idx] == 0)
-                    event_indices[event_count++] = (uint16_t)end_idx;
-                turn_off[end_idx] |= pin_bit;
-
-                // Handle Wrap-around Initial State
-                if (start_idx >= end_idx)
+                int count = TransducersByPortCount[p];
+                for (int k = 0; k < count; k++)
                 {
-                    current_state |= pin_bit;
+                    Transducer *t = TransducersByPort[p][k];
+
+                    // Phase Calculation
+                    uint16_t phase_offset = t->calib + t->shift_buffer_bits;
+                    phase_offset += Group_Offset_Ticks[p];
+                    phase_offset %= WAVEFORM_BUFFER_SIZE;
+
+                    uint32_t start_idx = (WAVEFORM_BUFFER_SIZE - phase_offset) % WAVEFORM_BUFFER_SIZE;
+                    uint32_t end_idx = (start_idx + half_period) % WAVEFORM_BUFFER_SIZE;
+                    uint16_t pin_bit = (1 << __builtin_ctz(t->pin));
+
+                    // Record Events
+                    if (turn_on[start_idx] == 0 && turn_off[start_idx] == 0)
+                        event_indices[event_count++] = (uint16_t)start_idx;
+                    turn_on[start_idx] |= pin_bit;
+
+                    if (turn_on[end_idx] == 0 && turn_off[end_idx] == 0)
+                        event_indices[event_count++] = (uint16_t)end_idx;
+                    turn_off[end_idx] |= pin_bit;
+
+                    // Handle Wrap-around Initial State
+                    if (start_idx >= end_idx)
+                    {
+                        current_state |= pin_bit;
+                    }
                 }
             }
 
