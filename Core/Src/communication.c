@@ -227,12 +227,12 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                                 StimulationType type = (StimulationType)pData[offset]; offset += 1;
                                 switch (type)
                                 {
-                                case PointStimulation:
+                                case Point:
                                     memcpy(&stimulation.position[0], &pData[offset], 4); offset += 4;
                                     memcpy(&stimulation.position[1], &pData[offset], 4); offset += 4;
                                     memcpy(&stimulation.position[2], &pData[offset], 4); offset += 4;
                                     break;
-                                case VibrationStimulation:
+                                case Discrete:
                                     memcpy(&stimulation.startPoint[0], &pData[offset], 4); offset += 4;
                                     memcpy(&stimulation.startPoint[1], &pData[offset], 4); offset += 4;
                                     memcpy(&stimulation.startPoint[2], &pData[offset], 4); offset += 4;
@@ -285,6 +285,34 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                                 Set_Phases(phases);
                                 CurrentStimulation = EmptyStimulation;
                                 phase_set_mode = 1;
+                            }
+                            else
+                            {
+                                Comm_Send_Response(RSP_ERROR_CODE, NULL, 0);
+                            }
+                            break;
+                        }
+                        case CMD_SET_DEMO:
+                        {
+                            if (rx_buffer.frame.data_length >= 1)
+                            {
+                                uint8_t index = rx_buffer.frame.data[0];
+                                int num_demos = Get_Num_Demo_Stimulations();
+
+                                if (index < num_demos)
+                                {
+                                    demo_mode = index;
+                                    Set_Stimulation(DemoStimulations[index]);
+                                    phase_set_mode = 0;
+
+                                    // Send ACK with name
+                                    const char *name = DemoStimulations[index]->name;
+                                    Comm_Send_Response(RSP_DEMO_ACK, (uint8_t *)name, strlen(name));
+                                }
+                                else
+                                {
+                                    Comm_Send_Response(RSP_ERROR_CODE, NULL, 0);
+                                }
                             }
                             else
                             {

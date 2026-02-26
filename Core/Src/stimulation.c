@@ -7,14 +7,16 @@
 
 int phase_set_mode = 0;
 
-int demo_mode = 0;
+int demo_mode = -1;
 
 Stimulation CurrentStimulation = {
-    .type = PointStimulation,
+    .name = "Current",
+    .type = Point,
     .position = {0.0f, 0.0f, 0.1f},
     .strength = 100,
     .startPoint = {0.0f, 0.0f, 0.1f},
     .endPoint = {0.0f, 0.0f, 0.1f},
+    .segments = 1,
     .normalVector = {0.0f, 0.0f, 0.0f},
     .radius = 0.0f,
     .frequency = 200.0f,
@@ -24,11 +26,13 @@ Stimulation CurrentStimulation = {
 };
 
 Stimulation EmptyStimulation = {
-    .type = PointStimulation,
+    .name = "Empty",
+    .type = Point,
     .position = {0.0f, 0.0f, 0.1f},
     .strength = 0,
     .startPoint = {0.0f, 0.0f, 0.1f},
     .endPoint = {0.0f, 0.0f, 0.1f},
+    .segments = 0,
     .normalVector = {0.0f, 0.0f, 0.0f},
     .radius = 0.0f,
     .frequency = 0.0f,
@@ -38,11 +42,13 @@ Stimulation EmptyStimulation = {
 };
 
 const Stimulation DemoPointStimulation = {
-    .type = PointStimulation,
+    .name = "Point",
+    .type = Point,
     .position = {0.0f, 0.0f, 0.1f},
     .strength = 100,
     .startPoint = {0.0f, 0.0f, 0.1f},
     .endPoint = {0.0f, 0.0f, 0.1f},
+    .segments = 1,
     .normalVector = {0.0f, 0.0f, 1.0f},
     .radius = 0.0f,
     .frequency = 200.0f,
@@ -51,26 +57,46 @@ const Stimulation DemoPointStimulation = {
     .cached_circ_v = {0.0f, 0.0f, 0.0f},
 };
 
-const Stimulation DemoVibrationStimulation = {
-    .type = VibrationStimulation,
+const Stimulation DLM_2_Stimulation = {
+    .name = "DLM_2",
+    .type = Discrete,
     .position = {0.0f, 0.0f, 0.1f},
     .strength = 100,
-    .startPoint = {0.0f, 0.0125f, 0.1f},
-    .endPoint = {0.0f, -0.0125f, 0.1f},
+    .startPoint = {0.0f, 0.0f, 0.1f},
+    .endPoint = {0.0f, -0.0f, 0.1f},
+    .segments = 2,
     .normalVector = {0.0f, 0.0f, 1.0f},
-    .radius = 0.0f,
+    .radius = 0.0125,
     .frequency = 200.0f,
     .cached_period_us = 0,
     .cached_circ_u = {0.0f, 0.0f, 0.0f},
     .cached_circ_v = {0.0f, 0.0f, 0.0f},
 };
 
-const Stimulation DemoHorizontalLinearStimulation = {
+const Stimulation DLM_3_Stimulation = {
+    .name = "DLM_3",
+    .type = Discrete,
+    .position = {0.0f, 0.0f, 0.1f},
+    .strength = 100,
+    .startPoint = {0.0f, 0.0f, 0.1f},
+    .endPoint = {0.0f, -0.0f, 0.1f},
+    .segments = 3,
+    .normalVector = {0.0f, 0.0f, 1.0f},
+    .radius = 0.025,
+    .frequency = 200.0f,
+    .cached_period_us = 0,
+    .cached_circ_u = {0.0f, 0.0f, 0.0f},
+    .cached_circ_v = {0.0f, 0.0f, 0.0f},
+};
+
+const Stimulation DemoULM_LStimulation = {
+    .name = "ULM_L",
     .type = Linear,
     .position = {0.0f, 0.0f, 0.1f},
     .strength = 100,
     .startPoint = {0.0f, 0.0125f, 0.1f},
     .endPoint = {0.0f, -0.0125f, 0.1f},
+    .segments = 1,
     .normalVector = {0.0f, 0.0f, 1.0f},
     .radius = 0.0f,
     .frequency = 200.0f,
@@ -79,14 +105,31 @@ const Stimulation DemoHorizontalLinearStimulation = {
     .cached_circ_v = {0.0f, 0.0f, 0.0f},
 };
 
-const Stimulation DemoCircularStimulation = {
+const Stimulation DemoLM_LStimulation = {
+    .name = "LM_L",
+    .type = Linear,
+    .position = {0.0f, 0.0f, 0.1f},
+    .strength = 100,
+    .startPoint = {0.0f, 6.25e-3, 0.1f},
+    .endPoint = {0.0f, -6.25e-3, 0.1f},
+    .segments = 2,
+    .normalVector = {0.0f, 0.0f, 1.0f},
+    .radius = 0.0f,
+    .frequency = 200.0f,
+    .cached_period_us = 0,
+    .cached_circ_u = {0.0f, 0.0f, 0.0f},
+    .cached_circ_v = {0.0f, 0.0f, 0.0f},
+};
+
+const Stimulation DemoLM_CStimulation = {
+    .name = "LM_C",
     .type = Circular,
     .position = {0.0f, 0.0f, 0.1f},
     .strength = 100,
     .startPoint = {0.0f, 0.0f, 0.1f},
     .endPoint = {0.0f, 0.0f, 0.1f},
     .normalVector = {0.0f, 0.0f, 1.0f},
-    .radius = 0.02f,
+    .radius = 0.025f,
     .frequency = 200.0f,
     .cached_period_us = 0,
     .cached_circ_u = {0.0f, 0.0f, 0.0f},
@@ -94,6 +137,7 @@ const Stimulation DemoCircularStimulation = {
 };
 
 const Stimulation DemoTwinTrapStimulation = {
+    .name = "TwinTrap",
     .type = TwinTrap,
     .position = {0.0f, 0.0f, 0.1f},
     .strength = 100,
@@ -107,15 +151,12 @@ const Stimulation DemoTwinTrapStimulation = {
     .cached_circ_v = {0.0f, 0.0f, 0.0f},
 };
 
-
-
 const Stimulation *DemoStimulations[] = {
-    // &CurrentStimulation,
-    // &DemoPointStimulation,
-    // &DemoTwinTrapStimulation,
-    &DemoVibrationStimulation,
-    &DemoHorizontalLinearStimulation,
-    &DemoCircularStimulation,
+    &DLM_2_Stimulation,
+    &DLM_3_Stimulation,
+    &DemoULM_LStimulation,
+    &DemoLM_LStimulation,
+    &DemoLM_CStimulation,
 };
 
 void Switch_Demo_Mode()
@@ -198,12 +239,9 @@ void Set_Stimulation(const Stimulation *stimulation)
     // Pre-calculate Circular vectors
     switch (CurrentStimulation.type)
     {
-    case PointStimulation:
+    case Point:
         break;
-    case VibrationStimulation:
-        break;
-    case Linear:
-        break;
+    case Discrete:
     case Circular:
     {
         float n[3] = {CurrentStimulation.normalVector[0], CurrentStimulation.normalVector[1], CurrentStimulation.normalVector[2]};
@@ -244,25 +282,55 @@ void Update_Stimulation_State(float progress)
 
     switch (CurrentStimulation.type)
     {
-    case PointStimulation:
+    case Point:
         Set_Point_Focus(CurrentStimulation.position);
         break;
-    case VibrationStimulation:
+    case Discrete:
     {
-        if (progress < 0.5f)
-        {
-            Set_Point_Focus(CurrentStimulation.startPoint);
-        }
-        else
-        {
-            Set_Point_Focus(CurrentStimulation.endPoint);
-        }
+        if (CurrentStimulation.segments < 1) break;
+
+        int segment_index = (int)(progress * (float)CurrentStimulation.segments);
+        if (segment_index >= CurrentStimulation.segments) segment_index = CurrentStimulation.segments - 1;
+
+        float angle = (float)segment_index * 2.0f * (float)M_PI / (float)CurrentStimulation.segments;
+        float cos_a = cosf(angle);
+        float sin_a = sinf(angle);
+
+        float discretePosition[3];
+        // Use cached u and v vectors
+        discretePosition[0] = CurrentStimulation.position[0] + CurrentStimulation.radius * (cos_a * CurrentStimulation.cached_circ_u[0] + sin_a * CurrentStimulation.cached_circ_v[0]);
+        discretePosition[1] = CurrentStimulation.position[1] + CurrentStimulation.radius * (cos_a * CurrentStimulation.cached_circ_u[1] + sin_a * CurrentStimulation.cached_circ_v[1]);
+        discretePosition[2] = CurrentStimulation.position[2] + CurrentStimulation.radius * (cos_a * CurrentStimulation.cached_circ_u[2] + sin_a * CurrentStimulation.cached_circ_v[2]);
+
+        Set_Point_Focus(discretePosition);
         break;
     }
     case Linear:
     {
         float linearPosition[3];
-        Vector3Lerp(linearPosition, CurrentStimulation.startPoint, CurrentStimulation.endPoint, progress);
+        int segments = CurrentStimulation.segments;
+        if (segments < 1) segments = 1;
+
+        float total_segments = (float)segments;
+        float p = progress * total_segments;
+        int current_segment = (int)p;
+
+        // Clamp to valid range to handle progress = 1.0f
+        if (current_segment >= segments) current_segment = segments - 1;
+
+        float segment_progress = p - (float)current_segment;
+
+        // Even segments: Start -> End
+        // Odd segments: End -> Start
+        if (current_segment % 2 == 0)
+        {
+            Vector3Lerp(linearPosition, CurrentStimulation.startPoint, CurrentStimulation.endPoint, segment_progress);
+        }
+        else
+        {
+            Vector3Lerp(linearPosition, CurrentStimulation.endPoint, CurrentStimulation.startPoint, segment_progress);
+        }
+
         Set_Point_Focus(linearPosition);
         break;
     }
@@ -289,6 +357,11 @@ void Update_Stimulation_State(float progress)
     default:
         break;
     }
+}
+
+int Get_Num_Demo_Stimulations()
+{
+    return sizeof(DemoStimulations) / sizeof(DemoStimulations[0]);
 }
 
 int Get_Demo_Mode()
