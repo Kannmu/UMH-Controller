@@ -104,6 +104,8 @@ void Start_DMAs()
 
 void Update_Full_Waveform_Buffer()
 {
+    uint32_t start_cycles = DWT_GetCycles();
+
     // Temporary arrays for Channel-Slice processing
     uint16_t turn_on[WAVEFORM_BUFFER_SIZE];
     uint16_t turn_off[WAVEFORM_BUFFER_SIZE];
@@ -260,6 +262,13 @@ void Update_Full_Waveform_Buffer()
                 }
             }
         }
+    }
+
+    uint32_t end_cycles = DWT_GetCycles();
+    if (SystemCoreClock > 0)
+    {
+        // Calculate delta time in milliseconds
+        updateDMABufferDeltaTime = (double)(end_cycles - start_cycles) / (SystemCoreClock / 1000.0);
     }
 }
 

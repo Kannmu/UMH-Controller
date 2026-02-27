@@ -339,6 +339,50 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                             }
                             break;
                         }
+                        case CMD_GET_TRANSDUCER_INFO:
+                        {
+                            if (rx_buffer.frame.data_length >= 2)
+                            {
+                                uint8_t start_index = rx_buffer.frame.data[0];
+                                uint8_t count = rx_buffer.frame.data[1];
+                                
+                                // 限制每次请求的最大数量 (255 - 2) / 12 = 21
+                                if (count > 21) count = 21;
+                                
+                                // 检查范围
+                                if (start_index >= NUM_TRANSDUCER)
+                                {
+                                    count = 0;
+                                }
+                                else if (start_index + count > NUM_TRANSDUCER)
+                                {
+                                    count = NUM_TRANSDUCER - start_index;
+                                }
+                                
+                                // 构建响应数据
+                                // Format: [Start_Index] [Count] [Data...]
+                                uint8_t resp_data[2 + 21 * 12]; 
+                                uint8_t resp_len = 0;
+                                
+                                resp_data[resp_len++] = start_index;
+                                resp_data[resp_len++] = count;
+                                
+                                for (uint8_t i = 0; i < count; i++)
+                                {
+                                    uint8_t idx = start_index + i;
+                                    // 复制 X, Y, Z (3 * 4 = 12 bytes)
+                                    memcpy(&resp_data[resp_len], TransducerArray[idx].position3D, 12);
+                                    resp_len += 12;
+                                }
+                                
+                                Comm_Send_Response(RSP_TRANSDUCER_INFO, resp_data, resp_len);
+                            }
+                            else
+                            {
+                                Comm_Send_Response(RSP_ERROR_CODE, NULL, 0);
+                            }
+                            break;
+                        }
                         default:
                             // 未知命令，返回NACK
                             Comm_Send_Response(RSP_NACK, NULL, 0);

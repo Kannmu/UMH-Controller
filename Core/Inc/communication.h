@@ -21,6 +21,7 @@
 #define CMD_SET_STIMULATION     0x05
 #define CMD_SET_PHASES          0x06
 #define CMD_SET_DEMO            0x07
+#define CMD_GET_TRANSDUCER_INFO 0x08
 
 // 响应类型 (UMH -> PC)
 #define RSP_ACK                 0x80
@@ -30,6 +31,7 @@
 #define RSP_RETURN_STATUS       0x84
 #define RSP_SACK                0x85
 #define RSP_DEMO_ACK            0x86
+#define RSP_TRANSDUCER_INFO     0x87
 #define RSP_ERROR_CODE          0xFF
 
 // 协议帧结构
