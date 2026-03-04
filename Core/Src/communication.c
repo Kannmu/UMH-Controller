@@ -241,9 +241,13 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                             if (rx_buffer.frame.data_length >= 20)
                             {
                                 Stimulation stimulation;
+                                memset(&stimulation, 0, sizeof(Stimulation));
+                                stimulation.segments = 1; // Default segments
+                                stimulation.normalVector[2] = 1.0f; // Default normal vector Z
                                 uint8_t *pData = rx_buffer.frame.data;
                                 int offset = 0;
                                 StimulationType type = (StimulationType)pData[offset]; offset += 1;
+                                stimulation.type = type;
                                 switch (type)
                                 {
                                 case Point:
