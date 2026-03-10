@@ -10,6 +10,34 @@ const uint16_t half_period = WAVEFORM_BUFFER_SIZE / 2;
 
 const uint16_t BufferGapPerMicroseconds = ((float)(1e-6) / TIME_GAP_PER_DMA_BUFFER_BIT);
 
+float DMA_Clamp_Stimulation_Strength(float strength)
+{
+    if (strength <= DMA_STRENGTH_MIN)
+    {
+        return DMA_STRENGTH_MIN;
+    }
+    if (strength >= DMA_STRENGTH_MAX)
+    {
+        return DMA_STRENGTH_MAX;
+    }
+    return strength;
+}
+
+uint16_t DMA_Convert_Strength_To_On_Ticks(float strength)
+{
+    float clamped_strength = DMA_Clamp_Stimulation_Strength(strength);
+    float normalized_strength = clamped_strength / DMA_STRENGTH_MAX;
+    float duty_cycle = DMA_DUTY_CYCLE_MIN + ((DMA_DUTY_CYCLE_MAX - DMA_DUTY_CYCLE_MIN) * normalized_strength);
+    uint32_t on_ticks = (uint32_t)lroundf(duty_cycle * (float)WAVEFORM_BUFFER_SIZE);
+
+    if (on_ticks > half_period)
+    {
+        on_ticks = half_period;
+    }
+
+    return (uint16_t)on_ticks;
+}
+
 DMA_HandleTypeDef *DMA_Stream_Handles[DMA_CHANNELS];
 
 __ALIGNED(32)
@@ -158,8 +186,14 @@ void Update_Full_Waveform_Buffer()
                     phase_offset %= WAVEFORM_BUFFER_SIZE;
 
                     uint32_t start_idx = (WAVEFORM_BUFFER_SIZE - phase_offset) % WAVEFORM_BUFFER_SIZE;
-                    uint32_t end_idx = (start_idx + half_period) % WAVEFORM_BUFFER_SIZE;
+                    uint16_t duty_ticks = DMA_Convert_Strength_To_On_Ticks(CurrentStimulation.strength);
+                    uint32_t end_idx = (start_idx + duty_ticks) % WAVEFORM_BUFFER_SIZE;
                     uint16_t pin_bit = (1 << __builtin_ctz(t->pin));
+
+                    if (duty_ticks == 0U)
+                    {
+                        continue;
+                    }
 
                     // Record Events
                     if (turn_on[start_idx] == 0 && turn_off[start_idx] == 0)

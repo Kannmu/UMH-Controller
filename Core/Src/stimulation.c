@@ -221,12 +221,15 @@ static int Is_Stimulation_Param_Equal(const Stimulation *s1, const Stimulation *
 
 void Set_Stimulation(const Stimulation *stimulation)
 {
-    if (Is_Stimulation_Param_Equal(&CurrentStimulation, stimulation))
+    Stimulation sanitized_stimulation = *stimulation;
+    sanitized_stimulation.strength = DMA_Clamp_Stimulation_Strength(sanitized_stimulation.strength);
+
+    if (Is_Stimulation_Param_Equal(&CurrentStimulation, &sanitized_stimulation))
     {
         return;
     }
 
-    CurrentStimulation = *stimulation;
+    CurrentStimulation = sanitized_stimulation;
 
     // Pre-calculate period
     if (CurrentStimulation.frequency > 0.0f)

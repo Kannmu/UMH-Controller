@@ -13,6 +13,11 @@
 
 # define TIME_GAP_PER_DMA_BUFFER_BIT ((long double)(1.0/(DMA_SAMPLING_FREQ)))
 
+#define DMA_STRENGTH_MIN 0.0f
+#define DMA_STRENGTH_MAX 100.0f
+#define DMA_DUTY_CYCLE_MIN 0.0f
+#define DMA_DUTY_CYCLE_MAX 0.5f
+
 // dma_manager.h
 extern const float GPIO_Group_Output_Offset[DMA_CHANNELS];
 
@@ -27,3 +32,5 @@ void Start_DMAs();
 void Update_Full_Waveform_Buffer(void);
 void Clean_DMABuffer();
 void DMA_Update_LED_State(uint16_t led_mask);
+float DMA_Clamp_Stimulation_Strength(float strength);
+uint16_t DMA_Convert_Strength_To_On_Ticks(float strength);
