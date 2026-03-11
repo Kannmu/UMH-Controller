@@ -256,12 +256,15 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                                     memcpy(&stimulation.position[2], &pData[offset], 4); offset += 4;
                                     break;
                                 case Discrete:
-                                    memcpy(&stimulation.startPoint[0], &pData[offset], 4); offset += 4;
-                                    memcpy(&stimulation.startPoint[1], &pData[offset], 4); offset += 4;
-                                    memcpy(&stimulation.startPoint[2], &pData[offset], 4); offset += 4;
-                                    memcpy(&stimulation.endPoint[0], &pData[offset], 4); offset += 4;
-                                    memcpy(&stimulation.endPoint[1], &pData[offset], 4); offset += 4;
-                                    memcpy(&stimulation.endPoint[2], &pData[offset], 4); offset += 4;
+                                    memcpy(&stimulation.position[0], &pData[offset], 4); offset += 4;
+                                    memcpy(&stimulation.position[1], &pData[offset], 4); offset += 4;
+                                    memcpy(&stimulation.position[2], &pData[offset], 4); offset += 4;
+                                    
+                                    memcpy(&stimulation.normalVector[0], &pData[offset], 4); offset += 4;
+                                    memcpy(&stimulation.normalVector[1], &pData[offset], 4); offset += 4;
+                                    memcpy(&stimulation.normalVector[2], &pData[offset], 4); offset += 4;
+                                    
+                                    memcpy(&stimulation.radius, &pData[offset], 4); offset += 4;
                                     memcpy(&stimulation.segments, &pData[offset], 4); offset += 4;
                                     break;
                                 case Linear:
@@ -274,6 +277,10 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                                     memcpy(&stimulation.segments, &pData[offset], 4); offset += 4;
                                     break;
                                 case Circular:
+                                    memcpy(&stimulation.position[0], &pData[offset], 4); offset += 4;
+                                    memcpy(&stimulation.position[1], &pData[offset], 4); offset += 4;
+                                    memcpy(&stimulation.position[2], &pData[offset], 4); offset += 4;
+                                    
                                     memcpy(&stimulation.normalVector[0], &pData[offset], 4); offset += 4;
                                     memcpy(&stimulation.normalVector[1], &pData[offset], 4); offset += 4;
                                     memcpy(&stimulation.normalVector[2], &pData[offset], 4); offset += 4;
