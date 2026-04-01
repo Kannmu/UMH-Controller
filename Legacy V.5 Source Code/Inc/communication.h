@@ -1,0 +1,98 @@
+#pragma once
+#define _USE_MATH_DEFINES
+
+#include "main.h"
+#include "transducer.h"
+#include "calibration.h"
+#include "stimulation.h"
+#include "usbd_cdc_if.h"
+
+// 协议定义
+#define FRAME_HEADER_1          0xAA
+#define FRAME_HEADER_2          0x55
+#define FRAME_TAIL_1            0x0D
+#define FRAME_TAIL_2            0x0A
+
+// 命令类型 (PC -> UMH)
+#define CMD_ENABLE_DISABLE      0x01
+#define CMD_PING                0x02
+#define COM_GET_CONFIG          0x03
+#define CMD_GET_STATUS          0x04
+#define CMD_SET_STIMULATION     0x05
+#define CMD_SET_PHASES          0x06
+#define CMD_SET_DEMO            0x07
+#define CMD_GET_TRANSDUCER_INFO 0x08
+
+// 响应类型 (UMH -> PC)
+#define RSP_ACK                 0x80
+#define RSP_NACK                0x81
+#define RSP_PING_ACK            0x82
+#define RSP_RETURN_CONFIG       0x83
+#define RSP_RETURN_STATUS       0x84
+#define RSP_SACK                0x85
+#define RSP_DEMO_ACK            0x86
+#define RSP_TRANSDUCER_INFO     0x87
+#define RSP_ERROR_CODE          0xFF
+
+// 协议帧结构
+typedef struct {
+    uint8_t header[2];      // 帧头 0xAA 0x55
+    uint8_t cmd_type;       // 命令/消息类型
+    uint8_t data_length;    // 数据长度
+    uint8_t data[255];      // 数据载荷
+    uint8_t checksum;       // 校验和
+    uint8_t tail[2];        // 帧尾 0x0D 0x0A
+} comm_frame_t;
+
+// 接收状态枚举
+typedef enum {
+    RX_STATE_WAIT_HEADER1,
+    RX_STATE_WAIT_HEADER2,
+    RX_STATE_WAIT_CMD_TYPE,
+    RX_STATE_WAIT_DATA_LENGTH,
+    RX_STATE_WAIT_DATA,
+    RX_STATE_WAIT_CHECKSUM,
+    RX_STATE_WAIT_TAIL1,
+    RX_STATE_WAIT_TAIL2,
+    RX_STATE_FRAME_COMPLETE
+} rx_state_t;
+
+// 接收缓冲区结构
+typedef struct {
+    rx_state_t state;
+    comm_frame_t frame;
+    uint8_t data_index;
+    uint8_t calculated_checksum;
+} rx_buffer_t;
+
+
+typedef struct __attribute__((packed)) {
+    char serial_number[12];
+    uint32_t version;
+    uint8_t array_type;
+    uint32_t array_size;
+    uint32_t num_transducer;
+    float transducer_size;
+    float transducer_space;
+} device_config;
+
+typedef struct __attribute__((packed)) {
+    float voltage_VDDA;
+    float voltage_3V3;
+    float voltage_5V0;
+    float temperature;
+    double updateDMABufferDeltaTime;
+    float loop_freq;
+    uint8_t stimulation_type;
+    uint32_t calibration_mode;
+    uint32_t phase_set_mode;
+} device_status;
+
+
+// 函数声明
+void Comm_Init(void);
+void Comm_Process_Received_Data(uint8_t* data, uint32_t length);
+void Comm_Send_Response(uint8_t cmd_type, uint8_t* data, uint8_t data_length);
+uint8_t Comm_Calculate_Checksum(uint8_t cmd_type, uint8_t data_length, uint8_t* data);
+void Comm_Handle_Ping_Command(uint8_t* data, uint8_t data_length);
+void Comm_Reset_Rx_State(void);
