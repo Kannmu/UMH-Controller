@@ -20,7 +20,21 @@ UMH Controller 是 **UMH (Ultrasound Mid-Air Haptics)** 项目的核心固件，
 
 ### 2.1 核心控制器
 
-* **MCU**: STM32H750VBTx (ARM Cortex-M7, 480MHz)
+## 主控芯片
+
+* STM32H757XIH6
+* Cortex-M7 主核
+* Cortex-M4 协核
+
+## 双核异构架构（极大提升系统稳定性）
+
+* 痛点：单核同时处理 USB 复杂通信、计算 120 个换能器的相位差、生成 DMA 缓冲区，还要处理 I2C 传感器和 ADC，极易因为中断嵌套导致 PWM 发生抖动，破坏空中声场焦点。
+* 利用方式：
+  * Cortex-M7 主核：专注于“硬实时”任务。独占运行相控阵解算算法、填充 DMA 缓冲区、控制定时器。
+  * Cortex-M4 协核：处理“弱实时”外设。读取 I2C 传感器（如 LeapMotion/手势识别模块）、处理 USB CDC 通信、读取 ADC 状态。
+  * 核间通信：两个核心通过芯片内部的硬件信号量 (HSEM) 和共享 SRAM 进行非阻塞的数据交换。
+
+
 * **Flash**: 128KB (内部)
 * **RAM**: 1MB
 * **时钟源**: 外部高速晶振 (HSE) 经过 PLL 倍频。
