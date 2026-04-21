@@ -140,6 +140,7 @@ void Set_Phases(float phases[])
         TransducerArray[i].phase = phases[i];
         TransducerArray[i].shift_buffer_bits = Phase_to_Gap_Ticks(TransducerArray[i].phase);
     }
+    Update_Full_Waveform_Buffer();
 }
 
 float Distance_to_Phase(float distance)
