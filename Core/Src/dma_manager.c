@@ -180,6 +180,18 @@ void Update_Full_Waveform_Buffer()
                 {
                     Transducer *t = TransducersByPort[p][k];
 
+                    // Virtual Transducer PC10 (Index 60) Functionality
+                    if (t->index == NUM_TRANSDUCER - 1 && Get_Calibration_Mode() == 0)
+                    {
+                        // 1ms pulse at the beginning of each stimulation cycle
+                        uint32_t pulse_samples = (uint32_t)(0.001f * TRANSDUCER_BASE_FREQ);
+                        if (s < pulse_samples)
+                        {
+                            current_state |= t->pin;
+                        }
+                        continue; // Skip standard 40kHz generation
+                    }
+
                     // Phase Calculation
                     uint16_t phase_offset = t->calib + t->shift_buffer_bits;
                     phase_offset += Group_Offset_Ticks[p];
