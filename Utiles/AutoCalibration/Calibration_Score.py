@@ -1,97 +1,96 @@
 import math
 import numpy as np
 
-# ==========================================
-# 配置参数
-# ==========================================
-PERIOD_US = 25.0  # 40kHz 的周期为 25 微秒
+PERIOD_US = 25.0
 
-# 请将你【手动测量】得到的校准参数填入此列表 (共60个换能器，不含最后一个0)
-MANUAL_CALIB_ARRAY = [
-    22.5, 0, 24.7, 24, 5.5,
-    0, 15.2, 10, 22.5, 16, 12.5,
-    9.6, 22.6, 2.6, 12.4, 2.3, 10.5, 9.5,
-    24, 24, 24.5, 6.9, 17.9, 24.3, 8, 22.2,
-    7.9, 16.2, 3.1, 5.9, 6.9, 14.3, 8.5, 22.8,
-    24.5, 18.9, 11, 5.5, 18.3, 13.3, 21.8, 0,
-    8.6, 23.1, 0, 24.5, 1.5, 23, 24.6,
-    0, 16, 7.9, 23, 1.5, 0,
-    6, 0, 19, 12.5, 20.6
+ARRAY_A = [
+    18.57, 12.54, 22.36,  1.34,  4.99,
+    10.08, 18.76,  5.22, 22.90,  9.44,
+    17.35,  4.07, 20.98, 22.01, 19.02,
+    24.13, 20.69,  7.88, 19.58, 23.13,
+    4.95,  5.91, 19.30,  2.90,  8.00,
+    14.51,  1.04,  6.52, 20.84,  7.03,
+    4.89, 21.89,  8.81, 23.29, 13.62,
+    23.63,  3.09, 16.09, 18.66,  3.64,
+    4.63,  8.95,  4.99,  3.33, 19.20,
+    13.19, 19.76,  8.32, 13.93, 24.39,
+    5.82, 15.78,  4.58, 23.29, 20.76,
+    4.08,  9.23,  3.37, 10.86,  3.53
 ]
 
-# 请将你【自动校准脚本】算出的校准参数填入此列表
-AUTO_CALIB_ARRAY = [
-20.43,  8.57,  8.93, 14.69, 11.57,
-     8.63, 11.73, 11.55, 22.81, 10.97,
-    20.52, 24.01, 20.55,  8.62, 22.61,
-     9.88, 11.79,  1.30, 10.54, 22.19,
-     9.25, 25.00, 10.66, 11.24, 22.00,
-    22.94,  7.94, 12.19, 11.52,  0.34,
-    23.42, 24.84, 23.42,  0.33, 12.94,
-    21.72, 22.11, 24.10,  7.63, 20.42,
-    22.76, 13.50, 23.43, 21.78,  9.11,
-    11.06,  9.49,  2.23, 11.71, 13.74,
-    10.54, 13.48, 23.15,  1.44, 11.17,
-    10.43, 22.52, 18.61, 21.94, 21.21
+ARRAY_B = [
+    23.23, 17.31, 18.92, 8.48, 21.21,
+    7.08, 15.13, 12.35, 16.95, 7.33,
+    12.32, 2.85, 15.51, 5.70, 13.94,
+    6.21, 15.40, 14.06, 3.78, 17.85,
+    11.42, 4.67, 3.85, 10.15, 14.13,
+    11.05, 14.55, 7.49, 5.13, 23.81,
+    0.91, 6.14, 7.64, 16.81, 7.23,
+    15.42, 8.85, 0.93, 1.55, 11.26,
+    22.50, 15.48, 21.91, 1.88, 15.31,
+    16.03, 13.26, 24.63, 0.60, 18.92,
+    13.70, 1.56, 3.97, 17.46, 15.94,
+    21.61, 14.91, 1.06, 16.68, 23.36
 ]
 
-# ==========================================
-# 核心计算函数
-# ==========================================
-def calculate_cyclic_error(val1, val2, period):
-    """计算考虑周期性的绝对误差"""
+def calculate_cyclic_diff(val1, val2, period):
     raw_diff = abs(val1 - val2)
-    # 实际误差是直接差值与跨越周期差值中的较小者
     return min(raw_diff, period - raw_diff)
 
-def evaluate_calibration(manual, auto, period):
-    if len(manual) != len(auto):
-        print(f"警告：数组长度不一致！手动:{len(manual)}，自动:{len(auto)}")
+def compare_arrays(name1, arr1, name2, arr2, period):
+    if len(arr1) != len(arr2):
+        print(f"警告：数组长度不一致！{name1}:{len(arr1)}，{name2}:{len(arr2)}")
         return
     
-    errors = []
-    for i in range(len(manual)):
-        err = calculate_cyclic_error(manual[i], auto[i], period)
-        errors.append(err)
+    diffs = []
+    for i in range(len(arr1)):
+        diff = calculate_cyclic_diff(arr1[i], arr2[i], period)
+        diffs.append(diff)
         
-    errors = np.array(errors)
+    diffs = np.array(diffs)
     
-    # 统计指标
-    max_error = np.max(errors)
-    mean_error = np.mean(errors)  # 平均绝对误差 (MAE)
-    rmse = np.sqrt(np.mean(errors**2)) # 均方根误差 (RMSE)
+    max_diff = np.max(diffs)
+    mean_diff = np.mean(diffs)
+    rmse = np.sqrt(np.mean(diffs**2))
     
-    # 最大可能误差为半个周期 (12.5 us)
-    max_possible_error = period / 2.0
+    max_possible_diff = period / 2.0
     
-    # 计算分数 (基于RMSE，100分为完全一致，0分为全部完全反相)
-    # 公式：Score = 100 * (1 - RMSE / 最大可能误差)
-    score = 100.0 * (1.0 - (rmse / max_possible_error))
-    score = max(0, min(100, score)) # 限制在 0-100 之间
+    score = 100.0 * (1.0 - (rmse / max_possible_diff))
+    score = max(0, min(100, score))
     
-    # 打印详细结果
     print("="*50)
-    print("        自动校准效果评估报告")
+    print(f"        {name1} vs {name2} 相似度评估报告")
     print("="*50)
-    print(f"通道总数      : {len(manual)}")
-    print(f"评估周期      : {period} us (40kHz)")
+    print(f"通道总数      : {len(arr1)}")
+    print(f"评估周期      : {period} us")
     print("-" * 50)
-    print(f"最大通道误差  : {max_error:.3f} us (位于通道 {np.argmax(errors)+1})")
-    print(f"平均绝对误差  : {mean_error:.3f} us")
-    print(f"均方根误差    : {rmse:.3f} us")
+    print(f"最大通道差异  : {max_diff:.3f} us (位于通道 {np.argmax(diffs)+1})")
+    print(f"平均绝对差异  : {mean_diff:.3f} us")
+    print(f"均方根差异    : {rmse:.3f} us")
     print("-" * 50)
-    print(f"⭐️ 综合校准得分: {score:.2f} / 100.00")
+    print(f"⭐️ 相似度得分: {score:.2f} / 100.00")
     print("="*50)
     
-    # 打印异常大的通道（例如误差超过 1.0 us 的通道）
     tolerance = 1.0
-    bad_channels = np.where(errors > tolerance)[0]
+    bad_channels = np.where(diffs > tolerance)[0]
     if len(bad_channels) > 0:
-        print(f"\n⚠️ 发现 {len(bad_channels)} 个误差较大的通道 ( > {tolerance} us):")
+        print(f"\n⚠️ 发现 {len(bad_channels)} 个差异较大的通道 ( > {tolerance} us):")
         for idx in bad_channels:
-            print(f"  通道 {idx+1:02d}: 手动={manual[idx]:5.2f} us, 自动={auto[idx]:5.2f} us -> 误差={errors[idx]:5.2f} us")
+            print(f"  通道 {idx+1:02d}: {name1}={arr1[idx]:5.2f} us, {name2}={arr2[idx]:5.2f} us -> 差异={diffs[idx]:5.2f} us")
     else:
-        print(f"\n✅ 所有通道的一致性都非常高 (误差均 < {tolerance} us)！自动校准算法表现完美。")
+        print(f"\n✅ 所有通道的一致性都非常高 (差异均 < {tolerance} us)！")
+
+def compare_multiple_arrays(arrays_dict, period):
+    names = list(arrays_dict.keys())
+    for i in range(len(names)):
+        for j in range(i + 1, len(names)):
+            compare_arrays(names[i], arrays_dict[names[i]], names[j], arrays_dict[names[j]], period)
+            print("\n")
 
 if __name__ == "__main__":
-    evaluate_calibration(MANUAL_CALIB_ARRAY, AUTO_CALIB_ARRAY, PERIOD_US)
+    arrays_to_compare = {
+        "ArrayA": ARRAY_A,
+        "ArrayB": ARRAY_B
+    }
+    compare_multiple_arrays(arrays_to_compare, PERIOD_US)
+    

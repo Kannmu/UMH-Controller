@@ -132,12 +132,16 @@ void Set_Twin_Trap_Focus(float *position)
     }
 }
 
-// Set Phases to Transducers
-void Set_Phases(float phases[])
+// Set Phases and Duty Cycles to Transducers
+void Set_Transducers(uint8_t *data)
 {
     for (int i = 0; i < NUM_TRANSDUCER-1; i++)
     {
-        TransducerArray[i].phase = phases[i];
+        uint16_t phase_raw = data[i * 3 + 0] | (data[i * 3 + 1] << 8);
+        uint8_t duty_raw = data[i * 3 + 2];
+        
+        TransducerArray[i].phase = (phase_raw / 65535.0f) * (2.0f * M_PI);
+        TransducerArray[i].duty = duty_raw / 255.0f;
         TransducerArray[i].shift_buffer_bits = Phase_to_Gap_Ticks(TransducerArray[i].phase);
     }
     Update_Full_Waveform_Buffer();
@@ -145,6 +149,7 @@ void Set_Phases(float phases[])
 
 float Distance_to_Phase(float distance)
 {
+    // return fmod((distance * Wave_K), (2.0 * M_PI));
     return (2.0 * M_PI) - (fmod((distance * Wave_K), (2.0 * M_PI)));
 }
 

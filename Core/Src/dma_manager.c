@@ -198,7 +198,18 @@ void Update_Full_Waveform_Buffer()
                     phase_offset %= WAVEFORM_BUFFER_SIZE;
 
                     uint32_t start_idx = (WAVEFORM_BUFFER_SIZE - phase_offset) % WAVEFORM_BUFFER_SIZE;
-                    uint16_t duty_ticks = DMA_Convert_Strength_To_On_Ticks(CurrentStimulation.strength);
+                    uint16_t duty_ticks;
+                    if (Get_Phase_Set_Mode() == 1)
+                    {
+                        uint32_t on_ticks = (uint32_t)lroundf(t->duty * (float)half_period);
+                        if (on_ticks > half_period) on_ticks = half_period;
+                        duty_ticks = (uint16_t)on_ticks;
+                    }
+                    else
+                    {
+                        duty_ticks = DMA_Convert_Strength_To_On_Ticks(CurrentStimulation.strength);
+                    }
+                    
                     uint32_t end_idx = (start_idx + duty_ticks) % WAVEFORM_BUFFER_SIZE;
                     uint16_t pin_bit = (1 << __builtin_ctz(t->pin));
 

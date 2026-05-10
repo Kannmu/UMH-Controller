@@ -19,7 +19,7 @@
 #define COM_GET_CONFIG          0x03
 #define CMD_GET_STATUS          0x04
 #define CMD_SET_STIMULATION     0x05
-#define CMD_SET_PHASES          0x06
+#define CMD_SET_TRANSDUCERS     0x06
 #define CMD_SET_DEMO            0x07
 #define CMD_GET_TRANSDUCER_INFO 0x08
 

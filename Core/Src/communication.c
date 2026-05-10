@@ -306,18 +306,17 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                             }
                             break;
                         }
-                        case CMD_SET_PHASES:
+                        case CMD_SET_TRANSDUCERS:
                         {
-                            if (rx_buffer.frame.data_length >= 4)
+                            if (rx_buffer.frame.data_length >= (NUM_TRANSDUCER - 1) * 3)
                             {
-                                float phases[NUM_TRANSDUCER-1];
-                                uint8_t *pData = rx_buffer.frame.data; // float[NumTransducer-1]
-                                memcpy(phases, pData, sizeof(phases));
-                                Comm_Send_Response(RSP_SACK, NULL, 0);
+                                uint8_t *pData = rx_buffer.frame.data; 
                                 
                                 CurrentStimulation = EmptyStimulation;
                                 phase_set_mode = 1;
-                                Set_Phases(phases);
+                                
+                                Set_Transducers(pData);
+                                Comm_Send_Response(RSP_SACK, NULL, 0);
                             }
                             else
                             {
