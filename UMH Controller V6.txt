@@ -1,6 +1,6 @@
 Configuration	UMH Controller V6
 STM32CubeMX 	6.11.1
-Date	04/01/2026
+Date	05/11/2026
 MCU	STM32H757XIHx
 
 
@@ -12,13 +12,15 @@ ADC1	IN14 Single-ended	ADC1_INP14	PA2
 ADC1	IN15 Single-ended	ADC1_INP15	PA3
 ADC3	IN13 Single-ended	ADC3_INP13	PH2
 ADC3	IN14 Single-ended	ADC3_INP14	PH3
+ADC3	IN15 Single-ended	ADC3_INP15	PH4
 DEBUG	Serial Wire	DEBUG_JTCK-SWCLK	PA14 (JTCK/SWCLK)
 DEBUG	Serial Wire	DEBUG_JTMS-SWDIO	PA13 (JTMS/SWDIO)
-DFSDM1:Channel 4	PDM/SPI input from ch4 and external clock	DFSDM1_CKIN4	PE11
-DFSDM1:Channel 4	PDM/SPI input from ch4 and external clock	DFSDM1_DATIN4	PE10
-DFSDM1:Channel 5	PDM/SPI input from ch5 and external clock	DFSDM1_CKIN5	PE13
-DFSDM1:Channel 5	PDM/SPI input from ch5 and external clock	DFSDM1_DATIN5	PE12
-DFSDM1	CKOUT	DFSDM1_CKOUT	PE9
+DFSDM1:Channel 3	PDM/SPI Input from ch4 and Internal Clock	DFSDM1_DATIN4	PE10
+DFSDM1:Channel 3	PDM/SPI Input from ch4 and Internal Clock	DFSDM1_CKOUT	PE9
+DFSDM1:Channel 4	PDM/SPI input from ch4 and internal clock	DFSDM1_DATIN4	PE10
+DFSDM1:Channel 4	PDM/SPI input from ch4 and internal clock	DFSDM1_CKOUT	PE9
+DFSDM1:Channel 5	PDM/SPI input from ch5 and internal clock	DFSDM1_DATIN5	PE12
+DFSDM1:Channel 5	PDM/SPI input from ch5 and internal clock	DFSDM1_CKOUT	PE9
 FDCAN1	Activated	FDCAN1_RX	PH14
 FDCAN1	Activated	FDCAN1_TX	PH13
 I2C2	I2C	I2C2_SCL	PB10
@@ -31,6 +33,10 @@ RCC	Crystal/Ceramic Resonator	RCC_OSC_IN	PH0-OSC_IN (PH0)
 RCC	Crystal/Ceramic Resonator	RCC_OSC_OUT	PH1-OSC_OUT (PH1)
 SYS_M4	SysTick	SYS_M4_VS_Systick	VP_SYS_M4_VS_Systick
 SYS	SysTick	SYS_VS_Systick	VP_SYS_VS_Systick
+TIM1	Output Compare CH1	TIM1_CH1	PA8
+TIM1	PWM Generation CH2	TIM1_CH2	PE11
+TIM1	PWM Generation CH3	TIM1_CH3	PE13
+TIM2	Output Compare CH1	TIM2_CH1	PA0
 USB_OTG_FS	Device_Only	USB_OTG_FS_DM	PA11
 USB_OTG_FS	Device_Only	USB_OTG_FS_DP	PA12
 
@@ -41,8 +47,7 @@ A2	PI6	GPIO_Output	Transducer
 A3	PI5	GPIO_Output	Transducer
 A4	PI4	GPIO_Output	Transducer
 A5	PB5	GPIO_Output	Transducer
-A8	PK5	GPIO_Input	
-A9	PG10	GPIO_Output	Transducer
+A8	PK5	GPIO_Input	KEY1
 A10	PG9	GPIO_Output	Transducer
 A11	PD5	GPIO_Output	Transducer
 A12	PD4	GPIO_Output	Transducer
@@ -52,19 +57,20 @@ A16	PI0	GPIO_Output	Transducer
 B3	PI7	GPIO_Output	Transducer
 B4	PE1	GPIO_Output	Transducer
 B5	PB6	GPIO_Output	Transducer
-B8	PK4	GPIO_Input	
+B8	PK4	GPIO_Input	KEY0
 B9	PG11	GPIO_Output	Transducer
-B10	PJ15	GPIO_Output	Transducer
 B11	PD6	GPIO_Output	Transducer
 B12	PD3	GPIO_Output	Transducer
 B14	PA14 (JTCK/SWCLK)	DEBUG_JTCK-SWCLK	
 B15	PI2	GPIO_Output	Transducer
 B17	PH14	FDCAN1_RX	
+C1	PC15-OSC32_OUT (OSC32_OUT)	GPIO_Input	KEY3
+C2	PC14-OSC32_IN (OSC32_IN)	GPIO_Input	KEY2
 C3	PE2	GPIO_Output	Transducer
 C4	PE0	GPIO_Output	Transducer
 C5	PB7	GPIO_Output	Transducer
-C7	PK6	GPIO_Output	
-C8	PK3	GPIO_Output	
+C7	PK6	GPIO_Output	LED0
+C8	PK3	GPIO_Output	LED1
 C9	PG12	GPIO_Output	Transducer
 C11	PD7	GPIO_Output	Transducer
 C14	PI3	GPIO_Output	Transducer
@@ -75,15 +81,13 @@ D3	PE3	GPIO_Output	Transducer
 D4	PB9	GPIO_Output	Transducer
 D5	PB8	GPIO_Output	Transducer
 D6	PG15	GPIO_Output	Transducer
-D7	PK7	GPIO_Output	
+D7	PK7	GPIO_Output	LED2
 D8	PG14	GPIO_Output	Transducer
 D9	PG13	GPIO_Output	Transducer
 D10	PJ14	GPIO_Output	Transducer
 D11	PJ12	GPIO_Output	Transducer
 D12	PD2	GPIO_Output	Transducer
 D13	PD0	GPIO_Output	Transducer
-D14	PA10*	USART1_RX	
-D15	PA9*	USART1_TX	
 D16	PH13	FDCAN1_TX	
 E2	PI9	GPIO_Output	Transducer
 E4	PI8	GPIO_Output	Transducer
@@ -91,8 +95,8 @@ E5	PE6	GPIO_Output	Transducer
 E10	PJ13	GPIO_Output	Transducer
 E12	PD1	GPIO_Output	Transducer
 E13	PC8	GPIO_Output	Transducer
-E14	PC9	GPIO_EXTI9	
-E15	PA8*	TIM1_CH1	
+E14	PC9	GPIO_Output	Transducer
+E15	PA8	TIM1_CH1	
 E16	PA12	USB_OTG_FS_DP	
 E17	PA11	USB_OTG_FS_DM	
 F3	PI10	GPIO_Output	Transducer
@@ -127,24 +131,24 @@ L4	PF9	GPIO_Output	Transducer
 L14	PJ10	GPIO_Output	Transducer
 M2	PC1	GPIO_Output	Transducer
 M3	PC2	GPIO_Output	Transducer
-M4	PC3	GPIO_EXTI3	
+M4	PC3	GPIO_Output	Transducer
 M14	PJ9	GPIO_Output	Transducer
 N2	PH2	ADC3_INP13	
 N3	PA2	ADC1_INP14	
+N5	PA0	TIM2_CH1	Flash
 N6	PJ0	GPIO_Output	Transducer
 N9	PE10	DFSDM1_DATIN4	
 N13	PJ8	GPIO_Output	Transducer
 N14	PJ7	GPIO_Output	Transducer
 N15	PJ6	GPIO_Output	Transducer
 P2	PH3	ADC3_INP14	
-P3	PH4*	ADC3_INP15	
-P4	PH5	GPIO_Output	Flash
+P3	PH4	ADC3_INP15	
 P5	PI15	GPIO_Output	Transducer
 P6	PJ1	GPIO_Output	Transducer
 P7	PF13	GPIO_Output	Transducer
 P8	PF14	GPIO_Output	Transducer
 P9	PE9	DFSDM1_CKOUT	
-P10	PE11	DFSDM1_CKIN4	
+P10	PE11	TIM1_CH2	
 P11	PB10	I2C2_SCL	
 P12	PB11	I2C2_SDA	
 P14	PH11	I2C4_SCL	
@@ -168,7 +172,7 @@ T4	PC4	GPIO_Output	Transducer
 T5	PB1	GPIO_Output	Transducer
 T6	PJ2	GPIO_Output	Transducer
 T7	PF11	GPIO_Output	Transducer
-T10	PE13	DFSDM1_CKIN5	
+T10	PE13	TIM1_CH3	
 T13	PH8	I2C3_SDA	
 T14	PB12	GPIO_Output	Transducer
 T15	PB15	GPIO_Output	Transducer
@@ -181,7 +185,7 @@ U5	PB0	GPIO_Output	Transducer
 U6	PJ3	GPIO_Output	Transducer
 U7	PJ4	GPIO_Output	Transducer
 U9	PE7	GPIO_Output	Transducer
-U10	PE14	GPIO_Output	
+U10	PE14	GPIO_Output	Transducer
 U13	PH7	I2C3_SCL	
 U14	PB13	GPIO_Output	Transducer
 U15	PB14	GPIO_Output	Transducer
@@ -193,13 +197,15 @@ ADC1	IN14 Single-ended	ADC1_INP14	PA2
 ADC1	IN15 Single-ended	ADC1_INP15	PA3
 ADC3	IN13 Single-ended	ADC3_INP13	PH2
 ADC3	IN14 Single-ended	ADC3_INP14	PH3
+ADC3	IN15 Single-ended	ADC3_INP15	PH4
 DEBUG	Serial Wire	DEBUG_JTCK-SWCLK	PA14 (JTCK/SWCLK)
 DEBUG	Serial Wire	DEBUG_JTMS-SWDIO	PA13 (JTMS/SWDIO)
-DFSDM1:Channel 4	PDM/SPI input from ch4 and external clock	DFSDM1_CKIN4	PE11
-DFSDM1:Channel 4	PDM/SPI input from ch4 and external clock	DFSDM1_DATIN4	PE10
-DFSDM1:Channel 5	PDM/SPI input from ch5 and external clock	DFSDM1_CKIN5	PE13
-DFSDM1:Channel 5	PDM/SPI input from ch5 and external clock	DFSDM1_DATIN5	PE12
-DFSDM1	CKOUT	DFSDM1_CKOUT	PE9
+DFSDM1:Channel 3	PDM/SPI Input from ch4 and Internal Clock	DFSDM1_DATIN4	PE10
+DFSDM1:Channel 3	PDM/SPI Input from ch4 and Internal Clock	DFSDM1_CKOUT	PE9
+DFSDM1:Channel 4	PDM/SPI input from ch4 and internal clock	DFSDM1_DATIN4	PE10
+DFSDM1:Channel 4	PDM/SPI input from ch4 and internal clock	DFSDM1_CKOUT	PE9
+DFSDM1:Channel 5	PDM/SPI input from ch5 and internal clock	DFSDM1_DATIN5	PE12
+DFSDM1:Channel 5	PDM/SPI input from ch5 and internal clock	DFSDM1_CKOUT	PE9
 FDCAN1	Activated	FDCAN1_RX	PH14
 FDCAN1	Activated	FDCAN1_TX	PH13
 I2C2	I2C	I2C2_SCL	PB10
@@ -212,6 +218,10 @@ RCC	Crystal/Ceramic Resonator	RCC_OSC_IN	PH0-OSC_IN (PH0)
 RCC	Crystal/Ceramic Resonator	RCC_OSC_OUT	PH1-OSC_OUT (PH1)
 SYS_M4	SysTick	SYS_M4_VS_Systick	VP_SYS_M4_VS_Systick
 SYS	SysTick	SYS_VS_Systick	VP_SYS_VS_Systick
+TIM1	Output Compare CH1	TIM1_CH1	PA8
+TIM1	PWM Generation CH2	TIM1_CH2	PE11
+TIM1	PWM Generation CH3	TIM1_CH3	PE13
+TIM2	Output Compare CH1	TIM2_CH1	PA0
 USB_OTG_FS	Device_Only	USB_OTG_FS_DM	PA11
 USB_OTG_FS	Device_Only	USB_OTG_FS_DP	PA12
 
@@ -222,8 +232,7 @@ A2	PI6	GPIO_Output	Transducer
 A3	PI5	GPIO_Output	Transducer
 A4	PI4	GPIO_Output	Transducer
 A5	PB5	GPIO_Output	Transducer
-A8	PK5	GPIO_Input	
-A9	PG10	GPIO_Output	Transducer
+A8	PK5	GPIO_Input	KEY1
 A10	PG9	GPIO_Output	Transducer
 A11	PD5	GPIO_Output	Transducer
 A12	PD4	GPIO_Output	Transducer
@@ -233,19 +242,20 @@ A16	PI0	GPIO_Output	Transducer
 B3	PI7	GPIO_Output	Transducer
 B4	PE1	GPIO_Output	Transducer
 B5	PB6	GPIO_Output	Transducer
-B8	PK4	GPIO_Input	
+B8	PK4	GPIO_Input	KEY0
 B9	PG11	GPIO_Output	Transducer
-B10	PJ15	GPIO_Output	Transducer
 B11	PD6	GPIO_Output	Transducer
 B12	PD3	GPIO_Output	Transducer
 B14	PA14 (JTCK/SWCLK)	DEBUG_JTCK-SWCLK	
 B15	PI2	GPIO_Output	Transducer
 B17	PH14	FDCAN1_RX	
+C1	PC15-OSC32_OUT (OSC32_OUT)	GPIO_Input	KEY3
+C2	PC14-OSC32_IN (OSC32_IN)	GPIO_Input	KEY2
 C3	PE2	GPIO_Output	Transducer
 C4	PE0	GPIO_Output	Transducer
 C5	PB7	GPIO_Output	Transducer
-C7	PK6	GPIO_Output	
-C8	PK3	GPIO_Output	
+C7	PK6	GPIO_Output	LED0
+C8	PK3	GPIO_Output	LED1
 C9	PG12	GPIO_Output	Transducer
 C11	PD7	GPIO_Output	Transducer
 C14	PI3	GPIO_Output	Transducer
@@ -256,15 +266,13 @@ D3	PE3	GPIO_Output	Transducer
 D4	PB9	GPIO_Output	Transducer
 D5	PB8	GPIO_Output	Transducer
 D6	PG15	GPIO_Output	Transducer
-D7	PK7	GPIO_Output	
+D7	PK7	GPIO_Output	LED2
 D8	PG14	GPIO_Output	Transducer
 D9	PG13	GPIO_Output	Transducer
 D10	PJ14	GPIO_Output	Transducer
 D11	PJ12	GPIO_Output	Transducer
 D12	PD2	GPIO_Output	Transducer
 D13	PD0	GPIO_Output	Transducer
-D14	PA10*	USART1_RX	
-D15	PA9*	USART1_TX	
 D16	PH13	FDCAN1_TX	
 E2	PI9	GPIO_Output	Transducer
 E4	PI8	GPIO_Output	Transducer
@@ -272,8 +280,8 @@ E5	PE6	GPIO_Output	Transducer
 E10	PJ13	GPIO_Output	Transducer
 E12	PD1	GPIO_Output	Transducer
 E13	PC8	GPIO_Output	Transducer
-E14	PC9	GPIO_EXTI9	
-E15	PA8*	TIM1_CH1	
+E14	PC9	GPIO_Output	Transducer
+E15	PA8	TIM1_CH1	
 E16	PA12	USB_OTG_FS_DP	
 E17	PA11	USB_OTG_FS_DM	
 F3	PI10	GPIO_Output	Transducer
@@ -308,24 +316,24 @@ L4	PF9	GPIO_Output	Transducer
 L14	PJ10	GPIO_Output	Transducer
 M2	PC1	GPIO_Output	Transducer
 M3	PC2	GPIO_Output	Transducer
-M4	PC3	GPIO_EXTI3	
+M4	PC3	GPIO_Output	Transducer
 M14	PJ9	GPIO_Output	Transducer
 N2	PH2	ADC3_INP13	
 N3	PA2	ADC1_INP14	
+N5	PA0	TIM2_CH1	Flash
 N6	PJ0	GPIO_Output	Transducer
 N9	PE10	DFSDM1_DATIN4	
 N13	PJ8	GPIO_Output	Transducer
 N14	PJ7	GPIO_Output	Transducer
 N15	PJ6	GPIO_Output	Transducer
 P2	PH3	ADC3_INP14	
-P3	PH4*	ADC3_INP15	
-P4	PH5	GPIO_Output	Flash
+P3	PH4	ADC3_INP15	
 P5	PI15	GPIO_Output	Transducer
 P6	PJ1	GPIO_Output	Transducer
 P7	PF13	GPIO_Output	Transducer
 P8	PF14	GPIO_Output	Transducer
 P9	PE9	DFSDM1_CKOUT	
-P10	PE11	DFSDM1_CKIN4	
+P10	PE11	TIM1_CH2	
 P11	PB10	I2C2_SCL	
 P12	PB11	I2C2_SDA	
 P14	PH11	I2C4_SCL	
@@ -349,7 +357,7 @@ T4	PC4	GPIO_Output	Transducer
 T5	PB1	GPIO_Output	Transducer
 T6	PJ2	GPIO_Output	Transducer
 T7	PF11	GPIO_Output	Transducer
-T10	PE13	DFSDM1_CKIN5	
+T10	PE13	TIM1_CH3	
 T13	PH8	I2C3_SDA	
 T14	PB12	GPIO_Output	Transducer
 T15	PB15	GPIO_Output	Transducer
@@ -362,7 +370,7 @@ U5	PB0	GPIO_Output	Transducer
 U6	PJ3	GPIO_Output	Transducer
 U7	PJ4	GPIO_Output	Transducer
 U9	PE7	GPIO_Output	Transducer
-U10	PE14	GPIO_Output	
+U10	PE14	GPIO_Output	Transducer
 U13	PH7	I2C3_SCL	
 U14	PB13	GPIO_Output	Transducer
 U15	PB14	GPIO_Output	Transducer
