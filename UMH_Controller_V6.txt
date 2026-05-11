@@ -1,4 +1,4 @@
-Configuration	UMH Controller V6
+Configuration	UMH_Controller_V6
 STM32CubeMX 	6.11.1
 Date	05/11/2026
 MCU	STM32H757XIHx
@@ -31,7 +31,7 @@ I2C4	I2C	I2C4_SCL	PH11
 I2C4	I2C	I2C4_SDA	PH12
 RCC	Crystal/Ceramic Resonator	RCC_OSC_IN	PH0-OSC_IN (PH0)
 RCC	Crystal/Ceramic Resonator	RCC_OSC_OUT	PH1-OSC_OUT (PH1)
-SYS_M4	SysTick	SYS_M4_VS_Systick	VP_SYS_M4_VS_Systick
+SYS_M4	TIM6	SYS_M4_VS_tim6	VP_SYS_M4_VS_tim6
 SYS	SysTick	SYS_VS_Systick	VP_SYS_VS_Systick
 TIM1	Output Compare CH1	TIM1_CH1	PA8
 TIM1	PWM Generation CH2	TIM1_CH2	PE11
@@ -216,7 +216,7 @@ I2C4	I2C	I2C4_SCL	PH11
 I2C4	I2C	I2C4_SDA	PH12
 RCC	Crystal/Ceramic Resonator	RCC_OSC_IN	PH0-OSC_IN (PH0)
 RCC	Crystal/Ceramic Resonator	RCC_OSC_OUT	PH1-OSC_OUT (PH1)
-SYS_M4	SysTick	SYS_M4_VS_Systick	VP_SYS_M4_VS_Systick
+SYS_M4	TIM6	SYS_M4_VS_tim6	VP_SYS_M4_VS_tim6
 SYS	SysTick	SYS_VS_Systick	VP_SYS_VS_Systick
 TIM1	Output Compare CH1	TIM1_CH1	PA8
 TIM1	PWM Generation CH2	TIM1_CH2	PE11
@@ -381,9 +381,9 @@ U16	PD8	GPIO_Output	Transducer
 SOFTWARE PROJECT
 
 Project Settings : 
-Project Name : UMH Controller V6
+Project Name : UMH_Controller_V6
 Project Folder : D:\Data\OneDrive\Projects\UMH\Software\UMH Controller
-Toolchain / IDE : EWARM V8.50
+Toolchain / IDE : Makefile
 Firmware Package Name and Version : STM32Cube FW_H7 V1.11.2
 
 
@@ -392,7 +392,7 @@ STM32Cube MCU packages and embedded software packs : Copy all used libraries int
 Generate peripheral initialization as a pair of '.c/.h' files per peripheral : No
 Backup previously generated files when re-generating : No
 Delete previously generated files when not re-generated : Yes
-Set all free pins as analog (to optimize the power consumption) : No
+Set all free pins as analog (to optimize the power consumption) : Yes
 
 
 Toolchains Settings : 

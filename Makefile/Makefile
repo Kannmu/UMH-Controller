@@ -103,7 +103,11 @@ main=	cd	Secure && $(MAKE)
 # clean up
 #######################################
 clean:
+ifeq ($(OS),Windows_NT)
+	-rmdir /s /q $(EXEC)
+else
 	-rm -fR $(EXEC)
+endif
   
 #######################################
 # dependencies
