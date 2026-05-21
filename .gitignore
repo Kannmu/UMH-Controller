@@ -87,7 +87,8 @@ build/
 !Middlewares/
 
 .trae/
-.vscode/
+# .vscode/
+
 
 Reference/
 Legacy V.5 Source Code/
