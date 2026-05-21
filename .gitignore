@@ -87,4 +87,5 @@ build/
 !Middlewares/
 
 .trae/
-.vscode/
+# .vscode/
+Reference/
