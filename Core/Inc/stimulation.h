@@ -14,6 +14,9 @@ typedef enum StimulationType
     Linear = 2,
     Circular = 3,
     TwinTrap = 4,
+    Square = 5,
+    STM_Triangle = 6,
+    Zigzag = 7,
 }StimulationType;
 
 

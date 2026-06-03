@@ -153,12 +153,64 @@ const Stimulation DemoTwinTrapStimulation = {
     .cached_circ_v = {0.0f, 0.0f, 0.0f},
 };
 
+
+const Stimulation DemoSquareStimulation = {
+    .name = "Square",
+    .type = Square,
+    .position = {0.0f, 0.0f, 0.1f},
+    .strength = 100,
+    .startPoint = {0.0f, 0.0f, 0.1f},
+    .endPoint = {0.0f, 0.0f, 0.1f},
+    .segments = 1,
+    .normalVector = {0.0f, 0.0f, 1.0f},
+    .radius = 0.0105f,
+    .frequency = 200.0f,
+    .cached_period_us = 0,
+    .cached_circ_u = {0.0f, 0.0f, 0.0f},
+    .cached_circ_v = {0.0f, 0.0f, 0.0f},
+};
+
+const Stimulation DemoSTM_TriangleStimulation = {
+    .name = "STM_Triangle",
+    .type = STM_Triangle,
+    .position = {0.0f, 0.0f, 0.1f},
+    .strength = 100,
+    .startPoint = {0.0f, 0.0f, 0.1f},
+    .endPoint = {0.0f, 0.0f, 0.1f},
+    .segments = 1,
+    .normalVector = {0.0f, 0.0f, 1.0f},
+    .radius = 0.005f,
+    .frequency = 200.0f,
+    .cached_period_us = 0,
+    .cached_circ_u = {0.0f, 0.0f, 0.0f},
+    .cached_circ_v = {0.0f, 0.0f, 0.0f},
+};
+
+const Stimulation DemoZigzagStimulation = {
+    .name = "Zigzag",
+    .type = Zigzag,
+    .position = {0.0f, 0.0f, 0.1f},
+    .strength = 100,
+    .startPoint = {0.0f, 0.0105f, 0.1f},
+    .endPoint = {0.0f, -0.0105f, 0.1f},
+    .segments = 3,
+    .normalVector = {0.0f, 0.0f, 1.0f},
+    .radius = 0.005f,
+    .frequency = 200.0f,
+    .cached_period_us = 0,
+    .cached_circ_u = {0.0f, 0.0f, 0.0f},
+    .cached_circ_v = {0.0f, 0.0f, 0.0f},
+};
+
 const Stimulation *DemoStimulations[] = {
-    &DLM_2_Stimulation,
-    &DLM_3_Stimulation,
-    &DemoULM_LStimulation,
-    &DemoLM_LStimulation,
+    // &DLM_2_Stimulation,
+    // &DLM_3_Stimulation,
+    // &DemoULM_LStimulation,
+    // &DemoLM_LStimulation,
     &DemoLM_CStimulation,
+    &DemoSquareStimulation,
+    &DemoSTM_TriangleStimulation,
+    &DemoZigzagStimulation,
 };
 
 void Switch_Demo_Mode()
@@ -248,6 +300,9 @@ void Set_Stimulation(const Stimulation *stimulation)
         break;
     case Discrete:
     case Circular:
+    case Square:
+    case STM_Triangle:
+    case Zigzag:
     {
         float n[3] = {CurrentStimulation.normalVector[0], CurrentStimulation.normalVector[1], CurrentStimulation.normalVector[2]};
         Vector3Normalize(n);
@@ -352,6 +407,90 @@ void Update_Stimulation_State(float progress)
         circularPosition[2] = CurrentStimulation.position[2] + CurrentStimulation.radius * (cos_a * CurrentStimulation.cached_circ_u[2] + sin_a * CurrentStimulation.cached_circ_v[2]);
 
         Set_Point_Focus(circularPosition);
+        break;
+    }
+    case Square:
+    {
+        float r = CurrentStimulation.radius;
+        if (r <= 0.0f) r = 0.0105f;
+
+        float p = progress * 4.0f;
+        int seg = (int)p;
+        if (seg >= 4) seg = 3;
+        float t = p - (float)seg;
+
+        float cu[3] = {CurrentStimulation.cached_circ_u[0], CurrentStimulation.cached_circ_u[1], CurrentStimulation.cached_circ_u[2]};
+        float cv[3] = {CurrentStimulation.cached_circ_v[0], CurrentStimulation.cached_circ_v[1], CurrentStimulation.cached_circ_v[2]};
+
+        float signs[4][2] = {{-1.0f, -1.0f}, {1.0f, -1.0f}, {1.0f, 1.0f}, {-1.0f, 1.0f}};
+        float corners[4][3];
+        for (int i = 0; i < 4; i++)
+        {
+            for (int j = 0; j < 3; j++)
+            {
+                corners[i][j] = CurrentStimulation.position[j] + r * (signs[i][0] * cu[j] + signs[i][1] * cv[j]);
+            }
+        }
+
+        int next = (seg + 1) % 4;
+        float squarePos[3];
+        Vector3Lerp(squarePos, corners[seg], corners[next], t);
+        Set_Point_Focus(squarePos);
+        break;
+    }
+    case STM_Triangle:
+    {
+        float r = CurrentStimulation.radius;
+        if (r <= 0.0f) r = 0.005f;
+
+        float p = progress * 3.0f;
+        int seg = (int)p;
+        if (seg >= 3) seg = 2;
+        float t = p - (float)seg;
+
+        float cu[3] = {CurrentStimulation.cached_circ_u[0], CurrentStimulation.cached_circ_u[1], CurrentStimulation.cached_circ_u[2]};
+        float cv[3] = {CurrentStimulation.cached_circ_v[0], CurrentStimulation.cached_circ_v[1], CurrentStimulation.cached_circ_v[2]};
+
+        float vertices[3][3];
+        for (int i = 0; i < 3; i++)
+        {
+            float angle = -(float)M_PI / 2.0f + (float)i * 2.0f * (float)M_PI / 3.0f;
+            float ca = cosf(angle);
+            float sa = sinf(angle);
+            for (int j = 0; j < 3; j++)
+            {
+                vertices[i][j] = CurrentStimulation.position[j] + r * (ca * cu[j] + sa * cv[j]);
+            }
+        }
+
+        int next = (seg + 1) % 3;
+        float triPos[3];
+        Vector3Lerp(triPos, vertices[seg], vertices[next], t);
+        Set_Point_Focus(triPos);
+        break;
+    }
+    case Zigzag:
+    {
+        int cycles = CurrentStimulation.segments;
+        if (cycles < 1) cycles = 1;
+        float amplitude = CurrentStimulation.radius;
+        if (amplitude <= 0.0f) amplitude = 0.005f;
+
+        // Traverse linearly from startPoint to endPoint
+        float pos[3];
+        Vector3Lerp(pos, CurrentStimulation.startPoint, CurrentStimulation.endPoint, progress);
+
+        // Triangle-wave oscillation perpendicular to traversal direction
+        float t_cycle = progress * (float)cycles;
+        float phase = t_cycle - floorf(t_cycle);
+        float tri = 1.0f - 4.0f * fabsf(phase - 0.5f);
+
+        float cu[3] = {CurrentStimulation.cached_circ_u[0], CurrentStimulation.cached_circ_u[1], CurrentStimulation.cached_circ_u[2]};
+        pos[0] += amplitude * tri * cu[0];
+        pos[1] += amplitude * tri * cu[1];
+        pos[2] += amplitude * tri * cu[2];
+
+        Set_Point_Focus(pos);
         break;
     }
     case TwinTrap:
