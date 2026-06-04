@@ -21,7 +21,7 @@
         "usbd_cdc_if.h": "c",
         "stimulation.h": "c"
     },
-    "C_Cpp.default.compilerPath": "D:\\SOFTWARE\\ARM-GNU-Toolchain\\bin\\arm-none-eabi-gcc.exe",
+    "C_Cpp.default.compilerPath": "D:\\Software\\ARM-GNU-Toolchain\\bin\\arm-none-eabi-gcc.exe",
     "C_Cpp.default.intelliSenseMode": "gcc-arm",
     "cSpell.words": [
         "calib",
@@ -29,13 +29,13 @@
         "hdma",
         "SYSTICK"
     ],
-    "stm32-for-vscode.openOCDPath": false,
-    "stm32-for-vscode.makePath": "D:\\SOFTWARE\\MINGW\\BIN\\MAKE.EXE",
-    "stm32-for-vscode.armToolchainPath": "D:\\SOFTWARE\\ARM-GNU-Toolchain\\bin",
+    "stm32-for-vscode.openOCDPath": "D:\\Software\\OpenOCD\\bin\\openocd.exe",
+    "stm32-for-vscode.makePath": "D:\\Software\\MinGW\\bin\\make.exe",
+    "stm32-for-vscode.armToolchainPath": "D:\\Software\\ARM-GNU-Toolchain\\bin",
     "stm32-for-vscode.makefilePath": "Makefile/Makefile",
     "stm32-for-vscode.makeFlags": "-j4",
-    "cortex-debug.armToolchainPath": "D:\\SOFTWARE\\ARM-GNU-Toolchain\\bin",
-    "cortex-debug.openocdPath": "C:\\USERS\\14623\\APPDATA\\ROAMING\\CODE\\USER\\GLOBALSTORAGE\\BMD.STM32-FOR-VSCODE\\@XPACK-DEV-TOOLS\\OPENOCD\\0.12.0-3.1\\.CONTENT\\BIN\\OPENOCD.EXE",
+    "cortex-debug.armToolchainPath": "D:\\Software\\ARM-GNU-Toolchain\\bin",
+    "cortex-debug.openocdPath": "D:\\Software\\OpenOCD\\bin\\openocd.exe",
     "cortex-debug.variableUseNaturalFormat": true,
     "python.languageServer": "None"
 }
