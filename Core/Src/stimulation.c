@@ -153,12 +153,26 @@ const Stimulation DemoTwinTrapStimulation = {
     .cached_circ_v = {0.0f, 0.0f, 0.0f},
 };
 
+const Stimulation DemoChirpStimulation = {
+    .name = "Chirp",
+    .type = Chirp,
+    .position = {0.0f, 0.0f, 0.06f},
+    .strength = 100,
+    .startPoint = {0.0f, 0.0f, 0.06f},
+    .endPoint = {0.0f, 0.0f, 0.06f},
+    .normalVector = {0.0f, 0.0f, 1.0f},
+    .radius = 0.0f,
+    .frequency = 200.0f,
+    .startFrequency = 35e3f,
+    .endFrequency = 45e3f,
+}
+
 const Stimulation *DemoStimulations[] = {
-    &DLM_2_Stimulation,
-    &DLM_3_Stimulation,
-    &DemoULM_LStimulation,
-    &DemoLM_LStimulation,
-    &DemoLM_CStimulation,
+    // &DLM_2_Stimulation,
+    // &DLM_3_Stimulation,
+    // &DemoULM_LStimulation,
+    // &DemoLM_LStimulation,
+    // &DemoLM_CStimulation,
 };
 
 void Switch_Demo_Mode()
