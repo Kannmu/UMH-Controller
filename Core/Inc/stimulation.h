@@ -15,6 +15,7 @@ typedef enum StimulationType
     Circular = 3,
     TwinTrap = 4,
     Chirp = 5,
+    ChirpPoint = 6,
 }StimulationType;
 
 

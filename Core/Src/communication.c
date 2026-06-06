@@ -280,11 +280,18 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                                     memcpy(&stimulation.position[0], &pData[offset], 4); offset += 4;
                                     memcpy(&stimulation.position[1], &pData[offset], 4); offset += 4;
                                     memcpy(&stimulation.position[2], &pData[offset], 4); offset += 4;
-                                    
+
                                     memcpy(&stimulation.normalVector[0], &pData[offset], 4); offset += 4;
                                     memcpy(&stimulation.normalVector[1], &pData[offset], 4); offset += 4;
                                     memcpy(&stimulation.normalVector[2], &pData[offset], 4); offset += 4;
                                     memcpy(&stimulation.radius, &pData[offset], 4); offset += 4;
+                                    break;
+                                case Chirp:
+                                    memcpy(&stimulation.position[0], &pData[offset], 4); offset += 4;
+                                    memcpy(&stimulation.position[1], &pData[offset], 4); offset += 4;
+                                    memcpy(&stimulation.position[2], &pData[offset], 4); offset += 4;
+                                    memcpy(&stimulation.startFrequency, &pData[offset], 4); offset += 4;
+                                    memcpy(&stimulation.endFrequency,   &pData[offset], 4); offset += 4;
                                     break;
                                 default:
                                     break;
