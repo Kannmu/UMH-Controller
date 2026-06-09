@@ -144,15 +144,6 @@ void Update_Full_Waveform_Buffer()
 
     int is_enabled = Get_Stimulation_Enabled();
 
-    int is_chirp = (CurrentStimulation.type == Chirp) && is_enabled;
-    float chirp_global_phase_norm = 0.0f;
-    float chirp_duty_fraction = is_chirp
-        ? (DMA_DUTY_CYCLE_MIN + (DMA_DUTY_CYCLE_MAX - DMA_DUTY_CYCLE_MIN)
-           * (DMA_Clamp_Stimulation_Strength(CurrentStimulation.strength) / DMA_STRENGTH_MAX))
-        : 0.0f;
-    float chirp_start_freq = CurrentStimulation.startFrequency;
-    float chirp_freq_range = CurrentStimulation.endFrequency - CurrentStimulation.startFrequency;
-
     for (int s = 0; s < NUM_STIMULATION_SAMPLES; s++)
     {
         float progress = (float)s / (float)NUM_STIMULATION_SAMPLES;
@@ -161,14 +152,6 @@ void Update_Full_Waveform_Buffer()
         if (is_enabled)
         {
             Update_Stimulation_State(progress);
-        }
-
-        float chirp_f_s = 0.0f;
-        float chirp_T_s = 0.0f;
-        if (is_chirp)
-        {
-            chirp_f_s = chirp_start_freq + chirp_freq_range * ((float)s / (float)(NUM_STIMULATION_SAMPLES - 1));
-            chirp_T_s = (float)DMA_SAMPLING_FREQ / chirp_f_s;
         }
 
         // Pre-calculate LED Mask (Port 0)
@@ -210,86 +193,44 @@ void Update_Full_Waveform_Buffer()
                     }
 
                     // Phase Calculation
-                    uint16_t pin_bit = (1 << __builtin_ctz(t->pin));
+                    uint16_t phase_offset = t->calib + t->shift_buffer_bits;
+                    phase_offset += Group_Offset_Ticks[p];
+                    phase_offset %= WAVEFORM_BUFFER_SIZE;
 
-                    if (is_chirp)
+                    uint32_t start_idx = (WAVEFORM_BUFFER_SIZE - phase_offset) % WAVEFORM_BUFFER_SIZE;
+                    uint16_t duty_ticks;
+                    if (Get_Phase_Set_Mode() == 1)
                     {
-                        uint16_t offset_bits = t->calib + t->shift_buffer_bits;
-                        offset_bits += Group_Offset_Ticks[p];
-                        offset_bits %= WAVEFORM_BUFFER_SIZE;
-
-                        float phi_0 = chirp_global_phase_norm - (float)offset_bits / chirp_T_s;
-
-                        // Initial state just before element 0
-                        if (fmodf(phi_0 - 1e-6f, 1.0f) < chirp_duty_fraction)
-                        {
-                            current_state |= pin_bit;
-                        }
-
-                        // Rising edges: n = (k - phi_0) * T_s
-                        int k_on = (int)ceilf(phi_0);
-                        for (int k = k_on; ; k++)
-                        {
-                            float n = ((float)k - phi_0) * chirp_T_s;
-                            if (n >= (float)WAVEFORM_BUFFER_SIZE) break;
-                            uint16_t idx = (uint16_t)n;
-                            if (turn_on[idx] == 0 && turn_off[idx] == 0)
-                                event_indices[event_count++] = idx;
-                            turn_on[idx] |= pin_bit;
-                        }
-
-                        // Falling edges: n = (k + duty - phi_0) * T_s
-                        int k_off = (int)ceilf(phi_0 - chirp_duty_fraction);
-                        for (int k = k_off; ; k++)
-                        {
-                            float n = ((float)k + chirp_duty_fraction - phi_0) * chirp_T_s;
-                            if (n >= (float)WAVEFORM_BUFFER_SIZE) break;
-                            uint16_t idx = (uint16_t)n;
-                            if (turn_on[idx] == 0 && turn_off[idx] == 0)
-                                event_indices[event_count++] = idx;
-                            turn_off[idx] |= pin_bit;
-                        }
+                        uint32_t on_ticks = (uint32_t)lroundf(t->duty * (float)half_period);
+                        if (on_ticks > half_period) on_ticks = half_period;
+                        duty_ticks = (uint16_t)on_ticks;
                     }
                     else
                     {
-                        uint16_t phase_offset = t->calib + t->shift_buffer_bits;
-                        phase_offset += Group_Offset_Ticks[p];
-                        phase_offset %= WAVEFORM_BUFFER_SIZE;
+                        duty_ticks = DMA_Convert_Strength_To_On_Ticks(CurrentStimulation.strength);
+                    }
+                    
+                    uint32_t end_idx = (start_idx + duty_ticks) % WAVEFORM_BUFFER_SIZE;
+                    uint16_t pin_bit = (1 << __builtin_ctz(t->pin));
 
-                        uint32_t start_idx = (WAVEFORM_BUFFER_SIZE - phase_offset) % WAVEFORM_BUFFER_SIZE;
-                        uint16_t duty_ticks;
-                        if (Get_Phase_Set_Mode() == 1)
-                        {
-                            uint32_t on_ticks = (uint32_t)lroundf(t->duty * (float)half_period);
-                            if (on_ticks > half_period) on_ticks = half_period;
-                            duty_ticks = (uint16_t)on_ticks;
-                        }
-                        else
-                        {
-                            duty_ticks = DMA_Convert_Strength_To_On_Ticks(CurrentStimulation.strength);
-                        }
+                    if (duty_ticks == 0U)
+                    {
+                        continue;
+                    }
 
-                        uint32_t end_idx = (start_idx + duty_ticks) % WAVEFORM_BUFFER_SIZE;
+                    // Record Events
+                    if (turn_on[start_idx] == 0 && turn_off[start_idx] == 0)
+                        event_indices[event_count++] = (uint16_t)start_idx;
+                    turn_on[start_idx] |= pin_bit;
 
-                        if (duty_ticks == 0U)
-                        {
-                            continue;
-                        }
+                    if (turn_on[end_idx] == 0 && turn_off[end_idx] == 0)
+                        event_indices[event_count++] = (uint16_t)end_idx;
+                    turn_off[end_idx] |= pin_bit;
 
-                        // Record Events
-                        if (turn_on[start_idx] == 0 && turn_off[start_idx] == 0)
-                            event_indices[event_count++] = (uint16_t)start_idx;
-                        turn_on[start_idx] |= pin_bit;
-
-                        if (turn_on[end_idx] == 0 && turn_off[end_idx] == 0)
-                            event_indices[event_count++] = (uint16_t)end_idx;
-                        turn_off[end_idx] |= pin_bit;
-
-                        // Handle Wrap-around Initial State
-                        if (start_idx >= end_idx)
-                        {
-                            current_state |= pin_bit;
-                        }
+                    // Handle Wrap-around Initial State
+                    if (start_idx >= end_idx)
+                    {
+                        current_state |= pin_bit;
                     }
                 }
             }
@@ -377,12 +318,6 @@ void Update_Full_Waveform_Buffer()
                     *ptr++ = running_state;
                 }
             }
-        }
-
-        if (is_chirp)
-        {
-            chirp_global_phase_norm += chirp_f_s * (float)WAVEFORM_BUFFER_SIZE / (float)DMA_SAMPLING_FREQ;
-            chirp_global_phase_norm = fmodf(chirp_global_phase_norm, 1e6f);
         }
     }
 

@@ -19,9 +19,13 @@ PERIOD_US = 1e6 / FREQ
 # ==========================================
 def read_oscilloscope_iq(scope):
     """
-    暂停示波器，读取差分波形(CH1-CH2)和参考波形(CH3)，使用数字锁相放大器提取 40kHz 复数向量
+    暂停示波器，读取差分波形(CH1-CH2)和参考波形(CH3)，使用数字锁相放大器提取 40kHz 复数向量。
+    已修正时间量纲，并增加了严格的边界截断和调试输出。
     """
     scope.write(':STOP') 
+    
+    # 增加微小延时，确保示波器内部缓冲处理完毕，防止读取到跨界残波
+    time.sleep(0.05) 
     
     def get_channel_data(channel):
         scope.write(f":WAV:SOUR CHAN{channel}")
@@ -41,21 +45,47 @@ def read_oscilloscope_iq(scope):
     _, _, v3 = get_channel_data(3)
     scope.write(':RUN')
     
+    # 检查数据点是否一致
+    if not (len(v1) == len(v2) == len(v3)):
+        raise ValueError(f"通道数据长度不匹配! CH1:{len(v1)}, CH2:{len(v2)}, CH3:{len(v3)}")
+    
     # 计算差分信号和参考信号
     volts_diff = v1 - v2
     volts_ref = v3
     
-    # 构造绝对时间轴
+    # 构造绝对时间轴 (单位：秒)
     t = np.arange(len(volts_diff)) * xinc + xorig
+    
+    # ==========================================
+    # 数据诊断与量纲统一 (统一使用秒 [s])
+    # ==========================================
+    t_span_s = t[-1] - t[0]         # 屏幕总时长 (秒)
+    period_s = 1.0 / FREQ           # 物理目标周期 (秒，40kHz对应 25e-6)
+    
+    cycles = int(t_span_s / period_s) # 包含的完整整数周期数
+    
+    # 仅在第一次采集或发生异常时打印底部诊断信息（可根据需要修改条件，这里全部打印）
+    # print(f"\n[DEBUG] 点数:{len(t)} | XINC:{xinc:.2e}s | 屏幕跨度:{t_span_s*1e6:.1f}us | 整数周期数:{cycles}")
+
+    if cycles < 1:
+        raise ValueError(f"示波器屏幕时间过短 ({t_span_s*1e6:.1f} us)，无法捕获完整周期 ({period_s*1e6:.1f} us)！")
+    
+    # 核心截断逻辑：只取完全覆盖整数个周期的有效点数
+    valid_points = int(cycles * period_s / xinc)
+    
+    t_valid = t[:valid_points]
+    volts_diff_valid = volts_diff[:valid_points]
+    volts_ref_valid = volts_ref[:valid_points]
     
     # 数字 IQ 解调提取基波向量
     omega = 2.0 * math.pi * FREQ
-    I_diff = np.mean(volts_diff * np.cos(omega * t))
-    Q_diff = np.mean(volts_diff * np.sin(omega * t))
+    
+    I_diff = np.mean(volts_diff_valid * np.cos(omega * t_valid))
+    Q_diff = np.mean(volts_diff_valid * np.sin(omega * t_valid))
     V_diff = I_diff + 1j * Q_diff
     
-    I_ref = np.mean(volts_ref * np.cos(omega * t))
-    Q_ref = np.mean(volts_ref * np.sin(omega * t))
+    I_ref = np.mean(volts_ref_valid * np.cos(omega * t_valid))
+    Q_ref = np.mean(volts_ref_valid * np.sin(omega * t_valid))
     V_ref = I_ref + 1j * Q_ref
     
     return V_diff, V_ref

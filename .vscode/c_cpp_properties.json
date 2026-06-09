@@ -18,7 +18,7 @@
         "USE_HAL_DRIVER",
         "STM32H757xx"
       ],
-      "compilerPath": "D:\\Software\\ARM-GNU-Toolchain\\bin\\arm-none-eabi-gcc.exe",
+      "compilerPath": "arm-none-eabi-gcc",
       "intelliSenseMode": "gcc-arm",
       "cStandard": "c11",
       "cppStandard": "c++14"

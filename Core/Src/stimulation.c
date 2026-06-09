@@ -153,102 +153,12 @@ const Stimulation DemoTwinTrapStimulation = {
     .cached_circ_v = {0.0f, 0.0f, 0.0f},
 };
 
-const Stimulation DemoChirp_20_Stimulation = {
-    .name = "Chirp_20",
-    .type = Chirp,
-    .position = {0.0f, 0.0f, 0.06f},
-    .strength = 100,
-    .startPoint = {0.0f, 0.0f, 0.06f},
-    .endPoint = {0.0f, 0.0f, 0.06f},
-    .normalVector = {0.0f, 0.0f, 1.0f},
-    .radius = 0.0f,
-    .frequency = 200.0f,
-    .startFrequency = 30e3f,
-    .endFrequency = 50e3f,
-};
-
-const Stimulation DemoChirp_15_Stimulation = {
-    .name = "Chirp_15",
-    .type = Chirp,
-    .position = {0.0f, 0.0f, 0.06f},
-    .strength = 100,
-    .startPoint = {0.0f, 0.0f, 0.06f},
-    .endPoint = {0.0f, 0.0f, 0.06f},
-    .normalVector = {0.0f, 0.0f, 1.0f},
-    .radius = 0.0f,
-    .frequency = 200.0f,
-    .startFrequency = 32.5e3f,
-    .endFrequency = 47.5e3f,
-};
-
-const Stimulation DemoChirp_10_Stimulation = {
-    .name = "Chirp_10",
-    .type = Chirp,
-    .position = {0.0f, 0.0f, 0.06f},
-    .strength = 100,
-    .startPoint = {0.0f, 0.0f, 0.06f},
-    .endPoint = {0.0f, 0.0f, 0.06f},
-    .normalVector = {0.0f, 0.0f, 1.0f},
-    .radius = 0.0f,
-    .frequency = 200.0f,
-    .startFrequency = 35e3f,
-    .endFrequency = 45e3f,
-};
-
-const Stimulation DemoChirp_5_Stimulation = {
-    .name = "Chirp_10",
-    .type = Chirp,
-    .position = {0.0f, 0.0f, 0.06f},
-    .strength = 100,
-    .startPoint = {0.0f, 0.0f, 0.06f},
-    .endPoint = {0.0f, 0.0f, 0.06f},
-    .normalVector = {0.0f, 0.0f, 1.0f},
-    .radius = 0.0f,
-    .frequency = 200.0f,
-    .startFrequency = 37.5e3f,
-    .endFrequency = 42.5e3f,
-};
-
-const Stimulation DemoChirp_2p5_Stimulation = {
-    .name = "Chirp_2p5",
-    .type = Chirp,
-    .position = {0.0f, 0.0f, 0.06f},
-    .strength = 100,
-    .startPoint = {0.0f, 0.0f, 0.06f},
-    .endPoint = {0.0f, 0.0f, 0.06f},
-    .normalVector = {0.0f, 0.0f, 1.0f},
-    .radius = 0.0f,
-    .frequency = 200.0f,
-    .startFrequency = 38.75e3f,
-    .endFrequency = 41.25e3f,
-};
-
-const Stimulation DemoChirp_1_Stimulation = {
-    .name = "Chirp_1",
-    .type = Chirp,
-    .position = {0.0f, 0.0f, 0.06f},
-    .strength = 100,
-    .startPoint = {0.0f, 0.0f, 0.06f},
-    .endPoint = {0.0f, 0.0f, 0.06f},
-    .normalVector = {0.0f, 0.0f, 1.0f},
-    .radius = 0.0f,
-    .frequency = 200.0f,
-    .startFrequency = 39.5e3f,
-    .endFrequency = 40.5e3f,
-};
-
 const Stimulation *DemoStimulations[] = {
-    &DemoChirp_20_Stimulation,
-    &DemoChirp_15_Stimulation,
-    &DemoChirp_10_Stimulation,
-    &DemoChirp_5_Stimulation,
-    &DemoChirp_2p5_Stimulation,
-    &DemoChirp_1_Stimulation,
-    // &DLM_2_Stimulation,
-    // &DLM_3_Stimulation,
-    // &DemoULM_LStimulation,
-    // &DemoLM_LStimulation,
-    // &DemoLM_CStimulation,
+    &DLM_2_Stimulation,
+    &DLM_3_Stimulation,
+    &DemoULM_LStimulation,
+    &DemoLM_LStimulation,
+    &DemoLM_CStimulation,
 };
 
 void Switch_Demo_Mode()
@@ -294,10 +204,6 @@ static int Is_Stimulation_Param_Equal(const Stimulation *s1, const Stimulation *
     if (s1->frequency != s2->frequency)
         return 0;
     if (s1->radius != s2->radius)
-        return 0;
-    if (s1->startFrequency != s2->startFrequency)
-        return 0;
-    if (s1->endFrequency != s2->endFrequency)
         return 0;
 
     // Compare vector parameters
@@ -451,11 +357,6 @@ void Update_Stimulation_State(float progress)
     case TwinTrap:
     {
         Set_Twin_Trap_Focus(CurrentStimulation.position);
-        break;
-    }
-    case Chirp:
-    {
-        Set_Point_Focus(CurrentStimulation.position);
         break;
     }
     default:

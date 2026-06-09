@@ -14,8 +14,6 @@ typedef enum StimulationType
     Linear = 2,
     Circular = 3,
     TwinTrap = 4,
-    Chirp = 5,
-    ChirpPoint = 6,
 }StimulationType;
 
 
@@ -41,8 +39,6 @@ typedef struct Stimulation
   // General Parameters
   float strength;     // Overall strength Coefficient, Default to 100
   float frequency;
-  float startFrequency;
-  float endFrequency;
 
   // Cached Values (Internal Use)
   uint32_t cached_period_us;
