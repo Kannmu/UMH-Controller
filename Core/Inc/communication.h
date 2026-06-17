@@ -67,7 +67,7 @@ typedef struct {
 
 
 typedef struct __attribute__((packed)) {
-    char serial_number[12];
+    char serial_number[25];
     uint32_t version;
     uint8_t array_type;
     uint32_t array_size;
@@ -92,6 +92,8 @@ typedef struct __attribute__((packed)) {
 // 函数声明
 void Comm_Init(void);
 void Comm_Process_Received_Data(uint8_t* data, uint32_t length);
+void Comm_Notify_Rx(uint8_t* data, uint32_t len);
+void Comm_Process_Pending_Rx(void);
 void Comm_Send_Response(uint8_t cmd_type, uint8_t* data, uint8_t data_length);
 uint8_t Comm_Calculate_Checksum(uint8_t cmd_type, uint8_t data_length, uint8_t* data);
 void Comm_Handle_Ping_Command(uint8_t* data, uint8_t data_length);

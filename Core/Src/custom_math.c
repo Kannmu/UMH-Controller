@@ -10,7 +10,7 @@ float Euler_Distance(const float From[3], const float To[3])
         float diff = From[i] - To[i];
         TempDistance += diff * diff; // Avoid calling pow() for exponent 2, use direct multiplication
     }
-    return (float)sqrt(TempDistance);
+    return sqrtf(TempDistance);
 }
 
 void Vector3Lerp(float Result[3], const float From[3], const float To[3], float t)
@@ -30,7 +30,7 @@ void Vector3Cross(float Result[3], const float A[3], const float B[3])
 
 void Vector3Normalize(float A[3])
 {
-    float length = (float)sqrt(A[0] * A[0] + A[1] * A[1] + A[2] * A[2]);
+    float length = sqrtf(A[0] * A[0] + A[1] * A[1] + A[2] * A[2]);
     if (length > 0.0f)
     {
         A[0] /= length;

@@ -60,7 +60,10 @@ void DMA_Init()
 
     for (int i = 0; i < DMA_CHANNELS; i++)
     {
-        Group_Offset_Ticks[i] = (uint16_t)(GPIO_Group_Output_Offset[i] * BufferGapPerMicroseconds);
+        // Offsets in us, quantized to DMA sampling ticks (250ns each).
+        // Values < 0.125us (half tick) round to 0 — raise DMA_SAMPLING_FREQ
+        // for sub-tick precision.
+        Group_Offset_Ticks[i] = (uint16_t)lroundf(GPIO_Group_Output_Offset[i] * BufferGapPerMicroseconds);
     }
 
     // Build Port-Transducer Map
@@ -211,7 +214,6 @@ void Update_Full_Waveform_Buffer()
                     }
                     
                     uint32_t end_idx = (start_idx + duty_ticks) % WAVEFORM_BUFFER_SIZE;
-                    uint16_t pin_bit = (1 << __builtin_ctz(t->pin));
 
                     if (duty_ticks == 0U)
                     {
@@ -221,16 +223,16 @@ void Update_Full_Waveform_Buffer()
                     // Record Events
                     if (turn_on[start_idx] == 0 && turn_off[start_idx] == 0)
                         event_indices[event_count++] = (uint16_t)start_idx;
-                    turn_on[start_idx] |= pin_bit;
+                    turn_on[start_idx] |= t->pin;
 
                     if (turn_on[end_idx] == 0 && turn_off[end_idx] == 0)
                         event_indices[event_count++] = (uint16_t)end_idx;
-                    turn_off[end_idx] |= pin_bit;
+                    turn_off[end_idx] |= t->pin;
 
                     // Handle Wrap-around Initial State
                     if (start_idx >= end_idx)
                     {
-                        current_state |= pin_bit;
+                        current_state |= t->pin;
                     }
                 }
             }

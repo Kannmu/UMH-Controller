@@ -251,6 +251,8 @@ int main(void)
 
   while (1)
   {
+    Comm_Process_Pending_Rx();
+
     // uint32_t loop_start_time = DWT_GetMicroseconds();
     loop_count++;
     if (HAL_GetTick() - last_check_tick >= 1000)
@@ -266,7 +268,6 @@ int main(void)
     // Demo Mode Switch
     Switch_Demo_Mode();
 
-    sysTickDelta = SysTick->VAL;
     Update_LED_Status();
 
     /* USER CODE END WHILE */

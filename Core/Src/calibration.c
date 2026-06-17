@@ -4,7 +4,7 @@
 #include "dma_manager.h"
 #include "utiles.h"
 
-int calibration_mode = 0;
+volatile int calibration_mode = 0;
 
 // 校准参数说明：每个元素对应换能器的延迟校准值（单位：微秒us）
 // Calibration Parameters for Device 1 ID: 003C00203233

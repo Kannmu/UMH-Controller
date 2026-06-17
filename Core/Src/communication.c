@@ -7,6 +7,36 @@
 // 全局变量
 static rx_buffer_t rx_buffer;
 
+// 中断到主循环的延迟处理缓冲
+static uint8_t rx_pending_data[512];
+static volatile uint32_t rx_pending_len = 0;
+static volatile int rx_pending_flag = 0;
+
+/**
+ * @brief 从USB中断中调用，仅拷贝数据不处理
+ * @param data 接收到的数据缓冲区
+ * @param len 数据长度
+ */
+void Comm_Notify_Rx(uint8_t* data, uint32_t len)
+{
+    if (len > sizeof(rx_pending_data)) len = sizeof(rx_pending_data);
+    memcpy(rx_pending_data, data, len);
+    rx_pending_len = len;
+    rx_pending_flag = 1;
+}
+
+/**
+ * @brief 主循环中调用，检查并处理待处理数据
+ */
+void Comm_Process_Pending_Rx(void)
+{
+    if (rx_pending_flag)
+    {
+        rx_pending_flag = 0;
+        Comm_Process_Received_Data(rx_pending_data, rx_pending_len);
+    }
+}
+
 /**
  * @brief 初始化通信模块
  */
@@ -205,9 +235,10 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                             device_config config;
                             memset(&config, 0, sizeof(config));
                             
-                            // 设备序列号
+                            // 设备序列号 (24 hex chars + null)
                             char* serial_number = Get_Device_Serial_Number();
-                            memcpy(config.serial_number, serial_number, 12);
+                            strncpy(config.serial_number, serial_number, sizeof(config.serial_number) - 1);
+                            config.serial_number[sizeof(config.serial_number) - 1] = '\0';
                             
                             config.version = VERSION;
                             config.array_type = 0x01; // 0x00: Rect, 0x01: Hex
@@ -223,10 +254,8 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                         {
                             device_status status;
 
-                            status.voltage_VDDA = Get_Voltage_VDDA();
-                            status.voltage_3V3 = Get_Voltage_3V3();
-                            status.voltage_5V0 = Get_Voltage_5V0();
-                            status.temperature = Get_Temperature();
+                            Read_Device_Sensors(&status.voltage_VDDA, &status.voltage_3V3,
+                                                &status.voltage_5V0, &status.temperature);
                             status.updateDMABufferDeltaTime = updateDMABufferDeltaTime;
                             status.loop_freq = System_Loop_Freq;
                             status.stimulation_type = (uint8_t)CurrentStimulation.type;
@@ -238,16 +267,54 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                         }
                         case CMD_SET_STIMULATION:
                         {
-                            if (rx_buffer.frame.data_length >= 20)
+                            uint8_t *pData = rx_buffer.frame.data;
+                            uint32_t data_len = rx_buffer.frame.data_length;
+
+                            if (data_len < 1)
+                            {
+                                Comm_Send_Response(RSP_ERROR_CODE, NULL, 0);
+                                break;
+                            }
+
+                            StimulationType type = (StimulationType)pData[0];
+                            uint32_t min_len;
+                            switch (type)
+                            {
+                                case Point:
+                                    min_len = 1 + 12 + 8; // type + 3 floats pos + 2 floats strength/freq
+                                    break;
+                                case Discrete:
+                                    min_len = 1 + 12 + 12 + 4 + 4 + 8; // type + pos + normal + radius + segments + s/f
+                                    break;
+                                case Linear:
+                                    min_len = 1 + 12 + 12 + 4 + 8; // type + start + end + segments + s/f
+                                    break;
+                                case Circular:
+                                case Square:
+                                case STM_Triangle:
+                                case Zigzag:
+                                case ArchimedeanSpiralInward:
+                                case ArchimedeanSpiralOutward:
+                                    min_len = 1 + 12 + 12 + 4 + 8; // type + pos + normal + radius + s/f
+                                    break;
+                                default:
+                                    Comm_Send_Response(RSP_ERROR_CODE, NULL, 0);
+                                    break;
+                            }
+
+                            if (data_len < min_len)
+                            {
+                                Comm_Send_Response(RSP_ERROR_CODE, NULL, 0);
+                                break;
+                            }
+
                             {
                                 Stimulation stimulation;
                                 memset(&stimulation, 0, sizeof(Stimulation));
-                                stimulation.segments = 1; // Default segments
-                                stimulation.normalVector[2] = 1.0f; // Default normal vector Z
-                                uint8_t *pData = rx_buffer.frame.data;
+                                stimulation.segments = 1;
+                                stimulation.normalVector[2] = 1.0f;
                                 int offset = 0;
-                                StimulationType type = (StimulationType)pData[offset]; offset += 1;
-                                stimulation.type = type;
+                                stimulation.type = type; offset += 1;
                                 switch (type)
                                 {
                                 case Point:
@@ -277,6 +344,11 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                                     memcpy(&stimulation.segments, &pData[offset], 4); offset += 4;
                                     break;
                                 case Circular:
+                                case Square:
+                                case STM_Triangle:
+                                case Zigzag:
+                                case ArchimedeanSpiralInward:
+                                case ArchimedeanSpiralOutward:
                                     memcpy(&stimulation.position[0], &pData[offset], 4); offset += 4;
                                     memcpy(&stimulation.position[1], &pData[offset], 4); offset += 4;
                                     memcpy(&stimulation.position[2], &pData[offset], 4); offset += 4;
@@ -298,11 +370,7 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                                 phase_set_mode = 0;
 
                                 Comm_Send_Response(RSP_SACK, NULL, 0);
-                                
-                            }
-                            else
-                            {
-                                Comm_Send_Response(RSP_ERROR_CODE, NULL, 0);
+
                             }
                             break;
                         }

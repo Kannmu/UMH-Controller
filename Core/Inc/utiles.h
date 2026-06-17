@@ -18,11 +18,8 @@
 # define LED0_GPIO_Port_Num 0U
 
 // Debug Parameters
-// debug.h
 extern const uint8_t LIVE_LED_PERIOD;
 extern uint16_t led0_ticks;
-extern uint32_t sysTickDelta;
-extern uint32_t FPS;
 extern float System_Loop_Freq;
 extern double updateDMABufferDeltaTime;
 
@@ -31,12 +28,10 @@ uint32_t DWT_GetCycles(void);
 uint32_t DWT_GetMicroseconds(void);
 void Update_LED_Status(void);
 uint16_t Get_Current_LED_Mask(void);
-void Calculate_FPS();
-void HAL_Delay_us(uint32_t nus);
 
 char* Get_Device_Serial_Number(void);
+void Read_Device_Sensors(float *vdda, float *v33, float *v50, float *temp);
 float Get_Voltage_VDDA(void);
 float Get_Voltage_3V3(void);
 float Get_Voltage_5V0(void);
 float Get_Temperature(void);
-

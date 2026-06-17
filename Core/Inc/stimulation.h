@@ -6,6 +6,12 @@
 # define STIMULATION_PERIOD (1.0 / STIMULATION_FREQ)
 # define NUM_STIMULATION_SAMPLES (uint32_t)(TRANSDUCER_BASE_FREQ / STIMULATION_FREQ)
 
+# define STM_TRAJECTORY_LENGTH  (0.025f)
+# define STM_SCANNING_SPEED     (5.0f)
+# define SPIRAL_TURNS           (1.5f)
+# define SPIRAL_THETA_MAX       (3.0f * (float)M_PI)
+# define SPIRAL_LUT_SIZE        101
+
 
 typedef enum StimulationType
 {
@@ -17,6 +23,8 @@ typedef enum StimulationType
     Square = 5,
     STM_Triangle = 6,
     Zigzag = 7,
+    ArchimedeanSpiralInward = 8,
+    ArchimedeanSpiralOutward = 9,
 }StimulationType;
 
 
@@ -50,15 +58,17 @@ typedef struct Stimulation
 
 }Stimulation;
 
-extern int phase_set_mode;
+extern volatile int phase_set_mode;
 
-extern int demo_mode;
+extern volatile int demo_mode;
 
 extern Stimulation CurrentStimulation;
 
 extern Stimulation EmptyStimulation;
 
 extern const Stimulation *DemoStimulations[];
+
+extern float spiral_lut[SPIRAL_LUT_SIZE];
 
 void Switch_Demo_Mode(void);
 int Get_Demo_Mode(void);

@@ -8,10 +8,6 @@
 // debug.c
 const uint16_t HALF_LED_BLINK_PERIOD = 500U;
 uint16_t led0_ticks = 0;
-uint32_t sysTickDelta= 0;
-uint32_t FPS = 0;
-// int led0_state = 0; // Removed
-// int last_led0_state = 0; // Removed
 float System_Loop_Freq = 0.0f;
 double updateDMABufferDeltaTime = 0;
 
@@ -36,20 +32,6 @@ uint32_t DWT_GetCycles(void)
 uint32_t DWT_GetMicroseconds(void)
 {
     return DWT_GetCycles() / (SystemCoreClock / 1000000);
-}
-
-void Calculate_FPS()
-{
-    static uint32_t lastTick = 0;
-    uint32_t currentTick = HAL_GetTick();
-    uint32_t tickDelta = currentTick - lastTick;
-    
-    if(tickDelta >= 1000) { // 每秒更新一次
-        // 使用SysTick计数器计算更精确的FPS
-        uint32_t cycleCount = (SystemCoreClock / 1000) * tickDelta;
-        FPS = cycleCount / sysTickDelta;
-        lastTick = currentTick;
-    }
 }
 
 static uint16_t last_led_mask = 0xFFFF; // Default All OFF (Active Low)
@@ -146,26 +128,6 @@ uint16_t Get_Current_LED_Mask(void)
     return last_led_mask;
 }
 
-void HAL_Delay_us(uint32_t nus)
-{
-    uint32_t told, tnow, tcnt = 0;
-    told = SysTick->VAL;
-    while (1)
-    {
-        tnow = SysTick->VAL;
-        if (tnow != told)
-        {
-            if (tnow < told)
-                tcnt += told - tnow;
-            else
-                tcnt += SysTick->LOAD - tnow + told;
-            told = tnow;
-            if (tcnt >= nus * (SystemCoreClock / 1000000))
-                break;
-        }
-    };
-}
-
 char* Get_Device_Serial_Number(void)
 {
     static char serial_str[25]; // 96 bits = 12 bytes = 24 hex chars + 1 null terminator
@@ -183,88 +145,63 @@ char* Get_Device_Serial_Number(void)
 extern ADC_HandleTypeDef hadc1;
 extern ADC_HandleTypeDef hadc3;
 
-static void Get_ADC1_Values(uint32_t *v33_raw, uint32_t *v50_raw)
+void Read_Device_Sensors(float *vdda, float *v33, float *v50, float *temp)
 {
-    HAL_ADC_Start(&hadc1);
-    if (HAL_ADC_PollForConversion(&hadc1, 10) == HAL_OK)
-    {
-        *v33_raw = HAL_ADC_GetValue(&hadc1);
-    }
-    if (HAL_ADC_PollForConversion(&hadc1, 10) == HAL_OK)
-    {
-        *v50_raw = HAL_ADC_GetValue(&hadc1);
-    }
-    HAL_ADC_Stop(&hadc1);
-}
+    uint32_t v33_raw = 0, v50_raw = 0;
+    uint32_t temp_raw = 0, vref_raw = 0;
 
-static void Get_ADC3_Values(uint32_t *temp_raw, uint32_t *vref_raw)
-{
+    // Start both ADCs
+    HAL_ADC_Start(&hadc1);
     HAL_ADC_Start(&hadc3);
+
+    // Read ADC1: channels 3 and 15
+    if (HAL_ADC_PollForConversion(&hadc1, 10) == HAL_OK)
+        v33_raw = HAL_ADC_GetValue(&hadc1);
+    if (HAL_ADC_PollForConversion(&hadc1, 10) == HAL_OK)
+        v50_raw = HAL_ADC_GetValue(&hadc1);
+
+    // Read ADC3: temperature sensor and VREFINT
     if (HAL_ADC_PollForConversion(&hadc3, 100) == HAL_OK)
-    {
-        *temp_raw = HAL_ADC_GetValue(&hadc3);
-    }
+        temp_raw = HAL_ADC_GetValue(&hadc3);
     if (HAL_ADC_PollForConversion(&hadc3, 100) == HAL_OK)
-    {
-        *vref_raw = HAL_ADC_GetValue(&hadc3);
-    }
+        vref_raw = HAL_ADC_GetValue(&hadc3);
+
+    HAL_ADC_Stop(&hadc1);
     HAL_ADC_Stop(&hadc3);
+
+    // Calculate all voltages from raw values
+    uint32_t vdda_mv = __HAL_ADC_CALC_VREFANALOG_VOLTAGE(vref_raw, ADC_RESOLUTION_16B);
+
+    if (vdda)  *vdda = (float)vdda_mv / 1000.0f;
+    if (v33)   *v33  = (float)__HAL_ADC_CALC_DATA_TO_VOLTAGE(vdda_mv, v33_raw, ADC_RESOLUTION_16B) / 1000.0f * 2.0f;
+    if (v50)   *v50  = (float)__HAL_ADC_CALC_DATA_TO_VOLTAGE(vdda_mv, v50_raw, ADC_RESOLUTION_16B) / 1000.0f * 2.0f;
+    if (temp)  *temp = (float)__HAL_ADC_CALC_TEMPERATURE(vdda_mv, temp_raw, ADC_RESOLUTION_16B);
 }
 
 float Get_Voltage_VDDA(void)
 {
-    uint32_t temp_raw = 0, vref_raw = 0;
-    Get_ADC3_Values(&temp_raw, &vref_raw);
-    
-    // Calculate VDDA in mV
-    uint32_t vdda_mv = __HAL_ADC_CALC_VREFANALOG_VOLTAGE(vref_raw, ADC_RESOLUTION_16B);
-    
-    // Return Voltage in V
-    return (float)vdda_mv / 1000.0f;
+    float vdda = 0;
+    Read_Device_Sensors(&vdda, NULL, NULL, NULL);
+    return vdda;
 }
 
 float Get_Voltage_3V3(void)
 {
-    // PA6 ADC1_INP3 Single-ended
-    uint32_t v33_raw = 0, v50_raw = 0;
-    uint32_t temp_raw = 0, vref_raw = 0;
-    
-    Get_ADC1_Values(&v33_raw, &v50_raw);
-    Get_ADC3_Values(&temp_raw, &vref_raw);
-    
-    uint32_t vdda_mv = __HAL_ADC_CALC_VREFANALOG_VOLTAGE(vref_raw, ADC_RESOLUTION_16B);
-    uint32_t v_mv = __HAL_ADC_CALC_DATA_TO_VOLTAGE(vdda_mv, v33_raw, ADC_RESOLUTION_16B);
-    
-    return (float)v_mv / 1000.0f * 2.0f; // 10k + 10k divider
+    float v33 = 0;
+    Read_Device_Sensors(NULL, &v33, NULL, NULL);
+    return v33;
 }
 
 float Get_Voltage_5V0(void)
 {
-    // PA3 ADC1_INP15 Single-ended
-    uint32_t v33_raw = 0, v50_raw = 0;
-    uint32_t temp_raw = 0, vref_raw = 0;
-    
-    Get_ADC1_Values(&v33_raw, &v50_raw);
-    Get_ADC3_Values(&temp_raw, &vref_raw);
-    
-    uint32_t vdda_mv = __HAL_ADC_CALC_VREFANALOG_VOLTAGE(vref_raw, ADC_RESOLUTION_16B);
-    uint32_t v_mv = __HAL_ADC_CALC_DATA_TO_VOLTAGE(vdda_mv, v50_raw, ADC_RESOLUTION_16B);
-    
-    return (float)v_mv / 1000.0f * 2.0f; // 10k + 10k divider
+    float v50 = 0;
+    Read_Device_Sensors(NULL, NULL, &v50, NULL);
+    return v50;
 }
-
-
 
 float Get_Temperature(void)
 {
-    uint32_t temp_raw = 0, vref_raw = 0;
-    Get_ADC3_Values(&temp_raw, &vref_raw);
-    
-    // Calculate VDDA first as it is needed for Temperature calculation
-    uint32_t vdda_mv = __HAL_ADC_CALC_VREFANALOG_VOLTAGE(vref_raw, ADC_RESOLUTION_16B);
-    
-    // Calculate Temperature in Degree Celsius
-    int32_t temperature = __HAL_ADC_CALC_TEMPERATURE(vdda_mv, temp_raw, ADC_RESOLUTION_16B);
-    
-    return (float)temperature;
+    float temp = 0;
+    Read_Device_Sensors(NULL, NULL, NULL, &temp);
+    return temp;
 }
