@@ -6,10 +6,41 @@
 #include "custom_math.h"
 #include "dma_manager.h"
 
-int phase_set_mode = 0;
-int is_stimulation_enabled = 1;
+volatile int phase_set_mode = 0;
+volatile int is_stimulation_enabled = 1;
 
-int demo_mode = -1;
+volatile int demo_mode = -1;
+
+float spiral_lut[SPIRAL_LUT_SIZE] = {0};
+
+static float F_arc(float theta)
+{
+    return theta * sqrtf(theta * theta + 1.0f) + logf(theta + sqrtf(theta * theta + 1.0f));
+}
+
+static void Generate_Spiral_LUT(float radius)
+{
+    float theta_max = SPIRAL_THETA_MAX;
+    float F_max = F_arc(theta_max);
+
+    for (int i = 0; i < SPIRAL_LUT_SIZE; i++)
+    {
+        float p = (float)i / (float)(SPIRAL_LUT_SIZE - 1);
+        float target = p * F_max;
+
+        float lo = 0.0f;
+        float hi = theta_max;
+        for (int iter = 0; iter < 30; iter++)
+        {
+            float mid = (lo + hi) * 0.5f;
+            if (F_arc(mid) < target)
+                lo = mid;
+            else
+                hi = mid;
+        }
+        spiral_lut[i] = (lo + hi) * 0.5f;
+    }
+}
 
 Stimulation CurrentStimulation = {
     .name = "Current",
@@ -131,7 +162,7 @@ const Stimulation DemoLM_CStimulation = {
     .startPoint = {0.0f, 0.0f, 0.1f},
     .endPoint = {0.0f, 0.0f, 0.1f},
     .normalVector = {0.0f, 0.0f, 1.0f},
-    .radius = 4.77e-3f,
+    .radius = 4.775e-3f,
     .frequency = 200.0f,
     .cached_period_us = 0,
     .cached_circ_u = {0.0f, 0.0f, 0.0f},
@@ -163,7 +194,7 @@ const Stimulation DemoSquareStimulation = {
     .endPoint = {0.0f, 0.0f, 0.1f},
     .segments = 1,
     .normalVector = {0.0f, 0.0f, 1.0f},
-    .radius = 0.0105f,
+    .radius = 3.125e-3f,
     .frequency = 200.0f,
     .cached_period_us = 0,
     .cached_circ_u = {0.0f, 0.0f, 0.0f},
@@ -179,23 +210,55 @@ const Stimulation DemoSTM_TriangleStimulation = {
     .endPoint = {0.0f, 0.0f, 0.1f},
     .segments = 1,
     .normalVector = {0.0f, 0.0f, 1.0f},
-    .radius = 0.005f,
+    .radius = 4.811e-3f,
     .frequency = 200.0f,
     .cached_period_us = 0,
     .cached_circ_u = {0.0f, 0.0f, 0.0f},
     .cached_circ_v = {0.0f, 0.0f, 0.0f},
 };
 
-const Stimulation DemoZigzagStimulation = {
-    .name = "Zigzag",
+const Stimulation DemoZStimulation = {
+    .name = "Z",
     .type = Zigzag,
     .position = {0.0f, 0.0f, 0.1f},
     .strength = 100,
-    .startPoint = {0.0f, 0.0105f, 0.1f},
-    .endPoint = {0.0f, -0.0105f, 0.1f},
-    .segments = 3,
+    .startPoint = {0.0f, 0.0f, 0.1f},
+    .endPoint = {0.0f, 0.0f, 0.1f},
+    .segments = 0,
     .normalVector = {0.0f, 0.0f, 1.0f},
-    .radius = 0.005f,
+    .radius = 3.663e-3f,
+    .frequency = 200.0f,
+    .cached_period_us = 0,
+    .cached_circ_u = {0.0f, 0.0f, 0.0f},
+    .cached_circ_v = {0.0f, 0.0f, 0.0f},
+};
+
+const Stimulation DemoSpiralInStimulation = {
+    .name = "SpiralIn",
+    .type = ArchimedeanSpiralInward,
+    .position = {0.0f, 0.0f, 0.1f},
+    .strength = 100,
+    .startPoint = {0.0f, 0.0f, 0.1f},
+    .endPoint = {0.0f, 0.0f, 0.1f},
+    .segments = 0,
+    .normalVector = {0.0f, 0.0f, 1.0f},
+    .radius = 5.107e-3f,
+    .frequency = 200.0f,
+    .cached_period_us = 0,
+    .cached_circ_u = {0.0f, 0.0f, 0.0f},
+    .cached_circ_v = {0.0f, 0.0f, 0.0f},
+};
+
+const Stimulation DemoSpiralOutStimulation = {
+    .name = "SpiralOut",
+    .type = ArchimedeanSpiralOutward,
+    .position = {0.0f, 0.0f, 0.1f},
+    .strength = 100,
+    .startPoint = {0.0f, 0.0f, 0.1f},
+    .endPoint = {0.0f, 0.0f, 0.1f},
+    .segments = 0,
+    .normalVector = {0.0f, 0.0f, 1.0f},
+    .radius = 5.107e-3f,
     .frequency = 200.0f,
     .cached_period_us = 0,
     .cached_circ_u = {0.0f, 0.0f, 0.0f},
@@ -203,14 +266,12 @@ const Stimulation DemoZigzagStimulation = {
 };
 
 const Stimulation *DemoStimulations[] = {
-    // &DLM_2_Stimulation,
-    // &DLM_3_Stimulation,
-    // &DemoULM_LStimulation,
-    // &DemoLM_LStimulation,
     &DemoLM_CStimulation,
     &DemoSquareStimulation,
     &DemoSTM_TriangleStimulation,
-    &DemoZigzagStimulation,
+    &DemoZStimulation,
+    &DemoSpiralInStimulation,
+    &DemoSpiralOutStimulation,
 };
 
 void Switch_Demo_Mode()
@@ -303,6 +364,8 @@ void Set_Stimulation(const Stimulation *stimulation)
     case Square:
     case STM_Triangle:
     case Zigzag:
+    case ArchimedeanSpiralInward:
+    case ArchimedeanSpiralOutward:
     {
         float n[3] = {CurrentStimulation.normalVector[0], CurrentStimulation.normalVector[1], CurrentStimulation.normalVector[2]};
         Vector3Normalize(n);
@@ -324,6 +387,14 @@ void Set_Stimulation(const Stimulation *stimulation)
         Vector3Cross(CurrentStimulation.cached_circ_u, t_vec, n);
         Vector3Normalize(CurrentStimulation.cached_circ_u);
         Vector3Cross(CurrentStimulation.cached_circ_v, n, CurrentStimulation.cached_circ_u);
+
+        if (CurrentStimulation.type == ArchimedeanSpiralInward ||
+            CurrentStimulation.type == ArchimedeanSpiralOutward)
+        {
+            float r = CurrentStimulation.radius;
+            if (r <= 0.0f) r = 0.005107f;
+            Generate_Spiral_LUT(r);
+        }
         break;
     }
     default:
@@ -471,25 +542,100 @@ void Update_Stimulation_State(float progress)
     }
     case Zigzag:
     {
-        int cycles = CurrentStimulation.segments;
-        if (cycles < 1) cycles = 1;
-        float amplitude = CurrentStimulation.radius;
-        if (amplitude <= 0.0f) amplitude = 0.005f;
-
-        // Traverse linearly from startPoint to endPoint
-        float pos[3];
-        Vector3Lerp(pos, CurrentStimulation.startPoint, CurrentStimulation.endPoint, progress);
-
-        // Triangle-wave oscillation perpendicular to traversal direction
-        float t_cycle = progress * (float)cycles;
-        float phase = t_cycle - floorf(t_cycle);
-        float tri = 1.0f - 4.0f * fabsf(phase - 0.5f);
+        float r = CurrentStimulation.radius;
+        if (r <= 0.0f) r = 0.003663f;
 
         float cu[3] = {CurrentStimulation.cached_circ_u[0], CurrentStimulation.cached_circ_u[1], CurrentStimulation.cached_circ_u[2]};
-        pos[0] += amplitude * tri * cu[0];
-        pos[1] += amplitude * tri * cu[1];
-        pos[2] += amplitude * tri * cu[2];
+        float cv[3] = {CurrentStimulation.cached_circ_v[0], CurrentStimulation.cached_circ_v[1], CurrentStimulation.cached_circ_v[2]};
 
+        // Z-shape: 3 segments. Seg1: (-r,r)->(r,r), Seg2: (r,r)->(-r,-r), Seg3: (-r,-r)->(r,-r)
+        // Lengths: seg1=2r, seg2=2√2r, seg3=2r. Total = r(4+2√2)
+        float seg1_end = 2.0f / (4.0f + 2.0f * sqrtf(2.0f));       // ≈ 0.2930
+        float seg2_end = (2.0f + 2.0f * sqrtf(2.0f)) / (4.0f + 2.0f * sqrtf(2.0f)); // ≈ 0.7074
+
+        float start[2], end[2];
+        if (progress < seg1_end)
+        {
+            float t = progress / seg1_end;
+            start[0] = -r; start[1] =  r;
+            end[0]   =  r; end[1]   =  r;
+            float x = start[0] + t * (end[0] - start[0]);
+            float y = start[1] + t * (end[1] - start[1]);
+            float pos[3];
+            pos[0] = CurrentStimulation.position[0] + x * cu[0] + y * cv[0];
+            pos[1] = CurrentStimulation.position[1] + x * cu[1] + y * cv[1];
+            pos[2] = CurrentStimulation.position[2] + x * cu[2] + y * cv[2];
+            Set_Point_Focus(pos);
+        }
+        else if (progress < seg2_end)
+        {
+            float t = (progress - seg1_end) / (seg2_end - seg1_end);
+            start[0] =  r; start[1] =  r;
+            end[0]   = -r; end[1]   = -r;
+            float x = start[0] + t * (end[0] - start[0]);
+            float y = start[1] + t * (end[1] - start[1]);
+            float pos[3];
+            pos[0] = CurrentStimulation.position[0] + x * cu[0] + y * cv[0];
+            pos[1] = CurrentStimulation.position[1] + x * cu[1] + y * cv[1];
+            pos[2] = CurrentStimulation.position[2] + x * cu[2] + y * cv[2];
+            Set_Point_Focus(pos);
+        }
+        else
+        {
+            float t = (progress - seg2_end) / (1.0f - seg2_end);
+            start[0] = -r; start[1] = -r;
+            end[0]   =  r; end[1]   = -r;
+            float x = start[0] + t * (end[0] - start[0]);
+            float y = start[1] + t * (end[1] - start[1]);
+            float pos[3];
+            pos[0] = CurrentStimulation.position[0] + x * cu[0] + y * cv[0];
+            pos[1] = CurrentStimulation.position[1] + x * cu[1] + y * cv[1];
+            pos[2] = CurrentStimulation.position[2] + x * cu[2] + y * cv[2];
+            Set_Point_Focus(pos);
+        }
+        break;
+    }
+    case ArchimedeanSpiralOutward:
+    {
+        float r_max = CurrentStimulation.radius;
+        if (r_max <= 0.0f) r_max = 0.005107f;
+        float a = r_max / SPIRAL_THETA_MAX;
+
+        float cu[3] = {CurrentStimulation.cached_circ_u[0], CurrentStimulation.cached_circ_u[1], CurrentStimulation.cached_circ_u[2]};
+        float cv[3] = {CurrentStimulation.cached_circ_v[0], CurrentStimulation.cached_circ_v[1], CurrentStimulation.cached_circ_v[2]};
+
+        int idx = (int)(progress * (float)(SPIRAL_LUT_SIZE - 1));
+        float theta = spiral_lut[idx];
+        float r = a * theta;
+        float cos_t = cosf(theta);
+        float sin_t = sinf(theta);
+
+        float pos[3];
+        pos[0] = CurrentStimulation.position[0] + r * (cos_t * cu[0] + sin_t * cv[0]);
+        pos[1] = CurrentStimulation.position[1] + r * (cos_t * cu[1] + sin_t * cv[1]);
+        pos[2] = CurrentStimulation.position[2] + r * (cos_t * cu[2] + sin_t * cv[2]);
+        Set_Point_Focus(pos);
+        break;
+    }
+    case ArchimedeanSpiralInward:
+    {
+        float r_max = CurrentStimulation.radius;
+        if (r_max <= 0.0f) r_max = 0.005107f;
+        float a = r_max / SPIRAL_THETA_MAX;
+
+        float cu[3] = {CurrentStimulation.cached_circ_u[0], CurrentStimulation.cached_circ_u[1], CurrentStimulation.cached_circ_u[2]};
+        float cv[3] = {CurrentStimulation.cached_circ_v[0], CurrentStimulation.cached_circ_v[1], CurrentStimulation.cached_circ_v[2]};
+
+        int idx = (int)((1.0f - progress) * (float)(SPIRAL_LUT_SIZE - 1));
+        float theta = spiral_lut[idx];
+        float r = a * theta;
+        float cos_t = cosf(theta);
+        float sin_t = sinf(theta);
+
+        float pos[3];
+        pos[0] = CurrentStimulation.position[0] + r * (cos_t * cu[0] + sin_t * cv[0]);
+        pos[1] = CurrentStimulation.position[1] + r * (cos_t * cu[1] + sin_t * cv[1]);
+        pos[2] = CurrentStimulation.position[2] + r * (cos_t * cu[2] + sin_t * cv[2]);
         Set_Point_Focus(pos);
         break;
     }

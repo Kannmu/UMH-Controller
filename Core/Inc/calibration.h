@@ -3,6 +3,7 @@
 #include "transducer.h"
 
 // calibration.h
+extern volatile int calibration_mode;
 extern float Transducer_Calibration_Array[];
 
 

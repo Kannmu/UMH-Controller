@@ -149,8 +149,7 @@ void Set_Transducers(uint8_t *data)
 
 float Distance_to_Phase(float distance)
 {
-    return fmod((distance * Wave_K), (2.0 * M_PI));
-    // return (2.0 * M_PI) - (fmod((distance * Wave_K), (2.0 * M_PI)));
+    return fmodf(distance * Wave_K, 2.0f * (float)M_PI);
 }
 
 float Phase_to_Gap_Ticks(float phase)
@@ -183,11 +182,14 @@ GPIO_TypeDef *map_pin_name_to_gpio_port(const char *pin_name)
 }
 
 static const uint16_t port_num_map[] = {
-    ['A']=0, ['B']=1, ['C']=2, ['D']=3, ['E']=4
+    ['A']=0, ['B']=1, ['C']=2, ['D']=3, ['E']=4, ['F']=5
 };
 
 uint8_t map_pin_name_to_gpio_port_num(const char *pin) {
-    return port_num_map[(int)pin[1]];
+    char c = pin[1];
+    if (c >= 'A' && c <= 'F')
+        return port_num_map[(int)c];
+    return 0;
 }
 
 uint16_t map_pin_name_to_pin_number(const char *pin_name)
