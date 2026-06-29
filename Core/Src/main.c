@@ -56,7 +56,12 @@ TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
 
 /* USER CODE BEGIN PV */
-
+DMA_HandleTypeDef hdma_memtomem_dma1_stream0;
+DMA_HandleTypeDef hdma_memtomem_dma1_stream1;
+DMA_HandleTypeDef hdma_memtomem_dma1_stream2;
+DMA_HandleTypeDef hdma_memtomem_dma2_stream0;
+DMA_HandleTypeDef hdma_memtomem_dma2_stream1;
+DMA_HandleTypeDef hdma_memtomem_dma2_stream3;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -786,6 +791,13 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(HEARTBEAT_GPIO_Port, &GPIO_InitStruct);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
+  /* PC13 (VIRTUALTRANSDUCER) 输出 40kHz 相位参考, 需较高边沿速率
+   * (CubeMX 默认将 PC13/14/15 同组配为 LOW, 此处单独提升 PC13) */
+  GPIO_InitStruct.Pin = VIRTUALTRANSDUCER_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+  HAL_GPIO_Init(VIRTUALTRANSDUCER_GPIO_Port, &GPIO_InitStruct);
 /* USER CODE END MX_GPIO_Init_2 */
 }
 

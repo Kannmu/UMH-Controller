@@ -210,9 +210,9 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                             memcpy(config.serial_number, serial_number, 12);
                             
                             config.version = VERSION;
-                            config.array_type = 0x01; // 0x00: Rect, 0x01: Hex
-                            config.array_size = ARRAY_SIZE;
-                            config.num_transducer = NUM_TRANSDUCER;
+                            config.array_type = 0x02; // 0x00: Rect, 0x01: Hex, 0x02: Concentric Rings
+                            config.array_size = NUM_RINGS;
+                            config.num_transducer = NUM_REAL_TRANSDUCER;
                             config.transducer_size = TRANSDUCER_SIZE;
                             config.transducer_space = TRANSDUCER_SPACING;
                             
@@ -308,7 +308,7 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                         }
                         case CMD_SET_TRANSDUCERS:
                         {
-                            if (rx_buffer.frame.data_length >= (NUM_TRANSDUCER - 1) * 3)
+                            if (rx_buffer.frame.data_length >= (NUM_REAL_TRANSDUCER) * 3)
                             {
                                 uint8_t *pData = rx_buffer.frame.data; 
                                 
@@ -363,13 +363,13 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                                 if (count > 21) count = 21;
                                 
                                 // 检查范围
-                                if (start_index >= NUM_TRANSDUCER)
+                                if (start_index >= NUM_REAL_TRANSDUCER)
                                 {
                                     count = 0;
                                 }
-                                else if (start_index + count > NUM_TRANSDUCER)
+                                else if (start_index + count > NUM_REAL_TRANSDUCER)
                                 {
-                                    count = NUM_TRANSDUCER - start_index;
+                                    count = NUM_REAL_TRANSDUCER - start_index;
                                 }
                                 
                                 // 构建响应数据

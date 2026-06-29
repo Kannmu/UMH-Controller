@@ -6,82 +6,90 @@
 
 float Wave_K = ((2.0*M_PI*TRANSDUCER_BASE_FREQ)/SPEED_OF_SOUND);
 
-// Transducer Array
+// Transducer Array — V5.5 同心圆环 (6/12/18/24 = 60) + 虚拟 + 2 触发
 const char *TransducerPins[] =
-    {
-        "PB8", "PE1", "PE2", "PE3", "PE5", 
-        
-        "PD7", "PB7", "PE0", "PE4", "PE6", "PC15", 
-        
-        "PD3", "PD6", "PB6", "PB9", "PC13", "PC0", "PC3",
+{
+    // Ring 0 (6 阵元, r=12.6mm, 首阵元在 0°/+X 轴)
+    "PD1", "PB6", "PB7",  "PC0", "PE8",  "PD13",
 
-        "PD1", "PD2", "PD5", "PB5", "PC14", "PC1", "PA0", "PA1",
+    // Ring 1 (12 阵元, r=25.2mm, 整环旋转 137.5°)
+    "PB9", "PC1", "PC2", "PE9", "PE10",
+    "PD11", "PD12", "PC12", "PD0", "PB4", "PB5",  "PB8",
 
-        "PC8", "PD0", "PC6", "PD4", "PC2", "PC5", "PA2", "PA7",
+    // Ring 2 (18 阵元, r=37.8mm, 整环旋转 2×137.5°)
+    "PD8", "PD9", "PD10", "PC8", "PC10", "PC11",
+    "PD6", "PD7", "PB3", "PE0", "PE1", "PE2",
+    "PC3", "PC4", "PC5", "PE11", "PE12", "PE13",
 
-        "PC7", "PD15", "PD13", "PD10", "PE9", "PB2", "PB0", "PC4",
+    // Ring 3 (24 阵元, r=50.4mm, 整环旋转 3×137.5°)
+    "PE15", "PB10", "PB11", "PB12", "PB13", "PB14",
+    "PB15", "PD14", "PD15", "PC6", "PC7", "PD2",
+    "PD3", "PD4", "PD5", "PE3", "PE4", "PE5",
+    "PE6", "PB0", "PB1", "PB2", "PE7", "PE14",
 
-        "PD14", "PD12", "PD9", "PE13", "PE10", "PE7", "PB1",
+    // VIRTUALTRANSDUCER — PC13, 40kHz 相位参考
+    "PC13",
 
-        "PD11", "PD8", "PB14", "PE14", "PE11", "PE8",
+    // TRIGGER0 — PC14, 200Hz 周期开头 1ms 脉冲
+    "PC14",
 
-        "PB15", "PB13", "PB12", "PE15", "PE12",
+    // TRIGGER1 — PC15, 可配置 (默认全0)
+    "PC15"
+};
 
-        "PC10"};
-
-Transducer TransducerArray[NUM_TRANSDUCER];
+Transducer TransducerArray[NUM_TOTAL_CHANNELS];
 
 void Transducer_Init(void)
 {
-    const int row_lengths[] = {5, 6, 7, 8, 9, 8, 7, 6, 5};
-    const float dy = TRANSDUCER_SPACING * 0.86602540378f; // sqrt(3)/2
+    static const uint8_t ring_counts[NUM_RINGS] = {6, 12, 18, 24};
+    static const float   ring_radius[NUM_RINGS] = {12.6e-3f, 25.2e-3f, 37.8e-3f, 50.4e-3f};
 
-    for (size_t i = 0; i < NUM_TRANSDUCER; i++)
+    for (size_t i = 0; i < NUM_TOTAL_CHANNELS; i++)
     {
-        // TransducerArray[i] = (Transducer *)malloc(sizeof(Transducer));
-        TransducerArray[i].index = i;
-        TransducerArray[i].port = map_pin_name_to_gpio_port(TransducerPins[i]);
-        TransducerArray[i].port_num = map_pin_name_to_gpio_port_num(TransducerPins[i]);
-        TransducerArray[i].pin = map_pin_name_to_pin_number(TransducerPins[i]);
-        TransducerArray[i].calib = Transducer_Calibration_Array[i] * BufferGapPerMicroseconds;
+        Transducer *t = &TransducerArray[i];
+        t->index     = (uint8_t)i;
+        t->port      = map_pin_name_to_gpio_port(TransducerPins[i]);
+        t->port_num  = map_pin_name_to_gpio_port_num(TransducerPins[i]);
+        t->pin       = map_pin_name_to_pin_number(TransducerPins[i]);
+        t->calib     = (i < NUM_REAL_TRANSDUCER)
+                       ? (uint16_t)(Transducer_Calibration_Array[i] * BufferGapPerMicroseconds)
+                       : 0;
+        t->position3D[2] = 0.0f;   // Z=0 (阵列平面)
+        t->distance  = 0;
+        t->phase     = 0;
+        t->duty      = 0.5f;
+        t->shift_buffer_bits = 0;
 
-        if (i < NUM_TRANSDUCER-1)
+        if (i < NUM_REAL_TRANSDUCER)
         {
-            int r = 0, k = i;
-            for (r = 0; r < 9; r++)
+            // 求所在圆环 r 与环内序号 k (从内向外, 逆时针编号)
+            uint8_t r = 0, k = (uint8_t)i;
+            while (r < NUM_RINGS && k >= ring_counts[r])
             {
-                int row_count = (r == 4) ? 8 : row_lengths[r];
-                if (k < row_count)
-                    break;
-                k -= row_count;
+                k -= ring_counts[r];
+                r++;
             }
-            int j = (r == 4 && k >= 4) ? k + 1 : k;
-
-            TransducerArray[i].row = r;
-            TransducerArray[i].column = j;
-            TransducerArray[i].position3D[0] = (j - (row_lengths[r] - 1.0f) / 2.0f) * TRANSDUCER_SPACING; // X
-            TransducerArray[i].position3D[1] = (4 - r) * dy;                                        // Y
+            float angle = (float)r * GOLDEN_ANGLE_RAD
+                          + (float)k * (2.0f * (float)M_PI) / (float)ring_counts[r];
+            t->ring       = r;
+            t->ring_index = k;
+            t->position3D[0] = ring_radius[r] * cosf(angle);   // X
+            t->position3D[1] = ring_radius[r] * sinf(angle);   // Y
         }
         else
         {
-            TransducerArray[i].row = 0;
-            TransducerArray[i].column = 0;
-            TransducerArray[i].position3D[0] = 0;
-            TransducerArray[i].position3D[1] = 0;
+            // 特殊通道 (虚拟/触发): 位置置 0
+            t->ring       = 0;
+            t->ring_index = 0;
+            t->position3D[0] = 0.0f;
+            t->position3D[1] = 0.0f;
         }
-
-        TransducerArray[i].position3D[2] = 0; // Z
-        TransducerArray[i].distance = 0;
-        TransducerArray[i].phase = 0;
-        TransducerArray[i].duty = 0.5;
-        TransducerArray[i].shift_buffer_bits = 0;
     }
-    
 }
 
 void Enter_Calibration_Mode()
 {
-    for (int i = 0; i < NUM_TRANSDUCER-1; i++)
+    for (int i = 0; i < NUM_REAL_TRANSDUCER; i++)
     {
         TransducerArray[i].calib = 0;
         TransducerArray[i].phase = 0;
@@ -91,16 +99,16 @@ void Enter_Calibration_Mode()
 
 void Load_Calib_to_Transducers()
 {
-    for (int i = 0; i < NUM_TRANSDUCER-1; i++)
+    for (int i = 0; i < NUM_REAL_TRANSDUCER; i++)
     {
-        TransducerArray[i].calib = Transducer_Calibration_Array[i] * BufferGapPerMicroseconds;
+        TransducerArray[i].calib = (uint16_t)(Transducer_Calibration_Array[i] * BufferGapPerMicroseconds);
     }
 }
 
 // Update Point to Transducers Parameters
 void Set_Point_Focus(float *position)
 {
-    for (int i = 0; i < NUM_TRANSDUCER-1; i++)
+    for (int i = 0; i < NUM_REAL_TRANSDUCER; i++)
     {
         // Distance Calculation
         TransducerArray[i].distance = Euler_Distance(TransducerArray[i].position3D, position);
@@ -115,7 +123,7 @@ void Set_Point_Focus(float *position)
 
 void Set_Twin_Trap_Focus(float *position)
 {
-    for (int i = 0; i < NUM_TRANSDUCER - 1; i++)
+    for (int i = 0; i < NUM_REAL_TRANSDUCER; i++)
     {
         // 1. Focusing Lens Phase
         TransducerArray[i].distance = Euler_Distance(TransducerArray[i].position3D, position);
@@ -135,11 +143,11 @@ void Set_Twin_Trap_Focus(float *position)
 // Set Phases and Duty Cycles to Transducers
 void Set_Transducers(uint8_t *data)
 {
-    for (int i = 0; i < NUM_TRANSDUCER-1; i++)
+    for (int i = 0; i < NUM_REAL_TRANSDUCER; i++)
     {
         uint16_t phase_raw = data[i * 3 + 0] | (data[i * 3 + 1] << 8);
         uint8_t duty_raw = data[i * 3 + 2];
-        
+
         TransducerArray[i].phase = (phase_raw / 65535.0f) * (2.0f * M_PI);
         TransducerArray[i].duty = duty_raw / 255.0f;
         TransducerArray[i].shift_buffer_bits = Phase_to_Gap_Ticks(TransducerArray[i].phase);

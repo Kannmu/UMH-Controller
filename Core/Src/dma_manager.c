@@ -47,8 +47,13 @@ extern TIM_HandleTypeDef htim1;
 
 static uint16_t Group_Offset_Ticks[DMA_CHANNELS];
 
-static Transducer *TransducersByPort[DMA_CHANNELS][NUM_TRANSDUCER];
+static Transducer *TransducersByPort[DMA_CHANNELS][NUM_TOTAL_CHANNELS];
 static int TransducersByPortCount[DMA_CHANNELS];
+
+/* TRIGGER0 / TRIGGER1 配置 (专用函数管理, 便于后续修改) */
+static uint8_t  trigger0_enable   = 1;      /* PC14: 默认使能 */
+static uint32_t trigger0_pulse_us = 1000;   /* PC14: 1ms 脉冲 */
+static uint8_t  trigger1_enable   = 0;      /* PC15: 默认全0 */
 
 void DMA_Init()
 {
@@ -65,7 +70,7 @@ void DMA_Init()
 
     // Build Port-Transducer Map
     memset(TransducersByPortCount, 0, sizeof(TransducersByPortCount));
-    for (size_t i = 0; i < NUM_TRANSDUCER; i++)
+    for (size_t i = 0; i < NUM_TOTAL_CHANNELS; i++)
     {
         Transducer *t = &TransducerArray[i];
         if (t->port_num < DMA_CHANNELS)
@@ -139,7 +144,7 @@ void Update_Full_Waveform_Buffer()
     uint16_t turn_off[WAVEFORM_BUFFER_SIZE];
 
     // Event indices array
-    uint16_t event_indices[NUM_TRANSDUCER * 2 + 2];
+    uint16_t event_indices[NUM_TOTAL_CHANNELS * 2 + 2];
     int event_count;
 
     int is_enabled = Get_Stimulation_Enabled();
@@ -186,18 +191,49 @@ void Update_Full_Waveform_Buffer()
                 {
                     Transducer *t = TransducersByPort[p][k];
 
-                    // Virtual Transducer PC10 (Index 60) Functionality
-                    if (t->index == NUM_TRANSDUCER - 1 && Get_Calibration_Mode() == 0)
+                    /* --- 特殊通道: VIRTUAL (PC13) 连续 40kHz 相位参考 ---
+                     * 相位0: HIGH @ buffer index 0, 50% 占空, 无 group offset / calib。
+                     * 始终输出 (作为半自动校准的相位基准)。 */
+                    if (t->index == VIRTUAL_INDEX)
                     {
-                        // 1ms pulse at the beginning of each stimulation cycle
-                        uint32_t pulse_samples = (uint32_t)(0.001f * TRANSDUCER_BASE_FREQ);
-                        if (s < pulse_samples)
-                        {
-                            current_state |= t->pin;
-                        }
-                        continue; // Skip standard 40kHz generation
+                        uint16_t pin_bit = (uint16_t)(1U << __builtin_ctz(t->pin));
+                        uint32_t start_idx = 0;                 /* HIGH @ index 0 */
+                        uint16_t duty_ticks = half_period;      /* 50% → 50 槽 */
+                        uint32_t end_idx = (start_idx + duty_ticks) % WAVEFORM_BUFFER_SIZE;
+
+                        if (turn_on[start_idx] == 0 && turn_off[start_idx] == 0)
+                            event_indices[event_count++] = (uint16_t)start_idx;
+                        turn_on[start_idx] |= pin_bit;
+                        if (turn_on[end_idx] == 0 && turn_off[end_idx] == 0)
+                            event_indices[event_count++] = (uint16_t)end_idx;
+                        turn_off[end_idx] |= pin_bit;
+                        /* start_idx(0) < end_idx(50): 不回绕, 初始为低 */
+                        continue;
                     }
 
+                    /* --- 特殊通道: TRIGGER0 (PC14) 200Hz 周期开头脉冲 --- */
+                    if (t->index == TRIGGER0_INDEX)
+                    {
+                        if (trigger0_enable)
+                        {
+                            uint32_t pulse_samples = (uint32_t)(trigger0_pulse_us * (uint32_t)TRANSDUCER_BASE_FREQ / 1000000u);
+                            if (s < pulse_samples)
+                            {
+                                current_state |= t->pin;
+                            }
+                        }
+                        continue;
+                    }
+
+                    /* --- 特殊通道: TRIGGER1 (PC15) 可配置, 默认全0 --- */
+                    if (t->index == TRIGGER1_INDEX)
+                    {
+                        /* trigger1_enable 预留: 默认 0 → 常低 */
+                        (void)trigger1_enable;
+                        continue;
+                    }
+
+                    /* --- 真实阵元 (0..59): 标准相位路径 --- */
                     // Phase Calculation
                     uint16_t phase_offset = t->calib + t->shift_buffer_bits;
                     phase_offset += Group_Offset_Ticks[p];
@@ -338,6 +374,23 @@ void Update_Full_Waveform_Buffer()
 void Clean_DMABuffer()
 {
     memset(Waveform_Storage, 0x0000, sizeof(Waveform_Storage));
+}
+
+/* TRIGGER0 (PC14): 每个 200Hz 周期开头拉高 pulse_us 微秒, 其余低。
+ * pulse_us=0 时按默认 1ms 处理。enable=0 则常低。 */
+void Configure_Trigger0(uint8_t enable, uint32_t pulse_us)
+{
+    trigger0_enable   = enable;
+    trigger0_pulse_us = (pulse_us == 0) ? 1000u : pulse_us;
+    Update_Full_Waveform_Buffer();
+}
+
+/* TRIGGER1 (PC15): 预留配置接口, 默认全0 (常低)。
+ * 后续可扩展为自定义波形/模式。 */
+void Configure_Trigger1(uint8_t enable)
+{
+    trigger1_enable = enable;
+    Update_Full_Waveform_Buffer();
 }
 
 void DMA_Update_LED_State(uint16_t led_mask)
