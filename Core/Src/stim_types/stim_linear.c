@@ -79,6 +79,7 @@ static uint8_t linear_deserialize(struct Stimulation *stim,
 const StimTypeDescriptor linear_desc = {
     .type_id     = 2,
     .name        = "Linear",
+    .is_static   = 0,
     .init        = linear_init,
     .deinit      = linear_deinit,
     .update      = linear_update,

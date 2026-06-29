@@ -57,6 +57,7 @@ static bool calib_on_input(NavAction nav);
 static bool about_on_input(NavAction nav);
 static bool semi_calib_on_input(NavAction nav);
 static bool refresh_on_input(NavAction nav);
+static void refresh_on_event(PageEvent event);
 
 /* ================================================================
  *  Smart float formatting (no %f — nano.specs disables float printf)
@@ -267,7 +268,7 @@ static bool about_on_input(NavAction nav) {
     return false;
 }
 
-/* --- Refresh Rate page (5 rows per StimulationType + back) --- */
+/* --- Refresh Rate page (dynamic: one row per StimulationType + back) --- */
 
 static void render_refresh(const void *ctx) {
     (void)ctx;
@@ -275,10 +276,11 @@ static void render_refresh(const void *ctx) {
     Font_DrawStr(CONTENT_X, 0, "REFRESH RATE", 0, 1, WHITE);
     SSD1306_DrawHLine(CONTENT_X, HEADER_H - 2, CONTENT_W, WHITE);
 
-    for (int i = 0; i < 5; i++) {
+    uint8_t ntypes = Stim_Num_Types();
+    for (uint8_t i = 0; i < ntypes; i++) {
         int16_t y = HEADER_H + (int16_t)i * ROW_H - (int16_t)scroll_y_smooth;
         if (y < HEADER_H - ROW_H || y > GUI_HEIGHT) continue;
-        uint8_t cur = (i == (int)nav_cursor);
+        uint8_t cur = (i == nav_cursor);
         Colour bg = cur ? WHITE : BLACK;
         Colour fg = cur ? BLACK : WHITE;
         SSD1306_FillRect(CONTENT_X, y, CONTENT_W, ROW_H - 1, bg);
@@ -286,7 +288,7 @@ static void render_refresh(const void *ctx) {
         char buf[36];
         double dma_ms = updateDMABufferDeltaTimeByType[i];
         float rate = (dma_ms > 0.0) ? (float)(1000.0 / dma_ms) : 0.0f;
-        const StimTypeDescriptor *td = Stim_Get_Type_By_Id((uint8_t)i);
+        const StimTypeDescriptor *td = Stim_Get_Type_By_Index(i);
         snprintf(buf, sizeof(buf), "%s", td ? td->name : "?");
         Font_DrawStr(CONTENT_X + 1, y, buf, 0, 1, fg);
 
@@ -298,13 +300,54 @@ static void render_refresh(const void *ctx) {
 static const MenuItem items_refresh[] = {
     {"REF", MENU_ACTION, .action=NULL, .custom_render=render_refresh},
 };
-const MenuPage Page_Refresh = {"REFRESH", items_refresh, 1, 5, refresh_on_input, NULL};
+MenuPage Page_Refresh = {"REFRESH", items_refresh, 1, 0, refresh_on_input, refresh_on_event};
 
 static bool refresh_on_input(NavAction nav) {
-    if (nav == NAV_UP   && nav_cursor > 0) { nav_cursor--; gui_dirty = 1; return true; }
-    if (nav == NAV_DOWN && nav_cursor < 4) { nav_cursor++; gui_dirty = 1; return true; }
+    uint8_t ntypes = Stim_Num_Types();
+    if (nav == NAV_UP   && nav_cursor > 0)           { nav_cursor--; gui_dirty = 1; return true; }
+    if (nav == NAV_DOWN && nav_cursor < ntypes - 1)  { nav_cursor++; gui_dirty = 1; return true; }
     if (nav == NAV_RETURN) { GUI_PopPage(); return true; }
     return false;
+}
+
+static void refresh_on_event(PageEvent event) {
+    if (event != EVENT_ENTER) return;
+    /* Update scroll_rows to match the current number of registered types */
+    Page_Refresh.scroll_rows = Stim_Num_Types();
+    /* Cycle through every registered StimulationType to capture per-type timing */
+    uint8_t ntypes = Stim_Num_Types();
+    for (uint8_t i = 0; i < ntypes; i++) {
+        const StimTypeDescriptor *td = Stim_Get_Type_By_Index(i);
+        if (!td) continue;
+        Stimulation s;
+        memset(&s, 0, sizeof(s));
+        strncpy(s.name, td->name, sizeof(s.name) - 1);
+        s.type_id   = td->type_id;
+        s.type_desc = td;
+        s.strength  = 100.0f;
+        s.frequency = 200.0f;
+        if (td->init) td->init(&s);
+        Set_Stimulation(&s);
+    }
+    /* Restore the original stimulation from the current demo (or empty default) */
+    if (demo_mode >= 0) {
+        const StimDemoDescriptor *d = Stim_Get_Demo_By_Index((uint8_t)demo_mode);
+        if (d) Set_Stimulation_From_Demo(d);
+    } else {
+        /* restore a sensible default */
+        const StimTypeDescriptor *td0 = Stim_Get_Type_By_Index(0);
+        if (td0) {
+            Stimulation s;
+            memset(&s, 0, sizeof(s));
+            strncpy(s.name, td0->name, sizeof(s.name) - 1);
+            s.type_id   = td0->type_id;
+            s.type_desc = td0;
+            s.strength  = 100.0f;
+            s.frequency = 200.0f;
+            if (td0->init) td0->init(&s);
+            Set_Stimulation(&s);
+        }
+    }
 }
 
 /* --- Demo page (N choices + back, scrollable, dynamic from registry) --- */

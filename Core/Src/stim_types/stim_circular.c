@@ -91,6 +91,7 @@ static uint8_t circular_deserialize(struct Stimulation *stim,
 const StimTypeDescriptor circular_desc = {
     .type_id     = 3,
     .name        = "Circular",
+    .is_static   = 0,
     .init        = circular_init,
     .deinit      = circular_deinit,
     .update      = circular_update,

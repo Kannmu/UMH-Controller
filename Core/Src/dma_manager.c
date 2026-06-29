@@ -330,8 +330,10 @@ void Update_Full_Waveform_Buffer()
     if (SystemCoreClock > 0) {
         updateDMABufferDeltaTime = (double)(end_cycles - start_cycles) / (SystemCoreClock / 1000.0);
         uint8_t tid = Stim_Get_Type_Id(&CurrentStimulation);
-        if (tid < 5)
-            updateDMABufferDeltaTimeByType[tid] = updateDMABufferDeltaTime;
+        uint8_t idx = Stim_Get_Index_By_Type_Id(tid);
+        uint8_t n   = Stim_Num_Types();
+        if (idx < n)
+            updateDMABufferDeltaTimeByType[idx] = updateDMABufferDeltaTime;
     }
 }
 

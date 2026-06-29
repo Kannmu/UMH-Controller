@@ -56,6 +56,7 @@ static uint8_t twintrap_deserialize(struct Stimulation *stim,
 const StimTypeDescriptor twintrap_desc = {
     .type_id     = 4,
     .name        = "TwinTrap",
+    .is_static   = 1,
     .init        = twintrap_init,
     .deinit      = twintrap_deinit,
     .update      = twintrap_update,

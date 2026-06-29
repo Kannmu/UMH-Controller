@@ -59,4 +59,4 @@ extern const MenuPage Page_Demo;
 extern const MenuPage Page_Calibration;
 extern const MenuPage Page_About;
 extern const MenuPage Page_SemiCalib;
-extern const MenuPage Page_Refresh;
+extern       MenuPage Page_Refresh;

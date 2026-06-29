@@ -38,7 +38,7 @@ static inline float    Stim_Get_Strength(const struct Stimulation *s) {
     return s->strength;
 }
 static inline int      Stim_Is_Static(const struct Stimulation *s) {
-    return (s->type_id == 0 || s->type_id == 4);  /* Point or TwinTrap */
+    return s->type_desc && s->type_desc->is_static;
 }
 
 /* ---- Public API ---- */

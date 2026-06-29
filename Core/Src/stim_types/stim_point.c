@@ -59,6 +59,7 @@ static uint8_t point_deserialize(struct Stimulation *stim,
 const StimTypeDescriptor point_desc = {
     .type_id     = 0,
     .name        = "Point",
+    .is_static   = 1,
     .init        = point_init,
     .deinit      = point_deinit,
     .update      = point_update,

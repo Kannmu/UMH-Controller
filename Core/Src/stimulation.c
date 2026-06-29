@@ -4,7 +4,9 @@
 #include "utiles.h"
 #include "custom_math.h"
 #include "dma_manager.h"
+#include "stim_types.h"
 #include <string.h>
+#include <stdlib.h>
 
 int phase_set_mode = 0;
 int is_stimulation_enabled = 1;
@@ -35,6 +37,22 @@ const StimTypeDescriptor* Stim_Get_Type_By_Id(uint8_t type_id)
             return _stim_type_registry_start[i];
     }
     return NULL;
+}
+
+const StimTypeDescriptor* Stim_Get_Type_By_Index(uint8_t index)
+{
+    if (index >= Stim_Num_Types()) return NULL;
+    return _stim_type_registry_start[index];
+}
+
+uint8_t Stim_Get_Index_By_Type_Id(uint8_t type_id)
+{
+    uint8_t n = Stim_Num_Types();
+    for (uint8_t i = 0; i < n; i++) {
+        if (_stim_type_registry_start[i]->type_id == type_id)
+            return i;
+    }
+    return 0xFF; /* sentinel */
 }
 
 const StimTypeDescriptor* Stim_Get_Type_By_Name(const char *name)
@@ -86,6 +104,12 @@ int Stim_Get_Demo_Index(const StimDemoDescriptor *demo)
 void Stim_Init(void)
 {
     const StimTypeDescriptor *point_type = Stim_Get_Type_By_Id(0);
+
+    /* Allocate the per-type delta-time array — Stim_Num_Types() entries */
+    {
+        uint8_t n = Stim_Num_Types();
+        updateDMABufferDeltaTimeByType = (double *)calloc(n, sizeof(double));
+    }
 
     /* EmptyStimulation — safe fallback */
     memset(&EmptyStimulation, 0, sizeof(EmptyStimulation));

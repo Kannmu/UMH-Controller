@@ -7,7 +7,7 @@
 extern uint32_t sysTickDelta;
 extern float System_Loop_Freq;
 extern double updateDMABufferDeltaTime;
-extern double updateDMABufferDeltaTimeByType[5];
+extern double *updateDMABufferDeltaTimeByType; /* runtime-allocated, Stim_Num_Types() entries */
 
 void Init_DWT(void);
 uint32_t DWT_GetCycles(void);

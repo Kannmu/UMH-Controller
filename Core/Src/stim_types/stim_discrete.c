@@ -99,6 +99,7 @@ static uint8_t discrete_deserialize(struct Stimulation *stim,
 const StimTypeDescriptor discrete_desc = {
     .type_id     = 1,
     .name        = "Discrete",
+    .is_static   = 0,
     .init        = discrete_init,
     .deinit      = discrete_deinit,
     .update      = discrete_update,

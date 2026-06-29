@@ -16,6 +16,7 @@ typedef uint8_t (*Stim_Deserialize_Fn)(struct Stimulation *stim,
 typedef struct {
     uint8_t             type_id;
     const char         *name;
+    uint8_t             is_static;   /* waveform identical across all samples */
     Stim_Init_Fn        init;
     Stim_Deinit_Fn      deinit;
     Stim_Update_Fn      update;
@@ -44,6 +45,8 @@ typedef struct {
 /* ---- Runtime Registry Access (implemented in stimulation.c) ---- */
 uint8_t                   Stim_Num_Types(void);
 const StimTypeDescriptor* Stim_Get_Type_By_Id(uint8_t type_id);
+const StimTypeDescriptor* Stim_Get_Type_By_Index(uint8_t index);
+uint8_t                   Stim_Get_Index_By_Type_Id(uint8_t type_id);
 const StimTypeDescriptor* Stim_Get_Type_By_Name(const char *name);
 
 uint8_t                   Stim_Num_Demos(void);
