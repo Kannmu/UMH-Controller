@@ -149,8 +149,12 @@ void Set_Transducers(uint8_t *data)
 
 float Distance_to_Phase(float distance)
 {
-    return fmod((distance * Wave_K), (2.0 * M_PI));
+    // return fmod((distance * Wave_K), (2.0 * M_PI));
     // return (2.0 * M_PI) - (fmod((distance * Wave_K), (2.0 * M_PI)));
+    float phase = distance * Wave_K;
+    float twopi = 2.0f * (float)M_PI;
+    int quotient = (int)(phase / twopi);
+    return phase - (float)quotient * twopi;
 }
 
 float Phase_to_Gap_Ticks(float phase)

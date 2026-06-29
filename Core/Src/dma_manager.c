@@ -144,12 +144,18 @@ void Update_Full_Waveform_Buffer()
 
     int is_enabled = Get_Stimulation_Enabled();
 
+    int is_static_stim = (CurrentStimulation.type == Point || CurrentStimulation.type == TwinTrap);
+
+    if (is_enabled && is_static_stim) {
+        Update_Stimulation_State(0.0f);
+    }
+
     for (int s = 0; s < NUM_STIMULATION_SAMPLES; s++)
     {
         float progress = (float)s / (float)NUM_STIMULATION_SAMPLES;
 
         // Update Transducer State for this time slice
-        if (is_enabled)
+        if (is_enabled && !is_static_stim)
         {
             Update_Stimulation_State(progress);
         }
