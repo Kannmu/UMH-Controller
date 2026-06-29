@@ -39,7 +39,7 @@ static uint8_t  edit_val_idx;  /* which item's value */
 static int16_t  slide_x;       /* 0 = current page, ±128 = sliding */
 static int8_t   slide_dir;     /* 0=none, -1=push-left, 1=pop-right */
 static uint32_t slide_start;
-#define SLIDE_DURATION 120      /* ms */
+#define SLIDE_DURATION 200      /* ms */
 
 /* ADC read caching (avoid I2C contention; ADC polls are ~200us each) */
 static float    cached_temp;

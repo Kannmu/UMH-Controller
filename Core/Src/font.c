@@ -112,12 +112,13 @@ void Font_DrawChar(int16_t x, int16_t y, char ch, uint8_t font, uint8_t scale, C
     int h = (font == 0) ? 7 : 0;
     if (!glyph) return;
 
-    for (int row = 0; row < h; row++)
+    // 正确的遍历方式：外层遍历列(宽)，内层遍历行(高/位)
+    for (int col = 0; col < w; col++)
     {
-        uint8_t line = glyph[row];
-        for (int col = 0; col < w; col++)
+        uint8_t column_data = glyph[col];
+        for (int row = 0; row < h; row++)
         {
-            if (line & (1U << col))
+            if (column_data & (1U << row))
             {
                 for (int sy = 0; sy < (int)scale; sy++)
                     for (int sx = 0; sx < (int)scale; sx++)

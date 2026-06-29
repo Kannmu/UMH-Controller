@@ -126,29 +126,25 @@ void SSD1306_FillRect(int16_t x, int16_t y, int16_t w, int16_t h, Colour c)
 void SSD1306_Flush(void)
 {
     memset(fb_hw, 0, sizeof(fb_hw));
-    for (int y = 0; y < GUI_HEIGHT; y++)       /* logical row (0..127) */
+    for (int y = 0; y < GUI_HEIGHT; y++)       /* 逻辑行 (0..31) */
     {
-        for (int x = 0; x < GUI_WIDTH; x++)    /* logical col (0..31) */
+        for (int x = 0; x < GUI_WIDTH; x++)    /* 逻辑列 (0..127) */
         {
             uint16_t li = (uint16_t)y * GUI_WIDTH + (uint16_t)x;
             if (fb_log[li >> 3] & (1U << (li & 7)))
             {
-                /* HW col = y (0..127), HW page = (31-x)/8, bit-in-page = (31-x)%8 */
-                uint16_t hx = (uint16_t)y;
-                uint16_t hy = (uint16_t)(GUI_WIDTH - 1 - x);
-                uint16_t hi = (hy >> 3) * SSD1306_WIDTH + hx;
-                fb_hw[hi] |= (1U << (hy & 7));
+                /* 纯 1:1 硬件映射，不再旋转坐标系 */
+                uint16_t hi = (y >> 3) * SSD1306_WIDTH + x;
+                fb_hw[hi] |= (1U << (y & 7));
             }
         }
     }
 
-    /* Set column range 0..127, page range 0..3 */
     ssd1306_write_cmd(0x21); ssd1306_write_cmd(0);
     ssd1306_write_cmd(SSD1306_WIDTH - 1);
     ssd1306_write_cmd(0x22); ssd1306_write_cmd(0);
     ssd1306_write_cmd((SSD1306_HEIGHT >> 3) - 1);
 
-    /* Burst write with control byte 0x40 (data) prepended */
     uint8_t buf[SSD1306_WIDTH * SSD1306_HEIGHT / 8 + 1];
     buf[0] = 0x40;
     memcpy(&buf[1], fb_hw, sizeof(fb_hw));

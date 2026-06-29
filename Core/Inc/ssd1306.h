@@ -6,8 +6,8 @@
 #define SSD1306_ADDR    (0x3C << 1)  /* 8-bit write = 0x78 */
 
 /* Logical canvas (portrait orientation): 32 wide x 128 tall */
-#define GUI_WIDTH        32
-#define GUI_HEIGHT      128
+#define GUI_WIDTH      128
+#define GUI_HEIGHT      32
 
 typedef enum { BLACK = 0, WHITE = 1 } Colour;
 
