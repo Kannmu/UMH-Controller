@@ -1,13 +1,13 @@
 #pragma once
 #include "main.h"
 
-# define Heartbeat_Interval_ms 500
-
-/* HEARTBEAT: PA15, direct GPIO toggle (no DMA — only Ports B/C/D/E use DMA for transducers). */
+/* HEARTBEAT: PA15, sigma‑delta modulated PWM driven by a 256‑entry sin² brightness LUT.
+   Breathing effect (~14.6 BPM, 4.1 s cycle). Direct GPIO access is safe (no DMA on Port A). */
 
 extern uint32_t sysTickDelta;
 extern float System_Loop_Freq;
 extern double updateDMABufferDeltaTime;
+extern double updateDMABufferDeltaTimeByType[5];
 
 void Init_DWT(void);
 uint32_t DWT_GetCycles(void);

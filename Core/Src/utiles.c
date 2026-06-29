@@ -8,6 +8,7 @@
 uint32_t sysTickDelta = 0;
 float System_Loop_Freq = 0.0f;
 double updateDMABufferDeltaTime = 0;
+double updateDMABufferDeltaTimeByType[5] = {0};
 
 void Init_DWT()
 {
@@ -28,16 +29,30 @@ uint32_t DWT_GetMicroseconds(void)
     return DWT_GetCycles() / (SystemCoreClock / 1000000);
 }
 
-/* HEARTBEAT (PA15): 1Hz direct GPIO toggle. Port A has no transducers,
- * so DMA does not write GPIOA->ODR. Direct toggle is safe. */
+/* HEARTBEAT (PA15): Simple breathing LED via 1st‑order sigma‑delta modulation.
+ * No hardware timer, no LUT — just integer add/compare.
+ * Triangular wave (0→255→0) over ~4.1 s. Called from main loop, throttled to 1 kHz. */
 void Update_LED_Status(void)
 {
-    static uint32_t last_toggle = 0;
+    static uint32_t last_ms;
+    static int16_t  sd_err;
+
     uint32_t now = HAL_GetTick();
-    if (now - last_toggle >= Heartbeat_Interval_ms)
-    {
-        HAL_GPIO_TogglePin(HEARTBEAT_GPIO_Port, HEARTBEAT_Pin);
-        last_toggle = now;
+    if (now == last_ms) return;
+    last_ms = now;
+
+    /* Triangular wave: 0→255 in 2048 ms, then 255→0 in 2048 ms */
+    uint16_t phase = now & 4095;   /* 0..4095 wraps every 4.096 s */
+    uint8_t  target = (phase < 2048) ? (uint8_t)(phase >> 3)
+                                     : (uint8_t)((4095 - phase) >> 3);
+
+    /* 1st‑order sigma‑delta DAC */
+    sd_err += (int16_t)target;
+    if (sd_err >= 0) {
+        HAL_GPIO_WritePin(HEARTBEAT_GPIO_Port, HEARTBEAT_Pin, GPIO_PIN_SET);
+        sd_err -= 256;
+    } else {
+        HAL_GPIO_WritePin(HEARTBEAT_GPIO_Port, HEARTBEAT_Pin, GPIO_PIN_RESET);
     }
 }
 

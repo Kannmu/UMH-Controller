@@ -93,19 +93,17 @@ uint8_t Buttons_IsPressed(ButtonId id)
 
 NavAction Buttons_GetNav(void)
 {
-    static NavAction last = NAV_NONE;
-    if (Buttons_Get(BTN_UP)      == EVT_PRESS) return NAV_UP;
-    if (Buttons_Get(BTN_DOWN)    == EVT_PRESS) return NAV_DOWN;
+    ButtonEvent ev;
+
+    /* priority: CONFIRM / RETURN override directional repeats */
     if (Buttons_Get(BTN_CONFIRM) == EVT_PRESS) return NAV_CONFIRM;
     if (Buttons_Get(BTN_RETURN)  == EVT_PRESS) return NAV_RETURN;
-    /* repeats */
-    if (Buttons_Get(BTN_UP)      == EVT_REPEAT) return NAV_UP;
-    if (Buttons_Get(BTN_DOWN)    == EVT_REPEAT) return NAV_DOWN;
-    /* avoid spamming NAV_NONE — debounce */
-    if (last != NAV_NONE)
-    {
-        last = NAV_NONE;
-        return last;
-    }
+
+    ev = Buttons_Get(BTN_UP);
+    if (ev == EVT_PRESS || ev == EVT_REPEAT) return NAV_UP;
+
+    ev = Buttons_Get(BTN_DOWN);
+    if (ev == EVT_PRESS || ev == EVT_REPEAT) return NAV_DOWN;
+
     return NAV_NONE;
 }

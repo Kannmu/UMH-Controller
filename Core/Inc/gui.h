@@ -1,5 +1,6 @@
 #pragma once
 #include "ssd1306.h"
+#include "buttons.h"
 #include <stddef.h>
 
 typedef enum {
@@ -16,6 +17,8 @@ typedef struct MenuPage MenuPage;
 
 typedef void (*MenuActionFn)(void);
 typedef void (*MenuRenderFn)(const void* ctx);
+
+typedef enum { EVENT_ENTER, EVENT_EXIT } PageEvent;
 
 typedef struct {
     const char      *label;
@@ -34,6 +37,9 @@ struct MenuPage {
     const char    *title;
     const MenuItem *items;
     uint8_t        item_count;
+    uint8_t        scroll_rows;               /* scrollable row count (0 = use item_count) */
+    bool         (*on_input)(NavAction nav);  /* returns true if navigation was consumed */
+    void         (*on_event)(PageEvent event);
 };
 
 void GUI_Init(void);
@@ -42,14 +48,15 @@ void GUI_Action_ToggleCalibBypass(void);
 void GUI_Action_SetDemo(int idx);
 void GUI_Action_StartSemiAutoCalib(void);
 
-/* Convenience: push a page onto navigation stack */
 void GUI_PushPage(const MenuPage *page);
 void GUI_PopPage(void);
 const MenuPage* GUI_CurrentPage(void);
 
-/* Smart unit formatting */
 void GUI_FormatSmartUnits(char *buf, size_t buf_size, float value, const char *suffix, uint8_t decimals);
 
-/* Semi-auto calibration page */
-extern const MenuPage Page_SemiCalib;
+extern const MenuPage Page_Root;
+extern const MenuPage Page_Demo;
+extern const MenuPage Page_Calibration;
 extern const MenuPage Page_About;
+extern const MenuPage Page_SemiCalib;
+extern const MenuPage Page_Refresh;

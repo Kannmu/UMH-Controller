@@ -5,6 +5,7 @@ extern I2C_HandleTypeDef hi2c3;
 
 static uint8_t fb_hw[SSD1306_WIDTH * SSD1306_HEIGHT / 8];  /* 128x32 native HW buffer 512B */
 static uint8_t fb_log[GUI_WIDTH * GUI_HEIGHT / 8];          /* 32x128 logical (portrait) 512B */
+static uint8_t i2c_err_cnt;                                  /* consecutive flush failures */
 
 static int ssd1306_write_cmd(uint8_t cmd)
 {
@@ -126,18 +127,25 @@ void SSD1306_FillRect(int16_t x, int16_t y, int16_t w, int16_t h, Colour c)
 void SSD1306_Flush(void)
 {
     memset(fb_hw, 0, sizeof(fb_hw));
-    for (int y = 0; y < GUI_HEIGHT; y++)       /* 逻辑行 (0..31) */
+    for (int y = 0; y < GUI_HEIGHT; y++)       /* logical rows (0..31) */
     {
-        for (int x = 0; x < GUI_WIDTH; x++)    /* 逻辑列 (0..127) */
+        for (int x = 0; x < GUI_WIDTH; x++)    /* logical cols (0..127) */
         {
             uint16_t li = (uint16_t)y * GUI_WIDTH + (uint16_t)x;
             if (fb_log[li >> 3] & (1U << (li & 7)))
             {
-                /* 纯 1:1 硬件映射，不再旋转坐标系 */
                 uint16_t hi = (y >> 3) * SSD1306_WIDTH + x;
                 fb_hw[hi] |= (1U << (y & 7));
             }
         }
+    }
+
+    /* Auto-reinit display on consecutive I2C failures */
+    if (i2c_err_cnt >= 3) {
+        HAL_I2C_DeInit(&hi2c3);
+        HAL_I2C_Init(&hi2c3);
+        SSD1306_Init();
+        i2c_err_cnt = 0;
     }
 
     ssd1306_write_cmd(0x21); ssd1306_write_cmd(0);
@@ -148,5 +156,8 @@ void SSD1306_Flush(void)
     uint8_t buf[SSD1306_WIDTH * SSD1306_HEIGHT / 8 + 1];
     buf[0] = 0x40;
     memcpy(&buf[1], fb_hw, sizeof(fb_hw));
-    ssd1306_write_data_burst(buf, sizeof(buf));
+    if (ssd1306_write_data_burst(buf, sizeof(buf)) != HAL_OK)
+        i2c_err_cnt++;
+    else
+        i2c_err_cnt = 0;
 }

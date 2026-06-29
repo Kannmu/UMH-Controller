@@ -327,8 +327,11 @@ void Update_Full_Waveform_Buffer()
     }
 
     uint32_t end_cycles = DWT_GetCycles();
-    if (SystemCoreClock > 0)
+    if (SystemCoreClock > 0) {
         updateDMABufferDeltaTime = (double)(end_cycles - start_cycles) / (SystemCoreClock / 1000.0);
+        if (CurrentStimulation.type < 5)
+            updateDMABufferDeltaTimeByType[CurrentStimulation.type] = updateDMABufferDeltaTime;
+    }
 }
 
 void Clean_DMABuffer()
