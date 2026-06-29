@@ -505,7 +505,7 @@ render_only:
             SSD1306_FillRect(CONTENT_X, y, CONTENT_W, ROW_H - 1, bg);
 
             if (it[i].type == MENU_DATA_FLOAT) {
-                char buf[22];
+                char buf[36];
                 uint8_t slot = it[i].df.slot_idx;
                 Font_DrawStr(CONTENT_X + 1, y, label, 0, 1, fg);
 
