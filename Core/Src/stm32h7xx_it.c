@@ -191,12 +191,12 @@ void SysTick_Handler(void)
 {
   /* USER CODE BEGIN SysTick_IRQn 0 */
   // led0_ticks++;
-  
+
   // CalculateFPS();
   /* USER CODE END SysTick_IRQn 0 */
   HAL_IncTick();
   /* USER CODE BEGIN SysTick_IRQn 1 */
-
+  Update_LED_Status();
   /* USER CODE END SysTick_IRQn 1 */
 }
 

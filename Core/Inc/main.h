@@ -216,7 +216,7 @@ void Error_Handler(void);
 #define TRANSDUCERE1_GPIO_Port GPIOE
 
 /* USER CODE BEGIN Private defines */
-# define VERSION 5U
+# define VERSION 505U
 
 # define target_loop_freq 3000
 # define target_loop_period_us (1e6f/target_loop_freq)

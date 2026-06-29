@@ -187,7 +187,6 @@ int main(void)
 
     Buttons_Tick();
     GUI_Tick();
-    Update_LED_Status();
 
     /* USER CODE END WHILE */
 
