@@ -90,6 +90,7 @@ Core/Src/ssd1306.c \
 Core/Src/font.c \
 Core/Src/buttons.c \
 Core/Src/gui.c \
+Core/Src/eeprom.c \
 Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal.c \
 Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_adc.c \
 Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_adc_ex.c \

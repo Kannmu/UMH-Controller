@@ -24,7 +24,7 @@ int calibration_mode = 0;
 //     0};
 
 
-// Calibration Parameters for Device 2 ID: 003C00193233
+// Calibration Parameters for Device 2 ID: 003C00193233 (fallback default)
 float Transducer_Calibration_Array[] = {
     15.47,  9.42, 14.97,  5.23,  7.66,
     14.84,  8.56, 14.28,  6.14,  5.23,

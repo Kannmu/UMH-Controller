@@ -32,6 +32,7 @@
 #include "communication.h"
 #include "gui.h"
 #include "buttons.h"
+#include "eeprom.h"
 
 /* USER CODE END Includes */
 
@@ -150,6 +151,18 @@ int main(void)
   Comm_Init();
   Init_DWT();
   Transducer_Init();
+
+  /* Load calibration from EEPROM (AT24C16 on I2C3); fall back to hardcoded defaults */
+  {
+    float eeprom_cal[60];
+    if (EEPROM_LoadCalibration(eeprom_cal))
+    {
+      for (int i = 0; i < 60; i++)
+        Transducer_Calibration_Array[i] = eeprom_cal[i];
+    }
+    Load_Calib_to_Transducers();
+  }
+
   DMA_Init();
 
   I2C3_Init();
