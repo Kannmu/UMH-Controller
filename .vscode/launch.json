@@ -1,112 +1,44 @@
 {
-    "version": "0.2.0",
     "configurations": [
-        {
-            "name": "Debug CM7",
-            "type": "cortex-debug",
-            "request": "launch",
-            "servertype": "openocd",
-            "cwd": "${workspaceFolder}",
-            "executable": "${workspaceFolder}/Makefile/CM7/build/UMH_Controller_V6_CM7.elf",
-            "configFiles": [
-                "openocd.cfg"
-            ],
-            "runToEntryPoint": "main",
-            "showDevDebugOutput": "parsed",
-            "preLaunchTask": "Build CM7",
-            "device": "STM32H757XI",
-            "targetId": "stm32h7x.cpu0"
-        },
-        {
-            "name": "Debug CM4",
-            "type": "cortex-debug",
-            "request": "launch",
-            "servertype": "openocd",
-            "cwd": "${workspaceFolder}",
-            "executable": "${workspaceFolder}/Makefile/CM4/build/UMH_Controller_V6_CM4.elf",
-            "configFiles": [
-                "openocd.cfg"
-            ],
-            "runToEntryPoint": "main",
-            "showDevDebugOutput": "parsed",
-            "preLaunchTask": "Build CM4",
-            "device": "STM32H757XI",
-            "targetId": "stm32h7x.cpu1"
-        },
-        {
-            "name": "Flash CM7",
-            "type": "cortex-debug",
-            "request": "launch",
-            "servertype": "openocd",
-            "cwd": "${workspaceFolder}",
-            "executable": "${workspaceFolder}/Makefile/CM7/build/UMH_Controller_V6_CM7.elf",
-            "configFiles": [
-                "openocd.cfg"
-            ],
-            "runToEntryPoint": "main",
-            "showDevDebugOutput": "parsed",
-            "preLaunchTask": "Build CM7",
-            "device": "STM32H757XI",
-            "targetId": "stm32h7x.cpu0",
-            "postLaunchCommands": [
-                "continue",
-                "disconnect"
-            ]
-        },
-        {
-            "name": "Flash CM4",
-            "type": "cortex-debug",
-            "request": "launch",
-            "servertype": "openocd",
-            "cwd": "${workspaceFolder}",
-            "executable": "${workspaceFolder}/Makefile/CM4/build/UMH_Controller_V6_CM4.elf",
-            "configFiles": [
-                "openocd.cfg"
-            ],
-            "runToEntryPoint": "main",
-            "showDevDebugOutput": "parsed",
-            "preLaunchTask": "Build CM4",
-            "device": "STM32H757XI",
-            "targetId": "stm32h7x.cpu1",
-            "postLaunchCommands": [
-                "continue",
-                "disconnect"
-            ]
-        },
         {
             "showDevDebugOutput": "parsed",
             "cwd": "${workspaceRoot}",
-            "executable": "./build/debug/.elf",
+            "executable": "./build/debug/SubController.elf",
             "name": "Debug STM32",
             "request": "launch",
             "type": "cortex-debug",
             "servertype": "openocd",
             "preLaunchTask": "Build STM",
-            "device": "",
+            "device": "stm32h750",
             "configFiles": [
                 "openocd.cfg"
-            ]
+            ],
+            "environment": [
+                {"name": "PATH", "value": "D:\\Software\\ARM-GNU-Toolchain\\bin;${env:PATH}"}
+            ],
+            "serverpath": "D:\\Software\\OpenOCD\\bin\\openocd.exe",
+            "toolchainPath": "D:\\Software\\ARM-GNU-Toolchain\\bin",
+            "toolchainPrefix": "arm-none-eabi"
         },
         {
             "showDevDebugOutput": "parsed",
             "cwd": "${workspaceRoot}",
-            "executable": "./build/debug/.elf",
+            "executable": "./build/debug/SubController.elf",
             "name": "Attach STM32",
             "request": "attach",
             "type": "cortex-debug",
             "servertype": "openocd",
             "preLaunchTask": "Build STM",
-            "device": "",
+            "device": "stm32h750",
             "configFiles": [
                 "openocd.cfg"
-            ]
-        }
-    ],
-    "compounds": [
-        {
-            "name": "Debug Dual Core",
-            "configurations": ["Debug CM7", "Debug CM4"],
-            "stopAll": true
+            ],
+            "environment": [
+                {"name": "PATH", "value": "D:\\Software\\ARM-GNU-Toolchain\\bin;${env:PATH}"}
+            ],
+            "serverpath": "D:\\Software\\OpenOCD\\bin\\openocd.exe",
+            "toolchainPath": "D:\\Software\\ARM-GNU-Toolchain\\bin",
+            "toolchainPrefix": "arm-none-eabi"
         }
     ]
 }

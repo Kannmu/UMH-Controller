@@ -151,7 +151,14 @@ const MenuPage Page_Calibration = {"CALIB", items_cal, 3};
 /* ---- GUI Init ---- */
 void GUI_Init(void)
 {
-    SSD1306_Init();
+    if (SSD1306_Init() != 0)
+    {
+        /* SSD1306 not found on I2C bus — blink HEARTBEAT fast as error indicator.
+         * The main loop will call GUI_Tick but rendering is a no-op. */
+        for (volatile int i = 0; i < 10; i++)
+            HAL_GPIO_TogglePin(HEARTBEAT_GPIO_Port, HEARTBEAT_Pin);
+        return;
+    }
     Buttons_Init();
     Buttons_Tick();  /* seed debounce state */
 

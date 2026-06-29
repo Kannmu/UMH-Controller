@@ -6,19 +6,27 @@ extern I2C_HandleTypeDef hi2c3;
 static uint8_t fb_hw[SSD1306_WIDTH * SSD1306_HEIGHT / 8];  /* 128x32 native HW buffer 512B */
 static uint8_t fb_log[GUI_WIDTH * GUI_HEIGHT / 8];          /* 32x128 logical (portrait) 512B */
 
-static void ssd1306_write_cmd(uint8_t cmd)
+static int ssd1306_write_cmd(uint8_t cmd)
 {
     uint8_t buf[2] = {0x00, cmd};  /* control byte 0x00 = command */
-    HAL_I2C_Master_Transmit(&hi2c3, SSD1306_ADDR, buf, 2, 10);
+    return HAL_I2C_Master_Transmit(&hi2c3, SSD1306_ADDR, buf, 2, 100);
 }
 
-static void ssd1306_write_data_burst(const uint8_t *data, uint16_t len)
+static int ssd1306_write_data_burst(const uint8_t *data, uint16_t len)
 {
-    HAL_I2C_Master_Transmit(&hi2c3, SSD1306_ADDR, (uint8_t *)data, len, 100);
+    return HAL_I2C_Master_Transmit(&hi2c3, SSD1306_ADDR, (uint8_t *)data, len, 100);
 }
 
-void SSD1306_Init(void)
+int SSD1306_Init(void)
 {
+    /* Wait for SSD1306 VCC to stabilize (~100ms after MCU power-up).
+     * The charge pump needs this before accepting commands. */
+    HAL_Delay(100);
+
+    /* Verify device is present on I2C bus */
+    if (HAL_I2C_IsDeviceReady(&hi2c3, SSD1306_ADDR, 3, 100) != HAL_OK)
+        return -1;
+
     static const uint8_t init_cmds[] = {
         0xAE,           /* display off */
         0xD5, 0x80,     /* clock divide ratio = 0x80 (default) */
@@ -28,7 +36,7 @@ void SSD1306_Init(void)
         0x8D, 0x14,     /* charge pump enable */
         0x20, 0x00,     /* horizontal addressing mode */
         0xA1,           /* segment remap (column 127 = SEG0) */
-        0xC8,           /* COM output scan direction (flip vertical) */
+        0xC8,           /* COM output scan direction */
         0xDA, 0x02,     /* COM pins HW config: sequential, for 128x32 */
         0x81, 0x8F,     /* contrast = 0x8F */
         0xD9, 0xF1,     /* precharge period = 0xF1 */
@@ -37,10 +45,17 @@ void SSD1306_Init(void)
         0xA6,           /* normal (non-inverted) display */
         0xAF            /* display on */
     };
+
+    /* Send init commands one-by-one; abort on first error */
     for (uint8_t i = 0; i < sizeof(init_cmds); i++)
-        ssd1306_write_cmd(init_cmds[i]);
+    {
+        if (ssd1306_write_cmd(init_cmds[i]) != HAL_OK)
+            return -2;
+    }
+
     SSD1306_Fill(BLACK);
     SSD1306_Flush();
+    return 0;  /* success */
 }
 
 void SSD1306_DeInit(void)
@@ -90,8 +105,7 @@ void SSD1306_FillRect(int16_t x, int16_t y, int16_t w, int16_t h, Colour c)
 }
 
 /* Transpose: logical 32x128 (portrait) → hardware 128x32 (native).
- * Logical (x,y) → Hardware (X=y, Y=31-x): 90° clockwise rotation.
- * Bit-level transpose over 4096 bits each flush. */
+ * Logical (x,y) → Hardware (X=y, Y=31-x): 90° clockwise rotation. */
 void SSD1306_Flush(void)
 {
     memset(fb_hw, 0, sizeof(fb_hw));
@@ -102,7 +116,7 @@ void SSD1306_Flush(void)
             uint16_t li = (uint16_t)y * GUI_WIDTH + (uint16_t)x;
             if (fb_log[li >> 3] & (1U << (li & 7)))
             {
-                /* Transpose: hw column = y, hw page = (31-x)/8, hw bit-in-page = (31-x)%8 */
+                /* HW col = y (0..127), HW page = (31-x)/8, bit-in-page = (31-x)%8 */
                 uint16_t hx = (uint16_t)y;
                 uint16_t hy = (uint16_t)(GUI_WIDTH - 1 - x);
                 uint16_t hi = (hy >> 3) * SSD1306_WIDTH + hx;
@@ -121,5 +135,5 @@ void SSD1306_Flush(void)
     uint8_t buf[SSD1306_WIDTH * SSD1306_HEIGHT / 8 + 1];
     buf[0] = 0x40;
     memcpy(&buf[1], fb_hw, sizeof(fb_hw));
-    HAL_I2C_Master_Transmit(&hi2c3, SSD1306_ADDR, buf, sizeof(buf), 100);
+    ssd1306_write_data_burst(buf, sizeof(buf));
 }

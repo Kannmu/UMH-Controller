@@ -11,7 +11,7 @@
 
 typedef enum { BLACK = 0, WHITE = 1 } Colour;
 
-void SSD1306_Init(void);
+int SSD1306_Init(void);
 void SSD1306_DeInit(void);
 void SSD1306_Fill(Colour c);
 void SSD1306_DrawPixel(int16_t x, int16_t y, Colour c);
