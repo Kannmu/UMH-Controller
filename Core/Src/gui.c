@@ -17,14 +17,15 @@
 #include "utiles.h"
 #include "calib_semi.h"
 #include "calib_adc.h"
+#include "eeprom.h"
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
 
 #define STACK_DEPTH   6
-#define HEADER_H      7
-#define ROW_H         8     /* 5x7 font (7px) + 1px gap */
-#define VISIBLE_ROWS  3     /* (32 - 7) / 8 = 3 full rows + partial 4th */
+#define HEADER_H      8     /* 7px font + 1px breathing room */
+#define ROW_H         9     /* 7px font + 2px gap */
+#define VISIBLE_ROWS  2     /* (32 - 8) / 9 = 2 full rows + partial 3rd */
 
 static const MenuPage *nav_stack[STACK_DEPTH];
 static uint8_t  nav_depth;
@@ -45,7 +46,50 @@ static float    cached_temp;
 static float    cached_vdda;
 static uint32_t last_adc_read;
 
-/* ---- Smart unit formatting ---- */
+/* ---- Smart unit formatting (no %f dependency — nano.specs disables float printf) ---- */
+static void format_fixed(char *buf, size_t buf_size, float val, uint8_t decimals)
+{
+    /* Manual fixed-point: integer part + '.' + fractional part */
+    if (decimals > 6) decimals = 6;
+    float multiplier = 1.0f;
+    for (uint8_t d = 0; d < decimals; d++) multiplier *= 10.0f;
+
+    int32_t scaled_val = (int32_t)(val * multiplier + (val >= 0 ? 0.5f : -0.5f));
+    int32_t int_part   = scaled_val / (int32_t)multiplier;
+    uint32_t frac_part = (uint32_t)(scaled_val >= 0 ? scaled_val : -scaled_val) % (uint32_t)multiplier;
+
+    /* integer portion */
+    char tmp[16];
+    int pos = 0;
+    int32_t n = int_part;
+    if (n == 0) { tmp[pos++] = '0'; }
+    else {
+        if (n < 0) { n = -n; }
+        int32_t m = n;
+        int digits = 0;
+        while (m > 0) { digits++; m /= 10; }
+        pos = digits;
+        for (int i = digits - 1; i >= 0; i--) {
+            tmp[i] = (char)('0' + (n % 10));
+            n /= 10;
+        }
+    }
+
+    if (buf_size < (size_t)(pos + 1 + decimals + 1)) return;  /* overflow safety */
+    size_t written = 0;
+    if (int_part < 0) { buf[written++] = '-'; }
+    for (int i = 0; i < pos; i++) buf[written++] = tmp[i];
+    if (decimals > 0) {
+        buf[written++] = '.';
+        for (int d = decimals - 1; d >= 0; d--) {
+            uint32_t p10 = 1;
+            for (int x = 0; x < d; x++) p10 *= 10;
+            buf[written++] = (char)('0' + ((frac_part / p10) % 10));
+        }
+    }
+    buf[written] = '\0';
+}
+
 void GUI_FormatSmartUnits(char *buf, size_t buf_size, float value, const char *suffix, uint8_t decimals)
 {
     float abs_val = fabsf(value);
@@ -59,7 +103,9 @@ void GUI_FormatSmartUnits(char *buf, size_t buf_size, float value, const char *s
     else if (abs_val >= 0.000000001f) { prefix = "n"; scaled = value * 1000000000.0f; }
     else if (abs_val < 0.000000001f && abs_val > 0.0f) { scaled = 0.0f; }
 
-    snprintf(buf, buf_size, "%.*f %s%s", (int)decimals, (double)scaled, prefix, suffix);
+    char num[20];
+    format_fixed(num, sizeof(num), scaled, decimals);
+    snprintf(buf, buf_size, "%s %s%s", num, prefix, suffix);
 }
 
 /* ---- Data slot descriptor table ---- */
@@ -143,9 +189,20 @@ const MenuPage* GUI_CurrentPage(void)
 extern const MenuPage Page_Root;
 extern const MenuPage Page_Demo;
 extern const MenuPage Page_Calibration;
+extern const MenuPage Page_About;
 extern int calibration_mode;
 
 /* ---- Root page (1-column scrollable data + buttons) ---- */
+static void render_about(const void *ctx)
+{
+    (void)ctx;
+    Font_DrawStr(0, 0, "ABOUT", 0, 1, WHITE);
+    SSD1306_DrawHLine(0, HEADER_H - 1, GUI_WIDTH, WHITE);
+    Font_DrawStr(0, HEADER_H, "UMH V5.5", 0, 1, WHITE);
+    Font_DrawStr(0, HEADER_H + 9, "Designed by", 0, 1, WHITE);
+    Font_DrawStr(0, HEADER_H + 17, "Kannmu @ SEU", 0, 1, WHITE);
+}
+
 static const MenuItem items_root[] = {
     /* Data slots: label, MENU_DATA_FLOAT, slot_idx in .df */
     {"Refresh",  MENU_DATA_FLOAT, .df = {0}},
@@ -157,26 +214,83 @@ static const MenuItem items_root[] = {
     /* Button slots */
     {"DEMO",     MENU_FOLDER, .submenu = &Page_Demo},
     {"CALIB",    MENU_FOLDER, .submenu = &Page_Calibration},
-    {"ABOUT",    MENU_FOLDER, .submenu = NULL},  /* placeholder */
+    {"ABOUT",    MENU_FOLDER, .submenu = &Page_About},
 };
-const MenuPage Page_Root = {"UMH V5", items_root, 9};
+const MenuPage Page_Root = {"UMH V5.5", items_root, 9};
+
+/* ---- ABOUT page ---- */
+static const MenuItem items_about[] = {
+    {"ABOUT", MENU_ACTION, .action = NULL, .custom_render = render_about},
+};
+const MenuPage Page_About = {"ABOUT", items_about, 1};
+
+/* ---- Demo page: custom render showing active demo with ">" indicator ---- */
+static void render_demo(const void *ctx)
+{
+    (void)ctx;
+    Font_DrawStr(1, 0, "DEMO", 0, 1, WHITE);
+    SSD1306_DrawHLine(0, HEADER_H - 1, GUI_WIDTH, WHITE);
+
+    static const char *labels[] = {"DLM_2","DLM_3","ULM_L","LM_L","LM_C"};
+    for (int i = 0; i < 5; i++) {
+        int16_t y = HEADER_H + (int16_t)i * ROW_H;
+        if (y < HEADER_H - ROW_H || y > GUI_HEIGHT) continue;
+        uint8_t is_active = (demo_mode == i);
+        uint8_t is_cursor = (i == (int)nav_cursor);
+        Colour bg = is_cursor ? WHITE : BLACK;
+        Colour fg = is_cursor ? BLACK : WHITE;
+        SSD1306_FillRect(0, y, GUI_WIDTH, ROW_H - 1, bg);
+        char buf[24];
+        int off = snprintf(buf, sizeof(buf), "%s%s", is_active ? ">" : " ", labels[i]);
+        (void)off;
+        Font_DrawStr(1, y, buf, 0, 1, fg);
+    }
+
+    /* BACK row */
+    int16_t y = HEADER_H + 5 * ROW_H;
+    uint8_t is_cursor = (nav_cursor == 5);
+    Colour bg = is_cursor ? WHITE : BLACK;
+    Colour fg = is_cursor ? BLACK : WHITE;
+    SSD1306_FillRect(0, y, GUI_WIDTH, ROW_H - 1, bg);
+    Font_DrawStr(1, y, "<", 0, 1, fg);
+}
 
 static const MenuItem items_demo[] = {
-    {"DLM_2", MENU_ACTION, .action = NULL},
-    {"DLM_3", MENU_ACTION, .action = NULL},
-    {"ULM_L", MENU_ACTION, .action = NULL},
-    {"LM_L",  MENU_ACTION, .action = NULL},
-    {"LM_C",  MENU_ACTION, .action = NULL},
-    {"BACK",  MENU_BACK},
+    {"DEMO", MENU_ACTION, .action = NULL, .custom_render = render_demo},
 };
-const MenuPage Page_Demo = {"DEMO", items_demo, 6};
+const MenuPage Page_Demo = {"DEMO", items_demo, 1};
+
+/* ---- Calibration page: custom render with Load/Save/Bypass/Semi buttons ---- */
+static void render_calib(const void *ctx)
+{
+    (void)ctx;
+    Font_DrawStr(1, 0, "CALIB", 0, 1, WHITE);
+    SSD1306_DrawHLine(0, HEADER_H - 1, GUI_WIDTH, WHITE);
+
+    static const char *labels[] = {"LOAD", "BYPASS", "SEMI"};
+    for (int i = 0; i < 3; i++) {
+        int16_t y = HEADER_H + (int16_t)i * ROW_H;
+        if (y < HEADER_H - ROW_H || y > GUI_HEIGHT) continue;
+        uint8_t is_cursor = (i == (int)nav_cursor);
+        Colour bg = is_cursor ? WHITE : BLACK;
+        Colour fg = is_cursor ? BLACK : WHITE;
+        SSD1306_FillRect(0, y, GUI_WIDTH, ROW_H - 1, bg);
+
+        char buf[32];
+        if (i == 1) {
+            /* BYPASS: show current toggle state */
+            snprintf(buf, sizeof(buf), "%s  [%s]", labels[i], calibration_mode ? "ON" : "OFF");
+        } else {
+            snprintf(buf, sizeof(buf), "%s", labels[i]);
+        }
+        Font_DrawStr(1, y, buf, 0, 1, fg);
+    }
+}
 
 static const MenuItem items_cal[] = {
-    {"BYPASS", MENU_ACTION, .action = GUI_Action_ToggleCalibBypass},
-    {"SEMI",   MENU_ACTION, .action = GUI_Action_StartSemiAutoCalib},
-    {"BACK",   MENU_BACK},
+    {"CAL", MENU_ACTION, .action = NULL, .custom_render = render_calib},
 };
-const MenuPage Page_Calibration = {"CALIB", items_cal, 3};
+const MenuPage Page_Calibration = {"CALIB", items_cal, 1};
 
 /* ---- Semi-auto calibration page custom render ---- */
 static void render_semi_calib(const void *ctx)
@@ -308,8 +422,54 @@ void GUI_Tick(void)
         return;
     }
 
+    /* ---- Demo / Calib / SemiCalib custom-render navigation ---- */
+    uint8_t is_custom_nav = (page == &Page_Demo) || (page == &Page_Calibration) || (page == &Page_SemiCalib);
+    int custom_row_count = 0;
+    if (page == &Page_Demo)            custom_row_count = 6;  /* 5 demos + BACK */
+    else if (page == &Page_Calibration) custom_row_count = 3;  /* LOAD/BYPASS/SEMI */
+
     NavAction nav = Buttons_GetNav();
 
+    if (is_custom_nav && !editing)
+    {
+        int max_c = custom_row_count - 1;
+        if (nav == NAV_UP && nav_cursor > 0)
+            nav_cursor--;
+        if (nav == NAV_DOWN && nav_cursor < (uint8_t)max_c)
+            nav_cursor++;
+
+        if (nav == NAV_CONFIRM)
+        {
+            if (page == &Page_Demo)
+            {
+                if (nav_cursor < 5)
+                    GUI_Action_SetDemo((int)nav_cursor);
+                else
+                    GUI_PopPage();
+            }
+            else if (page == &Page_Calibration)
+            {
+                if (nav_cursor == 0) {
+                    extern float Transducer_Calibration_Array[];
+                    float eeprom_cal[60];
+                    if (EEPROM_LoadCalibration(eeprom_cal)) {
+                        for (int i = 0; i < 60; i++)
+                            Transducer_Calibration_Array[i] = eeprom_cal[i];
+                    }
+                    Load_Calib_to_Transducers();
+                    Update_Full_Waveform_Buffer();
+                } else if (nav_cursor == 1) {
+                    GUI_Action_ToggleCalibBypass();
+                } else {
+                    GUI_Action_StartSemiAutoCalib();
+                }
+            }
+        }
+        if (nav == NAV_RETURN)
+            GUI_PopPage();
+    }
+    else if (!is_custom_nav)
+    {
     int max_item = (int)page->item_count - 1;
     if (page->items[page->item_count - 1].type == MENU_BACK)
         max_item = (int)page->item_count - 2;  /* skip BACK */
@@ -344,8 +504,6 @@ void GUI_Tick(void)
                 break;
             case MENU_ACTION:
                 if (it->action) it->action();
-                else if (nav_cursor <= 5 && page == &Page_Demo)
-                    GUI_Action_SetDemo((int)nav_cursor);
                 break;
             case MENU_VALUE_INT:
             case MENU_VALUE_ENUM:
@@ -356,13 +514,13 @@ void GUI_Tick(void)
                 GUI_PopPage();
                 break;
             case MENU_DATA_FLOAT:
-                /* Data slots are read-only, no action on confirm */
                 break;
             default: break;
             }
         }
         if (nav == NAV_RETURN && page != &Page_Root)
             GUI_PopPage();
+    }
     }
 
     /* Update scroll target */
@@ -402,7 +560,14 @@ void GUI_Tick(void)
     else
     {
         /* Standard menu */
-        Font_DrawStr(1, 0, page->title, 0, 1, WHITE);
+        int max_item = count - 1;
+        if (page->items[page->item_count - 1].type == MENU_BACK)
+            max_item = count - 2;
+
+        int16_t title_w = Font_StrWidth(page->title, 0, 1);
+        int16_t title_x = (GUI_WIDTH - title_w) / 2;
+        if (title_x < 0) title_x = 1;
+        Font_DrawStr(title_x, 0, page->title, 0, 1, WHITE);
         SSD1306_DrawHLine(0, HEADER_H - 1, GUI_WIDTH, WHITE);
 
         for (int i = 0; i < count && i <= max_item; i++)

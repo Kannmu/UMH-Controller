@@ -52,3 +52,4 @@ void GUI_FormatSmartUnits(char *buf, size_t buf_size, float value, const char *s
 
 /* Semi-auto calibration page */
 extern const MenuPage Page_SemiCalib;
+extern const MenuPage Page_About;
