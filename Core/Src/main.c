@@ -30,6 +30,8 @@
 #include "custom_math.h"
 #include "utiles.h"
 #include "communication.h"
+#include "gui.h"
+#include "buttons.h"
 
 /* USER CODE END Includes */
 
@@ -150,8 +152,8 @@ int main(void)
   Transducer_Init();
   DMA_Init();
 
-  /* I2C3 (SSD1306 OLED + AT24C16 EEPROM on PA8 SCL / PC9 SDA) */
   I2C3_Init();
+  GUI_Init();
 /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -159,7 +161,6 @@ int main(void)
 
   while (1)
   {
-    // uint32_t loop_start_time = DWT_GetMicroseconds();
     loop_count++;
     if (HAL_GetTick() - last_check_tick >= 1000)
     {
@@ -168,13 +169,8 @@ int main(void)
       last_check_tick = HAL_GetTick();
     }
 
-    // Calibration Mode Switch
-    Switch_Calibration_Mode();
-
-    // Demo Mode Switch
-    Switch_Demo_Mode();
-
-    sysTickDelta = SysTick->VAL;
+    Buttons_Tick();
+    GUI_Tick();
     Update_LED_Status();
 
     /* USER CODE END WHILE */
