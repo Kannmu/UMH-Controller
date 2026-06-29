@@ -781,7 +781,7 @@ void Error_Handler(void)
   {
     HAL_GPIO_TogglePin(HEARTBEAT_GPIO_Port, HEARTBEAT_Pin);
     // Busy wait loop since SysTick is disabled
-    for(volatile int i=0; i<10000000; i++); 
+    for(volatile int i=0; i<5000000; i++); 
   }
   /* USER CODE END Error_Handler_Debug */
 }
