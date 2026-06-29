@@ -34,7 +34,7 @@ void Update_LED_Status(void)
 {
     static uint32_t last_toggle = 0;
     uint32_t now = HAL_GetTick();
-    if (now - last_toggle >= 500)
+    if (now - last_toggle >= Heartbeat_Interval_ms)
     {
         HAL_GPIO_TogglePin(HEARTBEAT_GPIO_Port, HEARTBEAT_Pin);
         last_toggle = now;

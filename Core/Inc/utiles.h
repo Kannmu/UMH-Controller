@@ -1,6 +1,8 @@
 #pragma once
 #include "main.h"
 
+# define Heartbeat_Interval_ms 500
+
 /* HEARTBEAT: PA15, direct GPIO toggle (no DMA — only Ports B/C/D/E use DMA for transducers). */
 
 extern uint32_t sysTickDelta;

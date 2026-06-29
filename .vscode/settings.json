@@ -1,41 +1,7 @@
 {
-    "files.associations": {
-        "stm32h7xx_hal.h": "c",
-        "stm32h7xx_hal_conf.h": "c",
-        "stm32h7xx_hal_rcc.h": "c",
-        "stm32h7xx_hal_def.h": "c",
-        "math.h": "c",
-        "stm32h7xx.h": "c",
-        "transducer.h": "c",
-        "simulation.h": "c",
-        "debug.h": "c",
-        "dma_manager.h": "c",
-        "main.h": "c",
-        "calibration.h": "c",
-        "communication.h": "c",
-        "stdint.h": "c",
-        "usb_device.h": "c",
-        "stm32h7xx_it.h": "c",
-        "custom_math.h": "c",
-        "utiles.h": "c",
-        "usbd_cdc_if.h": "c",
-        "stimulation.h": "c"
-    },
-    "C_Cpp.default.compilerPath": "D:\\Software\\ARM-GNU-Toolchain\\bin\\arm-none-eabi-gcc.exe",
-    "C_Cpp.default.intelliSenseMode": "gcc-arm",
-    "cSpell.words": [
-        "calib",
-        "FDCAN",
-        "hdma",
-        "SYSTICK"
-    ],
     "stm32-for-vscode.openOCDPath": "D:\\Software\\OpenOCD\\bin\\openocd.exe",
     "stm32-for-vscode.makePath": "D:\\Software\\MinGW\\bin\\make.exe",
     "stm32-for-vscode.armToolchainPath": "D:\\Software\\ARM-GNU-Toolchain\\bin",
-    "stm32-for-vscode.makefilePath": "Makefile/Makefile",
-    "stm32-for-vscode.makeFlags": "-j4",
     "cortex-debug.armToolchainPath": "D:\\Software\\ARM-GNU-Toolchain\\bin",
-    "cortex-debug.openocdPath": "D:\\Software\\OpenOCD\\bin\\openocd.exe",
-    "cortex-debug.variableUseNaturalFormat": true,
-    "python.languageServer": "None"
+    "cortex-debug.openocdPath": "D:\\Software\\OpenOCD\\bin\\openocd.exe"
 }

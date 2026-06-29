@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git checkout *)"
+      "Bash(git checkout *)",
+      "Bash(git add *)",
+      "Bash(git commit -m 'fix: 修复TIM1 DMA采样率回归,恢复4MHz基准 *)"
     ]
   }
 }

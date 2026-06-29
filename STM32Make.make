@@ -75,22 +75,22 @@ endif
 ######################################
 # C sources
 C_SOURCES =  \
+Core/Src/buttons.c \
 Core/Src/calibration.c \
 Core/Src/communication.c \
 Core/Src/custom_math.c \
 Core/Src/dma_manager.c \
+Core/Src/eeprom.c \
+Core/Src/font.c \
+Core/Src/gui.c \
 Core/Src/main.c \
+Core/Src/ssd1306.c \
 Core/Src/stimulation.c \
 Core/Src/stm32h7xx_hal_msp.c \
 Core/Src/stm32h7xx_it.c \
 Core/Src/system_stm32h7xx.c \
 Core/Src/transducer.c \
 Core/Src/utiles.c \
-Core/Src/ssd1306.c \
-Core/Src/font.c \
-Core/Src/buttons.c \
-Core/Src/gui.c \
-Core/Src/eeprom.c \
 Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal.c \
 Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_adc.c \
 Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_adc_ex.c \
