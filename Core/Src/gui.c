@@ -15,6 +15,8 @@
 #include "stimulation.h"
 #include "calibration.h"
 #include "utiles.h"
+#include "calib_semi.h"
+#include "calib_adc.h"
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
@@ -97,7 +99,10 @@ void GUI_Action_SetDemo(int idx)
 
 void GUI_Action_StartSemiAutoCalib(void)
 {
-    /* Stub — Phase 9 fills in the guided calibration state machine */
+    SemiCalib_Init();
+    calib_state = CALIB_PROMPT;
+    calib_current_element = 0;
+    GUI_PushPage(&Page_SemiCalib);
 }
 
 /* ---- Navigation stack ---- */
@@ -173,9 +178,61 @@ static const MenuItem items_cal[] = {
 };
 const MenuPage Page_Calibration = {"CALIB", items_cal, 3};
 
-/* Placeholder semi-auto calibration page (Commit 3 fills in render + state machine) */
+/* ---- Semi-auto calibration page custom render ---- */
+static void render_semi_calib(const void *ctx)
+{
+    (void)ctx;
+    char buf[22];
+
+    switch (calib_state) {
+    case CALIB_PROMPT:
+        Font_DrawStr(0, 0, "SEMI-AUTO CAL", 0, 1, WHITE);
+        snprintf(buf, sizeof(buf), "Elem %d/60", calib_current_element + 1);
+        Font_DrawStr(0, 8, buf, 0, 1, WHITE);
+        Font_DrawStr(0, 16, "Place probe", 0, 1, WHITE);
+        Font_DrawStr(0, 24, "[OK]start [<]skip", 0, 1, WHITE);
+        break;
+
+    case CALIB_MEASURING: {
+        Font_DrawStr(0, 0, "Measuring...", 0, 1, WHITE);
+        char spin[] = {'|','/','-','\\'};
+        char sp[2] = {spin[(HAL_GetTick()/200)%4], 0};
+        Font_DrawStr(60, 12, sp, 0, 1, WHITE);
+        break;
+    }
+
+    case CALIB_SHOW_RESULT:
+        Font_DrawStr(0, 0, "RESULT", 0, 1, WHITE);
+        snprintf(buf, sizeof(buf), "N%d: %.2fus", calib_current_element + 1,
+                 (double)calib_results[calib_current_element].calib_us);
+        Font_DrawStr(0, 8, buf, 0, 1, WHITE);
+        {
+            const char *qual = calib_results[calib_current_element].quality >= 2 ? "OK" :
+                               calib_results[calib_current_element].quality >= 1 ? "LOW" : "BAD";
+            snprintf(buf, sizeof(buf), "Amp:%s", qual);
+        }
+        Font_DrawStr(0, 16, buf, 0, 1, WHITE);
+        Font_DrawStr(0, 24, "[OK]next [<]retry", 0, 1, WHITE);
+        break;
+
+    case CALIB_DONE:
+        Font_DrawStr(0, 0, "CAL COMPLETE", 0, 1, WHITE);
+        Font_DrawStr(0, 10, "Saved to", 0, 1, WHITE);
+        Font_DrawStr(0, 20, "EEPROM", 0, 1, WHITE);
+        break;
+
+    case CALIB_ERROR:
+        Font_DrawStr(0, 0, "ERROR", 0, 1, WHITE);
+        Font_DrawStr(0, 12, "ADC timeout", 0, 1, WHITE);
+        break;
+
+    default:
+        break;
+    }
+}
+
 static const MenuItem items_semi_calib[] = {
-    {"CAL", MENU_ACTION, .action = NULL},
+    {"CAL", MENU_ACTION, .action = NULL, .custom_render = render_semi_calib},
 };
 const MenuPage Page_SemiCalib = {"SEMI CAL", items_semi_calib, 1};
 
@@ -221,6 +278,34 @@ void GUI_Tick(void)
         cached_temp = Get_Temperature();
         cached_vdda = Get_Voltage_VDDA();
         last_adc_read = now;
+    }
+
+    /* ---- Semi-auto calibration: tick state machine ---- */
+    SemiCalib_Tick();
+
+    /* ---- Semi-auto calibration button intercept ---- */
+    if (page == &Page_SemiCalib && calib_state != CALIB_IDLE && calib_state != CALIB_DONE && calib_state != CALIB_ERROR)
+    {
+        NavAction nav = Buttons_GetNav();
+        if (nav == NAV_CONFIRM)      calib_button_pressed = 1;
+        else if (nav == NAV_RETURN)  calib_button_pressed = 2;
+
+        SSD1306_Fill(BLACK);
+        if (page->items[0].custom_render)
+            page->items[0].custom_render((void*)page);
+        if (slide_dir != 0) {
+            uint32_t dt = now - slide_start;
+            if (dt >= SLIDE_DURATION) { slide_x = 0; slide_dir = 0; }
+            else {
+                float t = (float)dt / (float)SLIDE_DURATION;
+                t = t * t * (3.0f - 2.0f * t);
+                if (slide_dir < 0) slide_x = GUI_WIDTH - (int16_t)((float)GUI_WIDTH * t);
+                else               slide_x = -(GUI_WIDTH) + (int16_t)((float)GUI_WIDTH * t);
+            }
+        }
+        SSD1306_Flush();
+        gui_last_render = now;
+        return;
     }
 
     NavAction nav = Buttons_GetNav();
