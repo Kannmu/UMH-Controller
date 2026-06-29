@@ -33,6 +33,7 @@
 #include "gui.h"
 #include "buttons.h"
 #include "eeprom.h"
+#include "calib_adc.h"
 
 /* USER CODE END Includes */
 
@@ -79,6 +80,7 @@ static void MX_ADC1_Init(void);
 static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
 void I2C3_Init(void);
+void MX_TIM6_Init(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -146,6 +148,7 @@ int main(void)
   MX_ADC1_Init();
   MX_USB_DEVICE_Init();
   MX_TIM2_Init();
+  MX_TIM6_Init();
   /* USER CODE BEGIN 2 */
 
   Comm_Init();

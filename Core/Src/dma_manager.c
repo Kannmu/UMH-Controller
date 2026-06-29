@@ -348,3 +348,30 @@ void Configure_Trigger1(uint8_t enable)
     trigger1_enable = enable;
     Update_Full_Waveform_Buffer();
 }
+
+/* ---- Single-transducer mode for semi-auto calibration ---- */
+void Calib_SetSingleTransducer(uint8_t idx)
+{
+    if (idx >= NUM_REAL_TRANSDUCER) return;
+
+    /* Bypass Get_Stimulation_Enabled gate: enable stimulation temporarily */
+    if (!Get_Stimulation_Enabled())
+        Stimulation_Enable();
+
+    /* Zero all calibration, phase, and duty; only target emits at 50% duty */
+    Enter_Calibration_Mode();
+    for (int i = 0; i < NUM_REAL_TRANSDUCER; i++)
+        TransducerArray[i].duty = 0.0f;
+    TransducerArray[idx].duty = 0.5f;
+
+    /* PC13 VIRTUAL reference continues unchanged (not in real-transducer range) */
+    Update_Full_Waveform_Buffer();
+}
+
+void Calib_SetNormalDrive(void)
+{
+    Load_Calib_to_Transducers();
+    for (int i = 0; i < NUM_REAL_TRANSDUCER; i++)
+        TransducerArray[i].duty = 0.5f;
+    Update_Full_Waveform_Buffer();
+}

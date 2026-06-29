@@ -76,6 +76,7 @@ endif
 # C sources
 C_SOURCES =  \
 Core/Src/buttons.c \
+Core/Src/calib_adc.c \
 Core/Src/calibration.c \
 Core/Src/communication.c \
 Core/Src/custom_math.c \

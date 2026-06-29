@@ -30,3 +30,6 @@ uint16_t DMA_Convert_Strength_To_On_Ticks(float strength);
 
 void Configure_Trigger0(uint8_t enable, uint32_t pulse_us);
 void Configure_Trigger1(uint8_t enable);
+
+void Calib_SetSingleTransducer(uint8_t idx);
+void Calib_SetNormalDrive(void);
