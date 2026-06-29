@@ -4,8 +4,6 @@
 #include "calibration.h"
 #include "stimulation.h"
 
-const float GPIO_Group_Output_Offset[DMA_CHANNELS] = {0U, 0.06, 0.09, 0.16, 0.12};
-
 const uint16_t half_period = WAVEFORM_BUFFER_SIZE / 2;
 
 const uint16_t BufferGapPerMicroseconds = ((float)(1e-6) / TIME_GAP_PER_DMA_BUFFER_BIT);
@@ -45,7 +43,6 @@ uint16_t Waveform_Storage[DMA_CHANNELS][NUM_STIMULATION_SAMPLES][WAVEFORM_BUFFER
 
 extern TIM_HandleTypeDef htim1;
 
-static uint16_t Group_Offset_Ticks[DMA_CHANNELS];
 
 static Transducer *TransducersByPort[DMA_CHANNELS][NUM_TOTAL_CHANNELS];
 static int TransducersByPortCount[DMA_CHANNELS];
@@ -63,10 +60,6 @@ void DMA_Init()
     DMA_Stream_Handles[3] = &hdma_memtomem_dma2_stream0;
     DMA_Stream_Handles[4] = &hdma_memtomem_dma2_stream1;
 
-    for (int i = 0; i < DMA_CHANNELS; i++)
-    {
-        Group_Offset_Ticks[i] = (uint16_t)(GPIO_Group_Output_Offset[i] * BufferGapPerMicroseconds);
-    }
 
     // Build Port-Transducer Map
     memset(TransducersByPortCount, 0, sizeof(TransducersByPortCount));
@@ -165,10 +158,8 @@ void Update_Full_Waveform_Buffer()
             Update_Stimulation_State(progress);
         }
 
-        // Pre-calculate LED Mask (Port 0)
-        // Note: With single buffer circular mode, this mask is fixed at generation time.
-        // Dynamic blinking based on 'led0_ticks' during playback is not supported
-        // without re-generating the buffer or using a separate mechanism.
+        // Pre-calculate Heartbeat Mask (Port 0)
+        // Dynamic 1Hz blinking via DMA_Update_LED_State rewriting the Port A buffer.
         uint16_t led_mask = Get_Current_LED_Mask();
 
         // Channel-Slice Loop
@@ -236,7 +227,6 @@ void Update_Full_Waveform_Buffer()
                     /* --- 真实阵元 (0..59): 标准相位路径 --- */
                     // Phase Calculation
                     uint16_t phase_offset = t->calib + t->shift_buffer_bits;
-                    phase_offset += Group_Offset_Ticks[p];
                     phase_offset %= WAVEFORM_BUFFER_SIZE;
 
                     uint32_t start_idx = (WAVEFORM_BUFFER_SIZE - phase_offset) % WAVEFORM_BUFFER_SIZE;
@@ -395,17 +385,9 @@ void Configure_Trigger1(uint8_t enable)
 
 void DMA_Update_LED_State(uint16_t led_mask)
 {
-    // LED Pins on Port A (Channel 0)
-    // LED0: PA10, LED1: PA9, LED2: PA8
-    const uint16_t LED_MASK_BITS = LED0_Pin | LED1_Pin | LED2_Pin;
+    // Heartbeat: PA15 on Port A (Channel 0) — the only GPIO output on Port A.
+    const uint16_t LED_MASK_BITS = HEARTBEAT_Pin;
 
-    // We only touch Channel 0 (Port A)
-    // Waveform_Storage is [DMA_CHANNELS][NUM_STIMULATION_SAMPLES][WAVEFORM_BUFFER_SIZE]
-    // Accessing Channel 0
-
-    // Optimize: Pre-calculate the masked value
-    // Note: If the bit in led_mask is 1, it means LED OFF (Active Low)
-    // If the bit in led_mask is 0, it means LED ON
     uint16_t led_bits = led_mask & LED_MASK_BITS;
 
     // Iterate over all samples for Channel 0

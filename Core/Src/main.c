@@ -849,9 +849,7 @@ void Error_Handler(void)
 
   while (1)
   {
-    HAL_GPIO_TogglePin(LED0_GPIO_Port, LED0_Pin);
-    HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin);
-    HAL_GPIO_TogglePin(LED2_GPIO_Port, LED2_Pin);
+    HAL_GPIO_TogglePin(HEARTBEAT_GPIO_Port, HEARTBEAT_Pin);
     // Busy wait loop since SysTick is disabled
     for(volatile int i=0; i<10000000; i++); 
   }
