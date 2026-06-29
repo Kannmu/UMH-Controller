@@ -56,6 +56,12 @@ void DMA_Init()
     DMA_Stream_Handles[3] = &hdma_memtomem_dma2_stream1;   /* GPIOE */
 
     /* Configure Init fields for each DMA stream */
+    static const DMA_Stream_TypeDef *const dma_instances[4] = {
+        DMA1_Stream1,  /* GPIOB */
+        DMA1_Stream2,  /* GPIOC */
+        DMA2_Stream0,  /* GPIOD */
+        DMA2_Stream1   /* GPIOE */
+    };
     static const uint32_t dma_requests[4] = {
         DMA_REQUEST_TIM1_CH1,  /* GPIOB */
         DMA_REQUEST_TIM1_CH2,  /* GPIOC */
@@ -64,17 +70,18 @@ void DMA_Init()
     };
     for (int i = 0; i < DMA_CHANNELS; i++)
     {
-        DMA_Stream_Handles[i]->Init.Request              = dma_requests[i];
-        DMA_Stream_Handles[i]->Init.Direction            = DMA_MEMORY_TO_PERIPH;
-        DMA_Stream_Handles[i]->Init.PeriphInc            = DMA_PINC_DISABLE;
-        DMA_Stream_Handles[i]->Init.MemInc               = DMA_MINC_ENABLE;
-        DMA_Stream_Handles[i]->Init.PeriphDataAlignment  = DMA_PDATAALIGN_HALFWORD;
-        DMA_Stream_Handles[i]->Init.MemDataAlignment     = DMA_MDATAALIGN_HALFWORD;
-        DMA_Stream_Handles[i]->Init.Mode                 = DMA_CIRCULAR;
-        DMA_Stream_Handles[i]->Init.Priority             = DMA_PRIORITY_VERY_HIGH;
-        DMA_Stream_Handles[i]->Init.FIFOMode             = DMA_FIFOMODE_DISABLE;
-        DMA_Stream_Handles[i]->Init.MemBurst             = DMA_MBURST_SINGLE;
-        DMA_Stream_Handles[i]->Init.PeriphBurst          = DMA_PBURST_SINGLE;
+        DMA_Stream_Handles[i]->Instance               = dma_instances[i];
+        DMA_Stream_Handles[i]->Init.Request           = dma_requests[i];
+        DMA_Stream_Handles[i]->Init.Direction         = DMA_MEMORY_TO_PERIPH;
+        DMA_Stream_Handles[i]->Init.PeriphInc         = DMA_PINC_DISABLE;
+        DMA_Stream_Handles[i]->Init.MemInc            = DMA_MINC_ENABLE;
+        DMA_Stream_Handles[i]->Init.PeriphDataAlignment = DMA_PDATAALIGN_HALFWORD;
+        DMA_Stream_Handles[i]->Init.MemDataAlignment  = DMA_MDATAALIGN_HALFWORD;
+        DMA_Stream_Handles[i]->Init.Mode              = DMA_CIRCULAR;
+        DMA_Stream_Handles[i]->Init.Priority          = DMA_PRIORITY_VERY_HIGH;
+        DMA_Stream_Handles[i]->Init.FIFOMode          = DMA_FIFOMODE_DISABLE;
+        DMA_Stream_Handles[i]->Init.MemBurst          = DMA_MBURST_SINGLE;
+        DMA_Stream_Handles[i]->Init.PeriphBurst       = DMA_PBURST_SINGLE;
     }
 
     memset(TransducersByPortCount, 0, sizeof(TransducersByPortCount));
