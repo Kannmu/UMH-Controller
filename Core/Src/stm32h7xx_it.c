@@ -94,7 +94,6 @@ void HardFault_Handler(void)
   while (1)
   {
     /* USER CODE BEGIN W1_HardFault_IRQn 0 */
-    HAL_DMA_Abort(&hdma_memtomem_dma1_stream0);
     HAL_GPIO_TogglePin(HEARTBEAT_GPIO_Port, HEARTBEAT_Pin);
     for(volatile int i=0; i<10000000; i++); 
     /* USER CODE END W1_HardFault_IRQn 0 */

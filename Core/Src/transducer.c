@@ -195,7 +195,7 @@ GPIO_TypeDef *map_pin_name_to_gpio_port(const char *pin_name)
 }
 
 static const uint16_t port_num_map[] = {
-    ['A']=0, ['B']=1, ['C']=2, ['D']=3, ['E']=4
+    ['A']=0xFF, ['B']=0, ['C']=1, ['D']=2, ['E']=3
 };
 
 uint8_t map_pin_name_to_gpio_port_num(const char *pin) {

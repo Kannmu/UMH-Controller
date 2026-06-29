@@ -2,12 +2,9 @@
 # include "main.h"
 # include "transducer.h"
 
-# define DMA_CHANNELS 5
-# define _USE_MATH_DEFINES
+# define DMA_CHANNELS 4   /* B / C / D / E — no transducers on GPIOA */
 
-// DMA Sampling Frequency
 # define DMA_SAMPLING_FREQ 4000000UL
-
 # define WAVEFORM_BUFFER_SIZE ((uint32_t)(DMA_SAMPLING_FREQ/TRANSDUCER_BASE_FREQ))
 # define MAIN_WAVE_LENGTH_IN_BUFFER (WAVEFORM_BUFFER_SIZE)
 
@@ -17,9 +14,6 @@
 #define DMA_STRENGTH_MAX 100.0f
 #define DMA_DUTY_CYCLE_MIN 0.0f
 #define DMA_DUTY_CYCLE_MAX 0.5f
-
-// dma_manager.h
-extern const float GPIO_Group_Output_Offset[DMA_CHANNELS];
 
 extern DMA_HandleTypeDef* DMA_Stream_Handles[DMA_CHANNELS];
 
@@ -31,10 +25,8 @@ void DMA_Init();
 void Start_DMAs();
 void Update_Full_Waveform_Buffer(void);
 void Clean_DMABuffer();
-void DMA_Update_LED_State(uint16_t led_mask);
 float DMA_Clamp_Stimulation_Strength(float strength);
 uint16_t DMA_Convert_Strength_To_On_Ticks(float strength);
 
-/* TRIGGER0 (PC14) / TRIGGER1 (PC15) 专用配置函数 */
 void Configure_Trigger0(uint8_t enable, uint32_t pulse_us);
 void Configure_Trigger1(uint8_t enable);

@@ -28,32 +28,17 @@ uint32_t DWT_GetMicroseconds(void)
     return DWT_GetCycles() / (SystemCoreClock / 1000000);
 }
 
-/* HEARTBEAT (PA15): 1Hz 周期, 由 Port A DMA 缓冲的 led_mask 机制控制。
- * PA15 是 Port A 唯一的 GPIO 输出; 其他 Port A 引脚均为模拟/AF/输入,
- * 不受 DMA→ODR 写入影响。 */
-static uint16_t last_led_mask = 0xFFFF;
-
+/* HEARTBEAT (PA15): 1Hz direct GPIO toggle. Port A has no transducers,
+ * so DMA does not write GPIOA->ODR. Direct toggle is safe. */
 void Update_LED_Status(void)
 {
+    static uint32_t last_toggle = 0;
     uint32_t now = HAL_GetTick();
-
-    /* 1Hz 心跳: 500ms ON, 500ms OFF
-     * 注意极性: 与旧 LED0 一致, 假定低电平有效 (HAL_GPIO_WritePin 初始 RESET) */
-    int heartbeat_on = (now % 1000) < 500;
-
-    uint16_t mask = 0;
-    if (!heartbeat_on) mask |= HEARTBEAT_Pin;
-
-    if (mask != last_led_mask)
+    if (now - last_toggle >= 500)
     {
-        DMA_Update_LED_State(mask);
-        last_led_mask = mask;
+        HAL_GPIO_TogglePin(HEARTBEAT_GPIO_Port, HEARTBEAT_Pin);
+        last_toggle = now;
     }
-}
-
-uint16_t Get_Current_LED_Mask(void)
-{
-    return last_led_mask;
 }
 
 char* Get_Device_Serial_Number(void)
@@ -99,14 +84,12 @@ float Get_Voltage_VDDA(void)
 
 float Get_Voltage_3V3(void)
 {
-    /* PA0 (ADC1_INP16) — 正常模式闲置, 预留未来用途 */
-    return 0.0f;
+    return 0.0f;   /* PA0 (ADC1_INP16) — idle in normal mode, reserved */
 }
 
 float Get_Voltage_5V0(void)
 {
-    /* PA1 (ADC1_INP17) — 正常模式闲置, 预留未来用途 */
-    return 0.0f;
+    return 0.0f;   /* PA1 (ADC1_INP17) — idle in normal mode, reserved */
 }
 
 float Get_Temperature(void)

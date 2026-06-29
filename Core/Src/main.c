@@ -91,101 +91,9 @@ static void MX_TIM2_Init(void);
   */
 static void MX_DMA_Init(void)
 {
-
-  /* DMA controller clock enable */
-  __HAL_RCC_DMA1_CLK_ENABLE();
-  __HAL_RCC_DMA2_CLK_ENABLE();
-
-  /* Configure DMA request hdma_memtomem_dma1_stream0 on DMA1_Stream0 */
-  hdma_memtomem_dma1_stream0.Instance = DMA1_Stream0;
-  hdma_memtomem_dma1_stream0.Init.Request = DMA_REQUEST_TIM1_UP;
-  hdma_memtomem_dma1_stream0.Init.Direction = DMA_MEMORY_TO_PERIPH;
-  hdma_memtomem_dma1_stream0.Init.PeriphInc = DMA_PINC_DISABLE;
-  hdma_memtomem_dma1_stream0.Init.MemInc = DMA_MINC_ENABLE;
-  hdma_memtomem_dma1_stream0.Init.PeriphDataAlignment = DMA_PDATAALIGN_HALFWORD;
-  hdma_memtomem_dma1_stream0.Init.MemDataAlignment = DMA_MDATAALIGN_HALFWORD;
-  hdma_memtomem_dma1_stream0.Init.Mode = DMA_CIRCULAR;
-  hdma_memtomem_dma1_stream0.Init.Priority = DMA_PRIORITY_VERY_HIGH;
-  hdma_memtomem_dma1_stream0.Init.FIFOMode = DMA_FIFOMODE_DISABLE;
-  hdma_memtomem_dma1_stream0.Init.MemBurst = DMA_MBURST_SINGLE;
-  hdma_memtomem_dma1_stream0.Init.PeriphBurst = DMA_PBURST_SINGLE;
-  if (HAL_DMA_Init(&hdma_memtomem_dma1_stream0) != HAL_OK)
-  {
-    Error_Handler( );
-  }
-
-  /* Configure DMA request hdma_memtomem_dma1_stream1 on DMA1_Stream1 */
-  hdma_memtomem_dma1_stream1.Instance = DMA1_Stream1;
-  hdma_memtomem_dma1_stream1.Init.Request = DMA_REQUEST_TIM1_CH1;
-  hdma_memtomem_dma1_stream1.Init.Direction = DMA_MEMORY_TO_PERIPH;
-  hdma_memtomem_dma1_stream1.Init.PeriphInc = DMA_PINC_DISABLE;
-  hdma_memtomem_dma1_stream1.Init.MemInc = DMA_MINC_ENABLE;
-  hdma_memtomem_dma1_stream1.Init.PeriphDataAlignment = DMA_PDATAALIGN_HALFWORD;
-  hdma_memtomem_dma1_stream1.Init.MemDataAlignment = DMA_MDATAALIGN_HALFWORD;
-  hdma_memtomem_dma1_stream1.Init.Mode = DMA_CIRCULAR;
-  hdma_memtomem_dma1_stream1.Init.Priority = DMA_PRIORITY_VERY_HIGH;
-  hdma_memtomem_dma1_stream1.Init.FIFOMode = DMA_FIFOMODE_DISABLE;
-  hdma_memtomem_dma1_stream1.Init.MemBurst = DMA_MBURST_SINGLE;
-  hdma_memtomem_dma1_stream1.Init.PeriphBurst = DMA_PBURST_SINGLE;
-  if (HAL_DMA_Init(&hdma_memtomem_dma1_stream1) != HAL_OK)
-  {
-    Error_Handler( );
-  }
-
-  /* Configure DMA request hdma_memtomem_dma1_stream2 on DMA1_Stream2 */
-  hdma_memtomem_dma1_stream2.Instance = DMA1_Stream2;
-  hdma_memtomem_dma1_stream2.Init.Request = DMA_REQUEST_TIM1_CH2;
-  hdma_memtomem_dma1_stream2.Init.Direction = DMA_MEMORY_TO_PERIPH;
-  hdma_memtomem_dma1_stream2.Init.PeriphInc = DMA_PINC_DISABLE;
-  hdma_memtomem_dma1_stream2.Init.MemInc = DMA_MINC_ENABLE;
-  hdma_memtomem_dma1_stream2.Init.PeriphDataAlignment = DMA_PDATAALIGN_HALFWORD;
-  hdma_memtomem_dma1_stream2.Init.MemDataAlignment = DMA_MDATAALIGN_HALFWORD;
-  hdma_memtomem_dma1_stream2.Init.Mode = DMA_CIRCULAR;
-  hdma_memtomem_dma1_stream2.Init.Priority = DMA_PRIORITY_VERY_HIGH;
-  hdma_memtomem_dma1_stream2.Init.FIFOMode = DMA_FIFOMODE_DISABLE;
-  hdma_memtomem_dma1_stream2.Init.MemBurst = DMA_MBURST_SINGLE;
-  hdma_memtomem_dma1_stream2.Init.PeriphBurst = DMA_PBURST_SINGLE;
-  if (HAL_DMA_Init(&hdma_memtomem_dma1_stream2) != HAL_OK)
-  {
-    Error_Handler( );
-  }
-
-  /* Configure DMA request hdma_memtomem_dma2_stream0 on DMA2_Stream0 */
-  hdma_memtomem_dma2_stream0.Instance = DMA2_Stream0;
-  hdma_memtomem_dma2_stream0.Init.Request = DMA_REQUEST_TIM1_CH3;
-  hdma_memtomem_dma2_stream0.Init.Direction = DMA_MEMORY_TO_PERIPH;
-  hdma_memtomem_dma2_stream0.Init.PeriphInc = DMA_PINC_DISABLE;
-  hdma_memtomem_dma2_stream0.Init.MemInc = DMA_MINC_ENABLE;
-  hdma_memtomem_dma2_stream0.Init.PeriphDataAlignment = DMA_PDATAALIGN_HALFWORD;
-  hdma_memtomem_dma2_stream0.Init.MemDataAlignment = DMA_MDATAALIGN_HALFWORD;
-  hdma_memtomem_dma2_stream0.Init.Mode = DMA_CIRCULAR;
-  hdma_memtomem_dma2_stream0.Init.Priority = DMA_PRIORITY_VERY_HIGH;
-  hdma_memtomem_dma2_stream0.Init.FIFOMode = DMA_FIFOMODE_DISABLE;
-  hdma_memtomem_dma2_stream0.Init.MemBurst = DMA_MBURST_SINGLE;
-  hdma_memtomem_dma2_stream0.Init.PeriphBurst = DMA_PBURST_SINGLE;
-  if (HAL_DMA_Init(&hdma_memtomem_dma2_stream0) != HAL_OK)
-  {
-    Error_Handler( );
-  }
-
-  /* Configure DMA request hdma_memtomem_dma2_stream1 on DMA2_Stream1 */
-  hdma_memtomem_dma2_stream1.Instance = DMA2_Stream1;
-  hdma_memtomem_dma2_stream1.Init.Request = DMA_REQUEST_TIM1_CH4;
-  hdma_memtomem_dma2_stream1.Init.Direction = DMA_MEMORY_TO_PERIPH;
-  hdma_memtomem_dma2_stream1.Init.PeriphInc = DMA_PINC_DISABLE;
-  hdma_memtomem_dma2_stream1.Init.MemInc = DMA_MINC_ENABLE;
-  hdma_memtomem_dma2_stream1.Init.PeriphDataAlignment = DMA_PDATAALIGN_HALFWORD;
-  hdma_memtomem_dma2_stream1.Init.MemDataAlignment = DMA_MDATAALIGN_HALFWORD;
-  hdma_memtomem_dma2_stream1.Init.Mode = DMA_CIRCULAR;
-  hdma_memtomem_dma2_stream1.Init.Priority = DMA_PRIORITY_VERY_HIGH;
-  hdma_memtomem_dma2_stream1.Init.FIFOMode = DMA_FIFOMODE_DISABLE;
-  hdma_memtomem_dma2_stream1.Init.MemBurst = DMA_MBURST_SINGLE;
-  hdma_memtomem_dma2_stream1.Init.PeriphBurst = DMA_PBURST_SINGLE;
-  if (HAL_DMA_Init(&hdma_memtomem_dma2_stream1) != HAL_OK)
-  {
-    Error_Handler( );
-  }
-
+  /* DMA clocks enabled in DMA_Init (dma_manager.c).
+   * DMA stream Init fields configured there too. */
+  (void)0;
 }
 
 /* USER CODE END 0 */
@@ -843,10 +751,6 @@ void Error_Handler(void)
   /* USER CODE BEGIN Error_Handler_Debug */
   /* User can add his own implementation to report the HAL error return state */
   __disable_irq();
-
-  // Stop DMA to allow manual GPIO control
-  HAL_DMA_Abort(&hdma_memtomem_dma1_stream0);
-
   while (1)
   {
     HAL_GPIO_TogglePin(HEARTBEAT_GPIO_Port, HEARTBEAT_Pin);
