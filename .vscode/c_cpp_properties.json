@@ -4,6 +4,7 @@
       "name": "STM32",
       "includePath": [
         "Core/Inc",
+        "Core/Src/stim_types",
         "Drivers/CMSIS/Device/ST/STM32H7xx/Include",
         "Drivers/CMSIS/Include",
         "Drivers/STM32H7xx_HAL_Driver/Inc",

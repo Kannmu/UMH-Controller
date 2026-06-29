@@ -93,16 +93,6 @@ float Get_Voltage_VDDA(void)
     return (float)vdda_mv / 1000.0f;
 }
 
-float Get_Voltage_3V3(void)
-{
-    return 0.0f;   /* PA0 (ADC1_INP16) — idle in normal mode, reserved */
-}
-
-float Get_Voltage_5V0(void)
-{
-    return 0.0f;   /* PA1 (ADC1_INP17) — idle in normal mode, reserved */
-}
-
 float Get_Temperature(void)
 {
     uint32_t temp_raw = 0, vref_raw = 0;

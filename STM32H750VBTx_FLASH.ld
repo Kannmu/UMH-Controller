@@ -106,6 +106,22 @@ SECTIONS
     . = ALIGN(4);
   } >FLASH
 
+  .stim_type_registry :
+  {
+    . = ALIGN(4);
+    _stim_type_registry_start = .;
+    KEEP(*(.stim_type_registry))
+    _stim_type_registry_end = .;
+  } >FLASH
+
+  .demo_registry :
+  {
+    . = ALIGN(4);
+    _demo_registry_start = .;
+    KEEP(*(.demo_registry))
+    _demo_registry_end = .;
+  } >FLASH
+
   .ARM.extab   : { *(.ARM.extab* .gnu.linkonce.armextab.*) } >FLASH
   .ARM : {
     __exidx_start = .;

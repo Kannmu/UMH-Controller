@@ -154,6 +154,7 @@ int main(void)
   Comm_Init();
   Init_DWT();
   Transducer_Init();
+  Stim_Init();
 
   /* Load calibration from EEPROM (AT24C16 on I2C3); fall back to hardcoded defaults */
   {

@@ -148,8 +148,10 @@ void GUI_Action_ToggleCalibBypass(void) {
 }
 void GUI_Action_SetDemo(int idx) {
     if (idx < 0 || idx >= Get_Num_Demo_Stimulations()) return;
+    const StimDemoDescriptor *d = Stim_Get_Demo_By_Index((uint8_t)idx);
+    if (!d) return;
     demo_mode = idx;
-    Set_Stimulation(DemoStimulations[idx]);
+    Set_Stimulation_From_Demo(d);
     phase_set_mode = 0;
 }
 void GUI_Action_StartSemiAutoCalib(void) {
@@ -266,7 +268,6 @@ static bool about_on_input(NavAction nav) {
 }
 
 /* --- Refresh Rate page (5 rows per StimulationType + back) --- */
-static const char *stim_type_names[] = {"Point", "Discrete", "Linear", "Circular", "TwinTrap"};
 
 static void render_refresh(const void *ctx) {
     (void)ctx;
@@ -285,7 +286,8 @@ static void render_refresh(const void *ctx) {
         char buf[36];
         double dma_ms = updateDMABufferDeltaTimeByType[i];
         float rate = (dma_ms > 0.0) ? (float)(1000.0 / dma_ms) : 0.0f;
-        snprintf(buf, sizeof(buf), "%s", stim_type_names[i]);
+        const StimTypeDescriptor *td = Stim_Get_Type_By_Id((uint8_t)i);
+        snprintf(buf, sizeof(buf), "%s", td ? td->name : "?");
         Font_DrawStr(CONTENT_X + 1, y, buf, 0, 1, fg);
 
         char val[20];
@@ -305,30 +307,31 @@ static bool refresh_on_input(NavAction nav) {
     return false;
 }
 
-/* --- Demo page (5 choices + back, scrollable) --- */
+/* --- Demo page (N choices + back, scrollable, dynamic from registry) --- */
 static void render_demo(const void *ctx) {
     (void)ctx;
     draw_sidebar("D");
     Font_DrawStr(CONTENT_X, 0, "SELECT DEMO", 0, 1, WHITE);
     SSD1306_DrawHLine(CONTENT_X, HEADER_H - 2, CONTENT_W, WHITE);
 
-    static const char *labels[] = {"DLM_2","DLM_3","ULM_L","LM_L","LM_C"};
-    for (int i = 0; i < 5; i++) {
+    uint8_t num = Stim_Num_Demos();
+    for (uint8_t i = 0; i < num; i++) {
         int16_t y = HEADER_H + (int16_t)i * ROW_H - (int16_t)scroll_y_smooth;
         if (y < HEADER_H - ROW_H || y > GUI_HEIGHT) continue;
-        uint8_t active = (demo_mode == i);
-        uint8_t cur = (i == (int)nav_cursor);
+        const StimDemoDescriptor *d = Stim_Get_Demo_By_Index(i);
+        uint8_t active = (demo_mode == (int)i);
+        uint8_t cur = (i == nav_cursor);
         Colour bg = cur ? WHITE : BLACK;
         Colour fg = cur ? BLACK : WHITE;
         SSD1306_FillRect(CONTENT_X, y, CONTENT_W, ROW_H - 1, bg);
         char buf[22];
-        snprintf(buf, sizeof(buf), "%s%s", active ? ">" : " ", labels[i]);
+        snprintf(buf, sizeof(buf), "%s%s", active ? ">" : " ", d ? d->name : "?");
         Font_DrawStr(CONTENT_X + 1, y, buf, 0, 1, fg);
     }
     /* BACK row */
-    int16_t yy = HEADER_H + 5 * ROW_H - (int16_t)scroll_y_smooth;
+    int16_t yy = HEADER_H + num * ROW_H - (int16_t)scroll_y_smooth;
     {
-        uint8_t cur = (nav_cursor == 5);
+        uint8_t cur = (nav_cursor == num);
         Colour bg = cur ? WHITE : BLACK;
         Colour fg = cur ? BLACK : WHITE;
         SSD1306_FillRect(CONTENT_X, yy, CONTENT_W, ROW_H - 1, bg);
@@ -341,11 +344,12 @@ static const MenuItem items_demo[] = {
 const MenuPage Page_Demo = {"DEMO", items_demo, 1, 6, demo_on_input, NULL};
 
 static bool demo_on_input(NavAction nav) {
+    uint8_t num = Stim_Num_Demos();
     if (nav == NAV_UP   && nav_cursor > 0)           { nav_cursor--; gui_dirty = 1; return true; }
-    if (nav == NAV_DOWN && nav_cursor < 5)           { nav_cursor++; gui_dirty = 1; return true; }
+    if (nav == NAV_DOWN && nav_cursor < num)         { nav_cursor++; gui_dirty = 1; return true; }
     if (nav == NAV_CONFIRM) {
-        if (nav_cursor < 5) GUI_Action_SetDemo((int)nav_cursor);
-        else                GUI_PopPage();
+        if (nav_cursor < num) GUI_Action_SetDemo((int)nav_cursor);
+        else                  GUI_PopPage();
         return true;
     }
     if (nav == NAV_RETURN) { GUI_PopPage(); return true; }
@@ -616,8 +620,9 @@ void GUI_Tick(void)
                         else
                             snprintf(buf, sizeof(buf), "OFF");
                     } else if (slot == 7) {
-                        if (demo_mode >= 0 && demo_mode < Get_Num_Demo_Stimulations())
-                            snprintf(buf, sizeof(buf), "%s", DemoStimulations[demo_mode]->name);
+                        const StimDemoDescriptor *d = Stim_Get_Demo_By_Index((uint8_t)demo_mode);
+                        if (d)
+                            snprintf(buf, sizeof(buf), "%s", d->name);
                         else
                             snprintf(buf, sizeof(buf), "None");
                     } else if (slot == 8) {

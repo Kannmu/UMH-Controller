@@ -2,6 +2,7 @@
 #include "transducer.h"
 #include "dma_manager.h"
 #include "communication.h"
+#include "stim_types.h"
 #include "utiles.h"
 
 // 全局变量
@@ -36,11 +37,11 @@ void Comm_Reset_Rx_State(void)
 uint8_t Comm_Calculate_Checksum(uint8_t cmd_type, uint8_t data_length, uint8_t* data)
 {
     uint16_t sum = cmd_type + data_length;
-    
+
     for (uint8_t i = 0; i < data_length; i++) {
         sum += data[i];
     }
-    
+
     return (uint8_t)(sum & 0xFF);
 }
 
@@ -54,30 +55,30 @@ void Comm_Send_Response(uint8_t cmd_type, uint8_t* data, uint8_t data_length)
 {
     uint8_t tx_buffer[260]; // 最大帧长度
     uint8_t index = 0;
-    
+
     // 帧头
     tx_buffer[index++] = FRAME_HEADER_1;
     tx_buffer[index++] = FRAME_HEADER_2;
-    
+
     // 命令类型
     tx_buffer[index++] = cmd_type;
-    
+
     // 数据长度
     tx_buffer[index++] = data_length;
-    
+
     // 数据载荷
     if (data_length > 0 && data != NULL) {
         memcpy(&tx_buffer[index], data, data_length);
         index += data_length;
     }
-    
+
     // 校验和
     tx_buffer[index++] = Comm_Calculate_Checksum(cmd_type, data_length, data);
-    
+
     // 帧尾
     tx_buffer[index++] = FRAME_TAIL_1;
     tx_buffer[index++] = FRAME_TAIL_2;
-    
+
     // 通过USB CDC发送
     CDC_Transmit_FS(tx_buffer, index);
 }
@@ -102,7 +103,7 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
 {
     for (uint32_t i = 0; i < length; i++) {
         uint8_t byte = data[i];
-        
+
         switch (rx_buffer.state) {
             case RX_STATE_WAIT_HEADER1:
                 if (byte == FRAME_HEADER_1) {
@@ -110,7 +111,7 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                     rx_buffer.state = RX_STATE_WAIT_HEADER2;
                 }
                 break;
-                
+
             case RX_STATE_WAIT_HEADER2:
                 if (byte == FRAME_HEADER_2) {
                     rx_buffer.frame.header[1] = byte;
@@ -119,38 +120,38 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                     Comm_Reset_Rx_State();
                 }
                 break;
-                
+
             case RX_STATE_WAIT_CMD_TYPE:
                 rx_buffer.frame.cmd_type = byte;
                 rx_buffer.calculated_checksum = byte;
                 rx_buffer.state = RX_STATE_WAIT_DATA_LENGTH;
                 break;
-                
+
             case RX_STATE_WAIT_DATA_LENGTH:
                 rx_buffer.frame.data_length = byte;
                 rx_buffer.calculated_checksum += byte;
                 rx_buffer.data_index = 0;
-                
+
                 if (rx_buffer.frame.data_length == 0) {
                     rx_buffer.state = RX_STATE_WAIT_CHECKSUM;
                 } else {
                     rx_buffer.state = RX_STATE_WAIT_DATA;
                 }
                 break;
-                
+
             case RX_STATE_WAIT_DATA:
                 rx_buffer.frame.data[rx_buffer.data_index] = byte;
                 rx_buffer.calculated_checksum += byte;
                 rx_buffer.data_index++;
-                
+
                 if (rx_buffer.data_index >= rx_buffer.frame.data_length) {
                     rx_buffer.state = RX_STATE_WAIT_CHECKSUM;
                 }
                 break;
-                
+
             case RX_STATE_WAIT_CHECKSUM:
                 rx_buffer.frame.checksum = byte;
-                
+
                 // 验证校验和
                 if ((rx_buffer.calculated_checksum & 0xFF) == byte) {
                     rx_buffer.state = RX_STATE_WAIT_TAIL1;
@@ -159,7 +160,7 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                     Comm_Reset_Rx_State();
                 }
                 break;
-                
+
             case RX_STATE_WAIT_TAIL1:
                 if (byte == FRAME_TAIL_1) {
                     rx_buffer.frame.tail[0] = byte;
@@ -168,12 +169,12 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                     Comm_Reset_Rx_State();
                 }
                 break;
-                
+
             case RX_STATE_WAIT_TAIL2:
                 if (byte == FRAME_TAIL_2) {
                     rx_buffer.frame.tail[1] = byte;
                     rx_buffer.state = RX_STATE_FRAME_COMPLETE;
-                    
+
                     // 处理完整的帧
                     switch (rx_buffer.frame.cmd_type) {
                         case CMD_ENABLE_DISABLE:
@@ -204,18 +205,18 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                         {
                             device_config config;
                             memset(&config, 0, sizeof(config));
-                            
+
                             // 设备序列号
                             char* serial_number = Get_Device_Serial_Number();
                             memcpy(config.serial_number, serial_number, 12);
-                            
+
                             config.version = VERSION;
                             config.array_type = 0x02; // 0x00: Rect, 0x01: Hex, 0x02: Concentric Rings
                             config.array_size = NUM_RINGS;
                             config.num_transducer = NUM_REAL_TRANSDUCER;
                             config.transducer_size = TRANSDUCER_SIZE;
                             config.transducer_space = TRANSDUCER_SPACING;
-                            
+
                             Comm_Send_Response(RSP_RETURN_CONFIG, (uint8_t*)&config, sizeof(config));
                             break;
                         }
@@ -224,81 +225,52 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                             device_status status;
 
                             status.voltage_VDDA = Get_Voltage_VDDA();
-                            status.voltage_3V3 = Get_Voltage_3V3();
-                            status.voltage_5V0 = Get_Voltage_5V0();
+                            status.voltage_3V3 = 0.0f;
+                            status.voltage_5V0 = 0.0f;
                             status.temperature = Get_Temperature();
                             status.updateDMABufferDeltaTime = updateDMABufferDeltaTime;
                             status.loop_freq = System_Loop_Freq;
-                            status.stimulation_type = (uint8_t)CurrentStimulation.type;
+                            status.stimulation_type = Stim_Get_Type_Id(&CurrentStimulation);
                             status.calibration_mode = Get_Calibration_Mode();
                             status.phase_set_mode = Get_Phase_Set_Mode();
-                            
+
                             Comm_Send_Response(RSP_RETURN_STATUS, (uint8_t*)&status, sizeof(status));
                             break;
                         }
                         case CMD_SET_STIMULATION:
                         {
-                            if (rx_buffer.frame.data_length >= 20)
+                            if (rx_buffer.frame.data_length >= 3)
                             {
-                                Stimulation stimulation;
-                                memset(&stimulation, 0, sizeof(Stimulation));
-                                stimulation.segments = 1; // Default segments
-                                stimulation.normalVector[2] = 1.0f; // Default normal vector Z
-                                uint8_t *pData = rx_buffer.frame.data;
-                                int offset = 0;
-                                StimulationType type = (StimulationType)pData[offset]; offset += 1;
-                                stimulation.type = type;
-                                switch (type)
+                                uint8_t type_id = rx_buffer.frame.data[0];
+                                const StimTypeDescriptor *td = Stim_Get_Type_By_Id(type_id);
+
+                                if (td && td->deserialize)
                                 {
-                                case Point:
-                                    memcpy(&stimulation.position[0], &pData[offset], 4); offset += 4;
-                                    memcpy(&stimulation.position[1], &pData[offset], 4); offset += 4;
-                                    memcpy(&stimulation.position[2], &pData[offset], 4); offset += 4;
-                                    break;
-                                case Discrete:
-                                    memcpy(&stimulation.position[0], &pData[offset], 4); offset += 4;
-                                    memcpy(&stimulation.position[1], &pData[offset], 4); offset += 4;
-                                    memcpy(&stimulation.position[2], &pData[offset], 4); offset += 4;
-                                    
-                                    memcpy(&stimulation.normalVector[0], &pData[offset], 4); offset += 4;
-                                    memcpy(&stimulation.normalVector[1], &pData[offset], 4); offset += 4;
-                                    memcpy(&stimulation.normalVector[2], &pData[offset], 4); offset += 4;
-                                    
-                                    memcpy(&stimulation.radius, &pData[offset], 4); offset += 4;
-                                    memcpy(&stimulation.segments, &pData[offset], 4); offset += 4;
-                                    break;
-                                case Linear:
-                                    memcpy(&stimulation.startPoint[0], &pData[offset], 4); offset += 4;
-                                    memcpy(&stimulation.startPoint[1], &pData[offset], 4); offset += 4;
-                                    memcpy(&stimulation.startPoint[2], &pData[offset], 4); offset += 4;
-                                    memcpy(&stimulation.endPoint[0], &pData[offset], 4); offset += 4;
-                                    memcpy(&stimulation.endPoint[1], &pData[offset], 4); offset += 4;
-                                    memcpy(&stimulation.endPoint[2], &pData[offset], 4); offset += 4;
-                                    memcpy(&stimulation.segments, &pData[offset], 4); offset += 4;
-                                    break;
-                                case Circular:
-                                    memcpy(&stimulation.position[0], &pData[offset], 4); offset += 4;
-                                    memcpy(&stimulation.position[1], &pData[offset], 4); offset += 4;
-                                    memcpy(&stimulation.position[2], &pData[offset], 4); offset += 4;
-                                    
-                                    memcpy(&stimulation.normalVector[0], &pData[offset], 4); offset += 4;
-                                    memcpy(&stimulation.normalVector[1], &pData[offset], 4); offset += 4;
-                                    memcpy(&stimulation.normalVector[2], &pData[offset], 4); offset += 4;
-                                    memcpy(&stimulation.radius, &pData[offset], 4); offset += 4;
-                                    break;
-                                default:
-                                    break;
+                                    Stimulation s;
+                                    memset(&s, 0, sizeof(s));
+                                    s.type_id   = type_id;
+                                    s.type_desc = td;
+                                    strncpy(s.name, td->name, sizeof(s.name) - 1);
+
+                                    uint8_t ok = td->deserialize(&s,
+                                        &rx_buffer.frame.data[1],
+                                        rx_buffer.frame.data_length - 1);
+
+                                    if (ok)
+                                    {
+                                        Set_Stimulation(&s);
+                                        phase_set_mode = 0;
+                                        Comm_Send_Response(RSP_SACK, NULL, 0);
+                                    }
+                                    else
+                                    {
+                                        Comm_Send_Response(RSP_ERROR_CODE, NULL, 0);
+                                    }
                                 }
-
-                                memcpy(&stimulation.strength,    &pData[offset], 4); offset += 4;
-                                memcpy(&stimulation.frequency,   &pData[offset], 4); 
-                                
-                                Set_Stimulation(&stimulation);
-                                
-                                phase_set_mode = 0;
-
-                                Comm_Send_Response(RSP_SACK, NULL, 0);
-                                
+                                else
+                                {
+                                    Comm_Send_Response(RSP_ERROR_CODE, NULL, 0);
+                                }
                             }
                             else
                             {
@@ -310,11 +282,11 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                         {
                             if (rx_buffer.frame.data_length >= (NUM_REAL_TRANSDUCER) * 3)
                             {
-                                uint8_t *pData = rx_buffer.frame.data; 
-                                
+                                uint8_t *pData = rx_buffer.frame.data;
+
                                 CurrentStimulation = EmptyStimulation;
                                 phase_set_mode = 1;
-                                
+
                                 Set_Transducers(pData);
                                 Comm_Send_Response(RSP_SACK, NULL, 0);
                             }
@@ -326,20 +298,19 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                         }
                         case CMD_SET_DEMO:
                         {
-                            if (rx_buffer.frame.data_length >= 1)
+                            if (rx_buffer.frame.data_length >= 2)
                             {
-                                uint8_t index = rx_buffer.frame.data[0];
-                                int num_demos = Get_Num_Demo_Stimulations();
+                                uint8_t name_len = rx_buffer.frame.data[0];
+                                const char *name = (const char *)&rx_buffer.frame.data[1];
 
-                                if (index < num_demos)
+                                const StimDemoDescriptor *demo = Stim_Get_Demo_By_Name(name, name_len);
+                                if (demo)
                                 {
-                                    demo_mode = index;
-                                    Set_Stimulation(DemoStimulations[index]);
+                                    demo_mode = Stim_Get_Demo_Index(demo);
+                                    Set_Stimulation_From_Demo(demo);
                                     phase_set_mode = 0;
 
-                                    // Send ACK with name
-                                    const char *name = DemoStimulations[index]->name;
-                                    Comm_Send_Response(RSP_DEMO_ACK, (uint8_t *)name, strlen(name));
+                                    Comm_Send_Response(RSP_DEMO_ACK, (uint8_t *)demo->name, (uint8_t)strlen(demo->name));
                                 }
                                 else
                                 {
@@ -358,10 +329,10 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                             {
                                 uint8_t start_index = rx_buffer.frame.data[0];
                                 uint8_t count = rx_buffer.frame.data[1];
-                                
+
                                 // 限制每次请求的最大数量 (255 - 2) / 12 = 21
                                 if (count > 21) count = 21;
-                                
+
                                 // 检查范围
                                 if (start_index >= NUM_REAL_TRANSDUCER)
                                 {
@@ -371,15 +342,15 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                                 {
                                     count = NUM_REAL_TRANSDUCER - start_index;
                                 }
-                                
+
                                 // 构建响应数据
                                 // Format: [Start_Index] [Count] [Data...]
-                                uint8_t resp_data[2 + 21 * 12]; 
+                                uint8_t resp_data[2 + 21 * 12];
                                 uint8_t resp_len = 0;
-                                
+
                                 resp_data[resp_len++] = start_index;
                                 resp_data[resp_len++] = count;
-                                
+
                                 for (uint8_t i = 0; i < count; i++)
                                 {
                                     uint8_t idx = start_index + i;
@@ -387,7 +358,7 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                                     memcpy(&resp_data[resp_len], TransducerArray[idx].position3D, 12);
                                     resp_len += 12;
                                 }
-                                
+
                                 Comm_Send_Response(RSP_TRANSDUCER_INFO, resp_data, resp_len);
                             }
                             else
@@ -402,11 +373,11 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                             break;
                     }
                 }
-                
+
                 // 处理完成后重置状态
                 Comm_Reset_Rx_State();
                 break;
-                
+
             case RX_STATE_FRAME_COMPLETE:
                 // 这个状态不应该到达，重置状态
                 Comm_Reset_Rx_State();

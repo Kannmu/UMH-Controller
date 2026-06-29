@@ -14,5 +14,21 @@
 
 Insert the code above after the `.ARM` section in the linker script (.ld file), below the image location.
 
+  .stim_type_registry :
+  {
+    . = ALIGN(4);
+    _stim_type_registry_start = .;
+    KEEP(*(.stim_type_registry))
+    _stim_type_registry_end = .;
+  } >FLASH
+
+  .demo_registry :
+  {
+    . = ALIGN(4);
+    _demo_registry_start = .;
+    KEEP(*(.demo_registry))
+    _demo_registry_end = .;
+  } >FLASH
+  
 ![alt text](image.png)
 

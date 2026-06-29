@@ -142,7 +142,7 @@ void Update_Full_Waveform_Buffer()
     int event_count;
 
     int is_enabled = Get_Stimulation_Enabled();
-    int is_static_stim = (CurrentStimulation.type == Point || CurrentStimulation.type == TwinTrap);
+    int is_static_stim = Stim_Is_Static(&CurrentStimulation);
 
     if (is_enabled && is_static_stim) {
         Update_Stimulation_State(0.0f);
@@ -172,7 +172,7 @@ void Update_Full_Waveform_Buffer()
         /* Hoist: duty_ticks is identical for all transducers when phase_set_mode==0 */
         uint16_t static_duty_ticks = 0;
         if (is_enabled && Get_Phase_Set_Mode() == 0)
-            static_duty_ticks = DMA_Convert_Strength_To_On_Ticks(CurrentStimulation.strength);
+            static_duty_ticks = DMA_Convert_Strength_To_On_Ticks(Stim_Get_Strength(&CurrentStimulation));
 
         for (int p = 0; p < DMA_CHANNELS; p++)
         {
@@ -329,8 +329,9 @@ void Update_Full_Waveform_Buffer()
     uint32_t end_cycles = DWT_GetCycles();
     if (SystemCoreClock > 0) {
         updateDMABufferDeltaTime = (double)(end_cycles - start_cycles) / (SystemCoreClock / 1000.0);
-        if (CurrentStimulation.type < 5)
-            updateDMABufferDeltaTimeByType[CurrentStimulation.type] = updateDMABufferDeltaTime;
+        uint8_t tid = Stim_Get_Type_Id(&CurrentStimulation);
+        if (tid < 5)
+            updateDMABufferDeltaTimeByType[tid] = updateDMABufferDeltaTime;
     }
 }
 

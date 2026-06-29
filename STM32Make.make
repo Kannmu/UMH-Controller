@@ -87,6 +87,12 @@ Core/Src/font.c \
 Core/Src/gui.c \
 Core/Src/main.c \
 Core/Src/ssd1306.c \
+Core/Src/stim_types/stim_circular.c \
+Core/Src/stim_types/stim_demos.c \
+Core/Src/stim_types/stim_discrete.c \
+Core/Src/stim_types/stim_linear.c \
+Core/Src/stim_types/stim_point.c \
+Core/Src/stim_types/stim_twintrap.c \
 Core/Src/stimulation.c \
 Core/Src/stm32h7xx_hal_msp.c \
 Core/Src/stm32h7xx_it.c \
@@ -217,6 +223,7 @@ AS_INCLUDES = \
 # C includes
 C_INCLUDES =  \
 -ICore/Inc \
+-ICore/Src/stim_types \
 -IDrivers/CMSIS/Device/ST/STM32H7xx/Include \
 -IDrivers/CMSIS/Include \
 -IDrivers/STM32H7xx_HAL_Driver/Inc \
