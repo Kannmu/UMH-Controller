@@ -61,7 +61,8 @@ DMA_HandleTypeDef hdma_memtomem_dma1_stream1;
 DMA_HandleTypeDef hdma_memtomem_dma1_stream2;
 DMA_HandleTypeDef hdma_memtomem_dma2_stream0;
 DMA_HandleTypeDef hdma_memtomem_dma2_stream1;
-DMA_HandleTypeDef hdma_memtomem_dma2_stream3;
+
+I2C_HandleTypeDef hi2c3;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -74,7 +75,7 @@ static void MX_ADC3_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
-
+void I2C3_Init(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -143,13 +144,15 @@ int main(void)
   MX_USB_DEVICE_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-  
+
   Comm_Init();
   Init_DWT();
   Transducer_Init();
   DMA_Init();
 
-  /* USER CODE END 2 */
+  /* I2C3 (SSD1306 OLED + AT24C16 EEPROM on PA8 SCL / PC9 SDA) */
+  I2C3_Init();
+/* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
@@ -711,7 +714,21 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
-/* USER CODE END 4 */
+void I2C3_Init(void)
+{
+  hi2c3.Instance = I2C3;
+  hi2c3.Init.Timing              = 0x20B0CCB8;
+  hi2c3.Init.OwnAddress1         = 0;
+  hi2c3.Init.AddressingMode      = I2C_ADDRESSINGMODE_7BIT;
+  hi2c3.Init.DualAddressMode     = I2C_DUALADDRESS_DISABLE;
+  hi2c3.Init.OwnAddress2         = 0;
+  hi2c3.Init.OwnAddress2Masks    = I2C_OA2_NOMASK;
+  hi2c3.Init.GeneralCallMode     = I2C_GENERALCALL_DISABLE;
+  hi2c3.Init.NoStretchMode       = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c3) != HAL_OK) { Error_Handler(); }
+  HAL_I2CEx_ConfigAnalogFilter(&hi2c3, I2C_ANALOGFILTER_ENABLE);
+  HAL_I2CEx_ConfigDigitalFilter(&hi2c3, 0);
+}
 
  /* MPU Configuration */
 

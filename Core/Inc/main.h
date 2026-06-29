@@ -53,6 +53,7 @@ extern DMA_HandleTypeDef hdma_memtomem_dma1_stream1;
 extern DMA_HandleTypeDef hdma_memtomem_dma1_stream2;
 extern DMA_HandleTypeDef hdma_memtomem_dma2_stream0;
 extern DMA_HandleTypeDef hdma_memtomem_dma2_stream1;
+extern I2C_HandleTypeDef hi2c3;
 /* USER CODE END EC */
 
 /* Exported macro ------------------------------------------------------------*/

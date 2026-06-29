@@ -306,4 +306,23 @@ void HAL_TIM_PWM_MspDeInit(TIM_HandleTypeDef* htim_pwm)
 
 /* USER CODE BEGIN 1 */
 
+/* I2C3 MSP: GPIOs (PA8 SCL, PC9 SDA) already configured in MX_GPIO_Init */
+extern I2C_HandleTypeDef hi2c3;
+
+void HAL_I2C_MspInit(I2C_HandleTypeDef* hi2c)
+{
+  if (hi2c->Instance == I2C3)
+  {
+    __HAL_RCC_I2C3_CLK_ENABLE();
+  }
+}
+
+void HAL_I2C_MspDeInit(I2C_HandleTypeDef* hi2c)
+{
+  if (hi2c->Instance == I2C3)
+  {
+    __HAL_RCC_I2C3_CLK_DISABLE();
+  }
+}
+
 /* USER CODE END 1 */
