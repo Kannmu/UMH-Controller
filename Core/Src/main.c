@@ -726,7 +726,7 @@ static void MX_GPIO_Init(void)
 void I2C3_Init(void)
 {
   hi2c3.Instance = I2C3;
-  hi2c3.Init.Timing              = 0x20B0CCB8;
+  hi2c3.Init.Timing              = 0x00507781;  /* 400kHz @ 100MHz I2C clock */
   hi2c3.Init.OwnAddress1         = 0;
   hi2c3.Init.AddressingMode      = I2C_ADDRESSINGMODE_7BIT;
   hi2c3.Init.DualAddressMode     = I2C_DUALADDRESS_DISABLE;
