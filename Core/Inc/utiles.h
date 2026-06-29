@@ -19,3 +19,4 @@ float Get_Voltage_VDDA(void);
 float Get_Voltage_3V3(void);
 float Get_Voltage_5V0(void);
 float Get_Temperature(void);
+float Get_Refresh_Rate(void);

@@ -100,3 +100,10 @@ float Get_Temperature(void)
     int32_t temperature = __HAL_ADC_CALC_TEMPERATURE(vdda_mv, temp_raw, ADC_RESOLUTION_16B);
     return (float)temperature;
 }
+
+float Get_Refresh_Rate(void)
+{
+    if (updateDMABufferDeltaTime > 0.0)
+        return (float)(1000.0 / updateDMABufferDeltaTime);
+    return 0.0f;
+}
