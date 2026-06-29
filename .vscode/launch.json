@@ -13,12 +13,10 @@
             "configFiles": [
                 "openocd.cfg"
             ],
-            "environment": [
-                {"name": "PATH", "value": "D:\\Software\\ARM-GNU-Toolchain\\bin;${env:PATH}"}
-            ],
             "serverpath": "D:\\Software\\OpenOCD\\bin\\openocd.exe",
             "toolchainPath": "D:\\Software\\ARM-GNU-Toolchain\\bin",
-            "toolchainPrefix": "arm-none-eabi"
+            "toolchainPrefix": "arm-none-eabi",
+            "gdbPath": "D:\\Software\\ARM-GNU-Toolchain\\bin\\arm-none-eabi-gdb-py.exe"
         },
         {
             "showDevDebugOutput": "parsed",
@@ -33,12 +31,10 @@
             "configFiles": [
                 "openocd.cfg"
             ],
-            "environment": [
-                {"name": "PATH", "value": "D:\\Software\\ARM-GNU-Toolchain\\bin;${env:PATH}"}
-            ],
             "serverpath": "D:\\Software\\OpenOCD\\bin\\openocd.exe",
             "toolchainPath": "D:\\Software\\ARM-GNU-Toolchain\\bin",
-            "toolchainPrefix": "arm-none-eabi"
+            "toolchainPrefix": "arm-none-eabi",
+            "gdbPath": "D:\\Software\\ARM-GNU-Toolchain\\bin\\arm-none-eabi-gdb-py.exe"
         }
     ]
 }

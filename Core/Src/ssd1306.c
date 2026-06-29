@@ -54,6 +54,23 @@ int SSD1306_Init(void)
     }
 
     SSD1306_Fill(BLACK);
+
+    /* Write directly to HW buffer as a smoke test: alternating pages full-on.
+     * If this doesn't light up, the HW/I2C connection is the problem. */
+    memset(fb_hw, 0x55, sizeof(fb_hw));   /* checkerboard pattern across pages */
+    {
+        uint8_t buf[SSD1306_WIDTH * SSD1306_HEIGHT / 8 + 1];
+        buf[0] = 0x40;
+        memcpy(&buf[1], fb_hw, sizeof(fb_hw));
+        ssd1306_write_cmd(0x21); ssd1306_write_cmd(0);
+        ssd1306_write_cmd(SSD1306_WIDTH - 1);
+        ssd1306_write_cmd(0x22); ssd1306_write_cmd(0);
+        ssd1306_write_cmd((SSD1306_HEIGHT >> 3) - 1);
+        ssd1306_write_data_burst(buf, sizeof(buf));
+    }
+
+    /* Then clear for normal operation */
+    memset(fb_hw, 0x00, sizeof(fb_hw));
     SSD1306_Flush();
     return 0;  /* success */
 }
