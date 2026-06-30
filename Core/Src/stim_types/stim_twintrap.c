@@ -10,7 +10,7 @@ static void twintrap_init(struct Stimulation *stim)
     TwinTrapCtx *ctx = (TwinTrapCtx *)stim->_ctx;
     ctx->position[0] = 0.0f;
     ctx->position[1] = 0.0f;
-    ctx->position[2] = 0.1f;
+    ctx->position[2] = DEFAULT_FOCUS_Z;
 }
 
 static void twintrap_deinit(struct Stimulation *stim)

@@ -211,7 +211,7 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                             memcpy(config.serial_number, serial_number, 12);
 
                             config.version = VERSION;
-                            config.array_type = 0x02; // 0x00: Rect, 0x01: Hex, 0x02: Concentric Rings
+                            config.array_type = ARRAY_TYPE_CONCENTRIC_RINGS; // 0x00: Rect, 0x01: Hex, 0x02: Concentric Rings
                             config.array_size = NUM_RINGS;
                             config.num_transducer = NUM_REAL_TRANSDUCER;
                             config.transducer_size = TRANSDUCER_SIZE;
@@ -280,7 +280,7 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                         }
                         case CMD_SET_TRANSDUCERS:
                         {
-                            if (rx_buffer.frame.data_length >= (NUM_REAL_TRANSDUCER) * 3)
+                            if (rx_buffer.frame.data_length >= (NUM_REAL_TRANSDUCER) * SERIAL_TRANSDUCER_BYTES)
                             {
                                 uint8_t *pData = rx_buffer.frame.data;
 
@@ -330,8 +330,8 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                                 uint8_t start_index = rx_buffer.frame.data[0];
                                 uint8_t count = rx_buffer.frame.data[1];
 
-                                // 限制每次请求的最大数量 (255 - 2) / 12 = 21
-                                if (count > 21) count = 21;
+                                // 限制每次请求的最大数量 (255 - 2) / TRANSDUCER_POSITION_BYTES
+                                if (count > MAX_TRANSDUCER_INFO_PER_REQUEST) count = MAX_TRANSDUCER_INFO_PER_REQUEST;
 
                                 // 检查范围
                                 if (start_index >= NUM_REAL_TRANSDUCER)
@@ -345,7 +345,7 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
 
                                 // 构建响应数据
                                 // Format: [Start_Index] [Count] [Data...]
-                                uint8_t resp_data[2 + 21 * 12];
+                                uint8_t resp_data[2 + MAX_TRANSDUCER_INFO_PER_REQUEST * TRANSDUCER_POSITION_BYTES];
                                 uint8_t resp_len = 0;
 
                                 resp_data[resp_len++] = start_index;
@@ -355,8 +355,8 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                                 {
                                     uint8_t idx = start_index + i;
                                     // 复制 X, Y, Z (3 * 4 = 12 bytes)
-                                    memcpy(&resp_data[resp_len], TransducerArray[idx].position3D, 12);
-                                    resp_len += 12;
+                                    memcpy(&resp_data[resp_len], TransducerArray[idx].position3D, TRANSDUCER_POSITION_BYTES);
+                                    resp_len += TRANSDUCER_POSITION_BYTES;
                                 }
 
                                 Comm_Send_Response(RSP_TRANSDUCER_INFO, resp_data, resp_len);

@@ -324,8 +324,8 @@ static void refresh_on_event(PageEvent event) {
         strncpy(s.name, td->name, sizeof(s.name) - 1);
         s.type_id   = td->type_id;
         s.type_desc = td;
-        s.strength  = 100.0f;
-        s.frequency = 200.0f;
+        s.strength  = DMA_STRENGTH_MAX;
+        s.frequency = (float)STIMULATION_FREQ;
         if (td->init) td->init(&s);
         Set_Stimulation(&s);
     }
@@ -342,8 +342,8 @@ static void refresh_on_event(PageEvent event) {
             strncpy(s.name, td0->name, sizeof(s.name) - 1);
             s.type_id   = td0->type_id;
             s.type_desc = td0;
-            s.strength  = 100.0f;
-            s.frequency = 200.0f;
+            s.strength  = DMA_STRENGTH_MAX;
+            s.frequency = (float)STIMULATION_FREQ;
             if (td0->init) td0->init(&s);
             Set_Stimulation(&s);
         }
@@ -434,9 +434,9 @@ static bool calib_on_input(NavAction nav) {
     if (nav == NAV_CONFIRM) {
         if (nav_cursor == 0) {
             extern float Transducer_Calibration_Array[];
-            float ecal[60];
+            float ecal[NUM_REAL_TRANSDUCER];
             if (EEPROM_LoadCalibration(ecal))
-                for (int i=0;i<60;i++) Transducer_Calibration_Array[i]=ecal[i];
+                for (int i=0;i<NUM_REAL_TRANSDUCER;i++) Transducer_Calibration_Array[i]=ecal[i];
             Load_Calib_to_Transducers();
             Update_Full_Waveform_Buffer();
         } else if (nav_cursor == 1) {
@@ -458,7 +458,7 @@ static void render_semi_calib(const void *ctx) {
     switch (calib_state) {
     case CALIB_PROMPT:
         Font_DrawStr(CONTENT_X, 0, "SEMI-AUTO CAL", 0, 1, WHITE);
-        snprintf(buf,sizeof(buf),"Elem %d/60", calib_current_element+1);
+        snprintf(buf,sizeof(buf),"Elem %d/%u", calib_current_element+1, (unsigned int)NUM_REAL_TRANSDUCER);
         Font_DrawStr(CONTENT_X, 8, buf, 0, 1, WHITE);
         Font_DrawStr(CONTENT_X, 16, "Place probe", 0, 1, WHITE);
         Font_DrawStr(CONTENT_X, 24, "[OK]go [<]skip", 0, 1, WHITE);

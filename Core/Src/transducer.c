@@ -2,6 +2,7 @@
 # include "transducer.h"
 # include "calibration.h"
 # include "dma_manager.h"
+# include "communication.h"
 # include "custom_math.h"
 
 float Wave_K = ((2.0*M_PI*TRANSDUCER_BASE_FREQ)/SPEED_OF_SOUND);
@@ -57,7 +58,7 @@ void Transducer_Init(void)
         t->position3D[2] = 0.0f;   // Z=0 (阵列平面)
         t->distance  = 0;
         t->phase     = 0;
-        t->duty      = 0.5f;
+        t->duty      = DMA_DUTY_CYCLE_MAX;
         t->shift_buffer_bits = 0;
 
         if (i < NUM_REAL_TRANSDUCER)
@@ -145,8 +146,8 @@ void Set_Transducers(uint8_t *data)
 {
     for (int i = 0; i < NUM_REAL_TRANSDUCER; i++)
     {
-        uint16_t phase_raw = data[i * 3 + 0] | (data[i * 3 + 1] << 8);
-        uint8_t duty_raw = data[i * 3 + 2];
+        uint16_t phase_raw = data[i * SERIAL_TRANSDUCER_BYTES + 0] | (data[i * SERIAL_TRANSDUCER_BYTES + 1] << 8);
+        uint8_t duty_raw = data[i * SERIAL_TRANSDUCER_BYTES + 2];
 
         TransducerArray[i].phase = (phase_raw / 65535.0f) * (2.0f * M_PI);
         TransducerArray[i].duty = duty_raw / 255.0f;

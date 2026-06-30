@@ -23,6 +23,12 @@
 #define CMD_SET_DEMO            0x07
 #define CMD_GET_TRANSDUCER_INFO 0x08
 
+// 序列化参数
+#define SERIAL_TRANSDUCER_BYTES           3    /* uint16 phase + uint8 duty */
+#define TRANSDUCER_POSITION_BYTES         12   /* 3 × float X/Y/Z */
+#define MAX_TRANSDUCER_INFO_PER_REQUEST   21   /* (255 - 2) / 12 */
+#define ARRAY_TYPE_CONCENTRIC_RINGS       0x02
+
 // 响应类型 (UMH -> PC)
 #define RSP_ACK                 0x80
 #define RSP_NACK                0x81

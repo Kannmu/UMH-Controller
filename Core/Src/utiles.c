@@ -26,7 +26,7 @@ uint32_t DWT_GetCycles(void)
 
 uint32_t DWT_GetMicroseconds(void)
 {
-    return DWT_GetCycles() / (SystemCoreClock / 1000000);
+    return DWT_GetCycles() / (SystemCoreClock / US_PER_SEC);
 }
 
 /* HEARTBEAT (PA15): Simple breathing LED via 1st‑order sigma‑delta modulation.

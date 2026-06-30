@@ -22,6 +22,11 @@
 
 # define WAVE_LENGTH (TRANSDUCER_PERIOD*SPEED_OF_SOUND)
 
+# define TRANSDUCER_PERIOD_US (1e6f / (float)TRANSDUCER_BASE_FREQ)
+
+# define US_PER_SEC   1000000U
+# define US_PER_SEC_F 1e6f
+
 /* V5.5 同心圆环几何参数 */
 # define NUM_RINGS         4U
 # define GOLDEN_ANGLE_DEG  137.5f

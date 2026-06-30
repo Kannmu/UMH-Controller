@@ -15,6 +15,8 @@
 #define DMA_DUTY_CYCLE_MIN 0.0f
 #define DMA_DUTY_CYCLE_MAX 0.5f
 
+#define TRIGGER0_DEFAULT_PULSE_US 1000U
+
 extern DMA_HandleTypeDef* DMA_Stream_Handles[DMA_CHANNELS];
 
 __ALIGNED(32) extern uint16_t Waveform_Storage[DMA_CHANNELS][NUM_STIMULATION_SAMPLES][WAVEFORM_BUFFER_SIZE] __attribute__((section(".storage_buffer")));

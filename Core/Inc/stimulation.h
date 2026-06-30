@@ -7,7 +7,8 @@
 #define STIMULATION_PERIOD (1.0 / STIMULATION_FREQ)
 #define NUM_STIMULATION_SAMPLES (uint32_t)(TRANSDUCER_BASE_FREQ / STIMULATION_FREQ)
 
-#define STIM_CTX_SIZE  64   /* inline context buffer for type-specific cached data */
+#define STIM_CTX_SIZE      64   /* inline context buffer for type-specific cached data */
+#define DEFAULT_FOCUS_Z     0.1f
 
 struct Stimulation {
     /* Common fields across all types */

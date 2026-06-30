@@ -158,10 +158,10 @@ int main(void)
 
   /* Load calibration from EEPROM (AT24C16 on I2C3); fall back to hardcoded defaults */
   {
-    float eeprom_cal[60];
+    float eeprom_cal[NUM_REAL_TRANSDUCER];
     if (EEPROM_LoadCalibration(eeprom_cal))
     {
-      for (int i = 0; i < 60; i++)
+      for (int i = 0; i < NUM_REAL_TRANSDUCER; i++)
         Transducer_Calibration_Array[i] = eeprom_cal[i];
     }
     Load_Calib_to_Transducers();
@@ -179,7 +179,7 @@ int main(void)
   while (1)
   {
     loop_count++;
-    if (HAL_GetTick() - last_check_tick >= 1000)
+    if (HAL_GetTick() - last_check_tick >= LOOP_FREQ_CHECK_MS)
     {
       System_Loop_Freq = (float)loop_count;
       loop_count = 0;
@@ -497,7 +497,7 @@ static void MX_TIM1_Init(void)
   TIM_OC_InitTypeDef sConfigOC = {0};
 
   sConfigOC.OCMode = TIM_OCMODE_TIMING;
-  sConfigOC.Pulse = period / 5 * 1;
+  sConfigOC.Pulse = period / (DMA_CHANNELS + 1) * 1;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   if (HAL_TIM_OC_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
@@ -505,19 +505,19 @@ static void MX_TIM1_Init(void)
     Error_Handler();
   }
 
-  sConfigOC.Pulse = period / 5 * 2;
+  sConfigOC.Pulse = period / (DMA_CHANNELS + 1) * 2;
   if (HAL_TIM_OC_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
   {
     Error_Handler();
   }
 
-  sConfigOC.Pulse = period / 5 * 3;
+  sConfigOC.Pulse = period / (DMA_CHANNELS + 1) * 3;
   if (HAL_TIM_OC_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_3) != HAL_OK)
   {
     Error_Handler();
   }
 
-  sConfigOC.Pulse = period / 5 * 4;
+  sConfigOC.Pulse = period / (DMA_CHANNELS + 1) * 4;
   if (HAL_TIM_OC_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_4) != HAL_OK)
   {
     Error_Handler();

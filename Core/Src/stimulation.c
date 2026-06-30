@@ -116,7 +116,7 @@ void Stim_Init(void)
     strncpy(EmptyStimulation.name, "Empty", sizeof(EmptyStimulation.name) - 1);
     EmptyStimulation.type_id   = 0;
     EmptyStimulation.type_desc = point_type;
-    EmptyStimulation.strength  = 100.0f;
+    EmptyStimulation.strength  = DMA_STRENGTH_MAX;
     EmptyStimulation.frequency = 0.0f;
     EmptyStimulation.cached_period_us = 0;
     if (point_type && point_type->init)
@@ -125,8 +125,8 @@ void Stim_Init(void)
     /* CurrentStimulation — starts as Point */
     CurrentStimulation = EmptyStimulation;
     strncpy(CurrentStimulation.name, "Current", sizeof(CurrentStimulation.name) - 1);
-    CurrentStimulation.frequency = 200.0f;
-    CurrentStimulation.cached_period_us = (uint32_t)(1e6f / 200.0f);
+    CurrentStimulation.frequency = (float)STIMULATION_FREQ;
+    CurrentStimulation.cached_period_us = (uint32_t)(US_PER_SEC_F / (float)STIMULATION_FREQ);
 }
 
 void Set_Stimulation(const Stimulation *stimulation)
@@ -136,7 +136,7 @@ void Set_Stimulation(const Stimulation *stimulation)
 
     /* Pre-calculate period */
     if (sanitized.frequency > 0.0f)
-        sanitized.cached_period_us = (uint32_t)(1e6f / sanitized.frequency);
+        sanitized.cached_period_us = (uint32_t)(US_PER_SEC_F / sanitized.frequency);
     else
         sanitized.cached_period_us = 0;
 
@@ -168,8 +168,8 @@ void Set_Stimulation_From_Demo(const StimDemoDescriptor *demo)
     demo->populate(&s);
 
     /* Set defaults for common fields if not set by populate */
-    if (s.strength  == 0.0f) s.strength  = 100.0f;
-    if (s.frequency == 0.0f) s.frequency = 200.0f;
+    if (s.strength  == 0.0f) s.strength  = DMA_STRENGTH_MAX;
+    if (s.frequency == 0.0f) s.frequency = (float)STIMULATION_FREQ;
 
     Set_Stimulation(&s);
 }

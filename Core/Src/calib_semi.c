@@ -9,16 +9,16 @@
 
 volatile SemiCalibState calib_state = CALIB_IDLE;
 volatile uint8_t        calib_current_element = 0;
-CalibResult             calib_results[60];
-volatile uint8_t        calib_results_valid[60];
+CalibResult             calib_results[NUM_REAL_TRANSDUCER];
+volatile uint8_t        calib_results_valid[NUM_REAL_TRANSDUCER];
 volatile uint8_t        calib_button_pressed = 0;
 
 static uint32_t measure_start_time;
 
 void SemiCalib_Init(void)
 {
-    memset(calib_results, 0, sizeof(calib_results));
-    memset((void *)calib_results_valid, 0, sizeof(calib_results_valid));
+    memset(calib_results, 0, NUM_REAL_TRANSDUCER * sizeof(CalibResult));
+    memset((void *)calib_results_valid, 0, NUM_REAL_TRANSDUCER * sizeof(uint8_t));
     calib_state           = CALIB_IDLE;
     calib_current_element = 0;
     calib_button_pressed  = 0;
@@ -46,7 +46,7 @@ SemiCalibState SemiCalib_Tick(void)
             __HAL_TIM_SET_COUNTER(&htim6, 0);
             HAL_TIM_Base_Start(&htim6);
 
-            HAL_ADC_Start_DMA(&hadc1, (uint32_t *)adc_buffer, 8000);
+            HAL_ADC_Start_DMA(&hadc1, (uint32_t *)adc_buffer, CALIB_ADC_BUFFER_SIZE);
 
             measure_start_time = now;
             calib_state = CALIB_MEASURING;
@@ -58,7 +58,7 @@ SemiCalibState SemiCalib_Tick(void)
             calib_results[calib_current_element].calib_us = 0.0f;
             calib_results[calib_current_element].quality   = 0;
 
-            if (calib_current_element < 59) {
+            if (calib_current_element < NUM_REAL_TRANSDUCER - 1) {
                 calib_current_element++;
             } else {
                 calib_state = CALIB_DONE;
@@ -69,7 +69,7 @@ SemiCalibState SemiCalib_Tick(void)
     case CALIB_MEASURING:
         if (adc_capture_done) {
             float amp;
-            float phase = Calib_IQ_Demodulate(adc_buffer, 8000, &amp);
+            float phase = Calib_IQ_Demodulate(adc_buffer, CALIB_ADC_BUFFER_SIZE, &amp);
             float calib_us = Calib_PhaseToMicroseconds(phase);
 
             calib_results[calib_current_element].calib_us  = calib_us;
@@ -88,7 +88,7 @@ SemiCalibState SemiCalib_Tick(void)
 
             calib_state = CALIB_SHOW_RESULT;
         }
-        else if (now - measure_start_time > 50) {
+        else if (now - measure_start_time > CALIB_MEASURE_TIMEOUT_MS) {
             /* Timeout: mark as failed */
             HAL_ADC_Stop_DMA(&hadc1);
             HAL_TIM_Base_Stop(&htim6);
@@ -104,7 +104,7 @@ SemiCalibState SemiCalib_Tick(void)
         if (calib_button_pressed == 1) {
             /* CONFIRM: accept and advance */
             calib_button_pressed = 0;
-            if (calib_current_element < 59) {
+            if (calib_current_element < NUM_REAL_TRANSDUCER - 1) {
                 calib_current_element++;
                 calib_state = CALIB_PROMPT;
             } else {
@@ -119,14 +119,11 @@ SemiCalibState SemiCalib_Tick(void)
         break;
 
     case CALIB_DONE: {
-        float calib_array[60];
-        for (int i = 0; i < 60; i++)
+        float calib_array[NUM_REAL_TRANSDUCER];
+        for (int i = 0; i < NUM_REAL_TRANSDUCER; i++)
             calib_array[i] = calib_results[i].calib_us;
 
-        /* Copy to the live calibration array, then persist to EEPROM.
-         * EEPROM shares I2C3 with OLED; GUI rendering is paused during this call
-         * because SemiCalib_Tick runs inside GUI_Tick — no concurrent I2C access. */
-        memcpy(Transducer_Calibration_Array, calib_array, sizeof(float) * 60);
+        memcpy(Transducer_Calibration_Array, calib_array, sizeof(float) * NUM_REAL_TRANSDUCER);
         EEPROM_SaveCalibration(calib_array);
 
         Calib_SetNormalDrive();

@@ -1,10 +1,13 @@
 #pragma once
 #include "main.h"
 
+#define CALIB_ADC_BUFFER_SIZE   8000U   /* 400kHz × 20ms */
+#define CALIB_ADC_SAMPLING_FREQ 400000U
+
 extern TIM_HandleTypeDef htim6;
 extern DMA_HandleTypeDef hdma_adc1_calib;
 extern volatile uint8_t adc_capture_done;
-extern uint16_t adc_buffer[8000];
+extern uint16_t adc_buffer[CALIB_ADC_BUFFER_SIZE];
 
 void MX_TIM6_Init(void);
 void Calib_ADC_Configure(void);

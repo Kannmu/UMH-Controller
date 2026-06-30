@@ -221,6 +221,8 @@ void Error_Handler(void);
 # define target_loop_freq 3000
 # define target_loop_period_us (1e6f/target_loop_freq)
 
+# define LOOP_FREQ_CHECK_MS 1000U
+
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

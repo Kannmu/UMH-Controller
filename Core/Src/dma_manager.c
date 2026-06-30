@@ -40,7 +40,7 @@ static int TransducersByPortCount[DMA_CHANNELS];
 
 /* TRIGGER0 / TRIGGER1 配置 */
 static uint8_t  trigger0_enable   = 1;
-static uint32_t trigger0_pulse_us = 1000;
+static uint32_t trigger0_pulse_us = TRIGGER0_DEFAULT_PULSE_US;
 static uint8_t  trigger1_enable   = 0;
 
 void DMA_Init()
@@ -157,7 +157,7 @@ void Update_Full_Waveform_Buffer()
     int static_mode = (is_enabled && is_static_stim);
     if (static_mode && trigger0_enable) {
         static_trigger0_pin = TransducerArray[TRIGGER0_INDEX].pin;
-        static_pulse_samples = (uint32_t)(trigger0_pulse_us * (uint32_t)TRANSDUCER_BASE_FREQ / 1000000u);
+        static_pulse_samples = (uint32_t)(trigger0_pulse_us * (uint32_t)TRANSDUCER_BASE_FREQ / US_PER_SEC);
     }
 
     int s_end = static_mode ? 1 : NUM_STIMULATION_SAMPLES;
@@ -211,7 +211,7 @@ void Update_Full_Waveform_Buffer()
                     {
                         if (trigger0_enable)
                         {
-                            uint32_t pulse = (uint32_t)(trigger0_pulse_us * (uint32_t)TRANSDUCER_BASE_FREQ / 1000000u);
+                            uint32_t pulse = (uint32_t)(trigger0_pulse_us * (uint32_t)TRANSDUCER_BASE_FREQ / US_PER_SEC);
                             if (s < (int)pulse)
                                 current_state |= t->pin;
                         }
@@ -345,7 +345,7 @@ void Clean_DMABuffer()
 void Configure_Trigger0(uint8_t enable, uint32_t pulse_us)
 {
     trigger0_enable   = enable;
-    trigger0_pulse_us = (pulse_us == 0) ? 1000u : pulse_us;
+    trigger0_pulse_us = (pulse_us == 0) ? TRIGGER0_DEFAULT_PULSE_US : pulse_us;
     Update_Full_Waveform_Buffer();
 }
 
@@ -368,7 +368,7 @@ void Calib_SetSingleTransducer(uint8_t idx)
     Enter_Calibration_Mode();
     for (int i = 0; i < NUM_REAL_TRANSDUCER; i++)
         TransducerArray[i].duty = 0.0f;
-    TransducerArray[idx].duty = 0.5f;
+    TransducerArray[idx].duty = DMA_DUTY_CYCLE_MAX;
 
     /* PC13 VIRTUAL reference continues unchanged (not in real-transducer range) */
     Update_Full_Waveform_Buffer();
@@ -378,6 +378,6 @@ void Calib_SetNormalDrive(void)
 {
     Load_Calib_to_Transducers();
     for (int i = 0; i < NUM_REAL_TRANSDUCER; i++)
-        TransducerArray[i].duty = 0.5f;
+        TransducerArray[i].duty = DMA_DUTY_CYCLE_MAX;
     Update_Full_Waveform_Buffer();
 }

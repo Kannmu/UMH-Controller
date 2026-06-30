@@ -1,5 +1,6 @@
 #define _USE_MATH_DEFINES
 #include "calib_adc.h"
+#include "transducer.h"
 #include <math.h>
 
 TIM_HandleTypeDef htim6;
@@ -7,7 +8,7 @@ DMA_HandleTypeDef hdma_adc1_calib;
 volatile uint8_t adc_capture_done = 0;
 
 __ALIGNED(32)
-uint16_t adc_buffer[8000] __attribute__((section(".storage_buffer")));
+uint16_t adc_buffer[CALIB_ADC_BUFFER_SIZE] __attribute__((section(".storage_buffer")));
 
 /* 10-sample IQ LUT: cos/sin at 400kHz sample rate for 40kHz target.
  * cos(2*PI*k/10), sin(2*PI*k/10) for k = 0..9 */
@@ -38,7 +39,7 @@ void MX_TIM6_Init(void)
     htim6.Instance = TIM6;
     htim6.Init.Prescaler         = 0;
     htim6.Init.CounterMode       = TIM_COUNTERMODE_UP;
-    htim6.Init.Period            = (tim6_clk / 400000U) - 1U;  /* 400kHz */
+    htim6.Init.Period            = (tim6_clk / CALIB_ADC_SAMPLING_FREQ) - 1U;  /* 400kHz */
     htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
     if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
         Error_Handler();
@@ -94,7 +95,7 @@ void Calib_ADC_Configure(void)
     if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
         Error_Handler();
 
-    /* DMA1_Stream3: peripheral-to-memory, halfword, normal mode, NDTR=8000 */
+    /* DMA1_Stream3: peripheral-to-memory, halfword, normal mode, NDTR=CALIB_ADC_BUFFER_SIZE */
     hdma_adc1_calib.Instance                 = DMA1_Stream3;
     hdma_adc1_calib.Init.Request             = DMA_REQUEST_ADC1;
     hdma_adc1_calib.Init.Direction           = DMA_PERIPH_TO_MEMORY;
@@ -194,5 +195,5 @@ float Calib_IQ_Demodulate(uint16_t *buf, uint32_t sample_count, float *amplitude
 
 float Calib_PhaseToMicroseconds(float phase_rad)
 {
-    return phase_rad / (2.0f * (float)M_PI) * 25.0f;
+    return phase_rad / (2.0f * (float)M_PI) * TRANSDUCER_PERIOD_US;
 }

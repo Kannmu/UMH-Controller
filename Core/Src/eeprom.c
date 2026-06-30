@@ -39,14 +39,17 @@ uint8_t EEPROM_ReadBuffer(uint16_t addr, uint8_t *data, uint16_t len)
 /* Memory layout:
  *  0:   magic[4]  = {'U','M','H','C'}
  *  4:   version   (uint16_t) = 1
- *  6:   num       (uint16_t) = 60
- *  8:   calib_us[60] (float, 240 bytes) → offset 8..247
- *  248: checksum  (uint32_t) = XOR over bytes 0..247
- *  Total 252 bytes */
+ *  6:   num       (uint16_t) = NUM_REAL_TRANSDUCER
+ *  8:   calib_us[NUM_REAL_TRANSDUCER] (float, EEPROM_CAL_DATA bytes)
+ *  EEPROM_CAL_CS_OFFSET: checksum  (uint32_t)
+ *  Total EEPROM_CAL_SIZE bytes */
 #define EEPROM_CAL_MAGIC  0x43484D55  /* 'UMHC' little-endian */
 #define EEPROM_CAL_VERSION 1u
 #define EEPROM_CAL_OFFSET  0u
-#define EEPROM_CAL_SIZE    252u
+#define EEPROM_CAL_HEADER_SIZE    8u
+#define EEPROM_CAL_DATA_BYTES     (NUM_REAL_TRANSDUCER * sizeof(float))
+#define EEPROM_CAL_CS_OFFSET      (EEPROM_CAL_HEADER_SIZE + EEPROM_CAL_DATA_BYTES)
+#define EEPROM_CAL_SIZE           (EEPROM_CAL_CS_OFFSET + 4u)
 
 static uint32_t eeprom_checksum(const uint8_t *data, uint16_t len)
 {
@@ -55,22 +58,22 @@ static uint32_t eeprom_checksum(const uint8_t *data, uint16_t len)
     return c;
 }
 
-uint8_t EEPROM_SaveCalibration(const float calib_us[60])
+uint8_t EEPROM_SaveCalibration(const float calib_us[NUM_REAL_TRANSDUCER])
 {
     uint8_t buf[EEPROM_CAL_SIZE];
     memset(buf, 0, sizeof(buf));
     buf[0] = 'U'; buf[1] = 'M'; buf[2] = 'H'; buf[3] = 'C';
     uint16_t ver = EEPROM_CAL_VERSION;
-    uint16_t num = 60;
+    uint16_t num = NUM_REAL_TRANSDUCER;
     memcpy(&buf[4], &ver, 2);
     memcpy(&buf[6], &num, 2);
-    memcpy(&buf[8], calib_us, 240);
-    uint32_t cs = eeprom_checksum(buf, 248);
-    memcpy(&buf[248], &cs, 4);
+    memcpy(&buf[8], calib_us, EEPROM_CAL_DATA_BYTES);
+    uint32_t cs = eeprom_checksum(buf, EEPROM_CAL_CS_OFFSET);
+    memcpy(&buf[EEPROM_CAL_CS_OFFSET], &cs, 4);
     return EEPROM_WriteBuffer(EEPROM_CAL_OFFSET, buf, sizeof(buf));
 }
 
-uint8_t EEPROM_LoadCalibration(float calib_us_out[60])
+uint8_t EEPROM_LoadCalibration(float calib_us_out[NUM_REAL_TRANSDUCER])
 {
     uint8_t buf[EEPROM_CAL_SIZE];
     if (!EEPROM_ReadBuffer(EEPROM_CAL_OFFSET, buf, sizeof(buf)))
@@ -83,9 +86,9 @@ uint8_t EEPROM_LoadCalibration(float calib_us_out[60])
     memcpy(&ver, &buf[4], 2);
     if (ver != EEPROM_CAL_VERSION) return 0;
     uint32_t cs_stored, cs_calc;
-    memcpy(&cs_stored, &buf[248], 4);
-    cs_calc = eeprom_checksum(buf, 248);
+    memcpy(&cs_stored, &buf[EEPROM_CAL_CS_OFFSET], 4);
+    cs_calc = eeprom_checksum(buf, EEPROM_CAL_CS_OFFSET);
     if (cs_stored != cs_calc) return 0;
-    memcpy(calib_us_out, &buf[8], 240);
+    memcpy(calib_us_out, &buf[8], EEPROM_CAL_DATA_BYTES);
     return 1;
 }

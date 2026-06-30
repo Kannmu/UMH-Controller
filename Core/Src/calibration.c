@@ -52,10 +52,6 @@ float Transducer_Calibration_Array[] = {
 //     0, 0, 0, 0, 0,
 //     0};
 
-
-
-
-
 void Switch_Calibration_Mode()
 {
     static GPIO_PinState debouncedState = GPIO_PIN_SET;
