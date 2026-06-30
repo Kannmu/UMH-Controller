@@ -54,8 +54,14 @@ typedef struct Transducer
     float duty;
 } Transducer;
 
+typedef struct {
+    GPIO_TypeDef *port;
+    uint8_t       port_num;
+    uint16_t      pin;
+} TransducerPinDef;
 
-extern const char *TransducerPins[];
+
+extern const TransducerPinDef TransducerPins[];
 extern Transducer TransducerArray[NUM_TOTAL_CHANNELS];
 
 
@@ -72,7 +78,3 @@ void Set_Plane_Wave(void);
 
 float Distance_to_Phase(float distance);
 float Phase_to_Gap_Ticks(float phase);
-
-GPIO_TypeDef *map_pin_name_to_gpio_port(const char *);
-uint8_t map_pin_name_to_gpio_port_num(const char *);
-uint16_t map_pin_name_to_pin_number(const char *);

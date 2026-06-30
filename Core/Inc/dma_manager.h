@@ -2,10 +2,32 @@
 # include "main.h"
 # include "transducer.h"
 
-# define DMA_CHANNELS 4   /* B / C / D / E — no transducers on GPIOA */
+# define DMA_CHANNELS 4   /* B / C / D / E */
+
+/* ---- Per-port DMA configuration ---- */
+typedef struct {
+    uint8_t            port_index;
+    char               port_letter;
+    GPIO_TypeDef      *gpio;
+    DMA_HandleTypeDef *dma_handle;
+    DMA_Stream_TypeDef *dma_instance;
+    uint32_t           dma_request;
+    uint32_t           tim_channel;
+} PortDMAConfig;
+
+extern const PortDMAConfig port_dma_configs[DMA_CHANNELS];
 
 # define DMA_SAMPLING_FREQ 4000000UL
 # define WAVEFORM_BUFFER_SIZE ((uint32_t)(DMA_SAMPLING_FREQ/TRANSDUCER_BASE_FREQ))
+/* WAVEFORM_BUFFER_SIZE = 100 = one 40kHz cycle at 4MHz DMA rate.
+ * NUM_STIMULATION_SAMPLES = 200 = 200Hz AM envelope (200 cycles per 5ms period).
+ * Buffer layout: Waveform_Storage[port][cycle][tick] — 4×200×100×2 = 160KB.
+ * Placed in RAM_D2 (.storage_buffer) for zero-latency DMA access (DMA1/DMA2
+ * are on the D2 domain; D1 would add bus-matrix traversal latency at 16M
+ * transactions/sec). NOLOAD: skip boot-time zeroing; Clean_DMABuffer() handles it.
+ * Static modes (Point/TwinTrap): compute cycle 0 only, memcpy to 1..199 —
+ * ~200× speedup vs full recomputation. */
+
 # define MAIN_WAVE_LENGTH_IN_BUFFER (WAVEFORM_BUFFER_SIZE)
 
 # define TIME_GAP_PER_DMA_BUFFER_BIT ((long double)(1.0/(DMA_SAMPLING_FREQ)))

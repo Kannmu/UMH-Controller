@@ -44,7 +44,6 @@ static inline int      Stim_Is_Static(const struct Stimulation *s) {
 
 /* ---- Public API ---- */
 void  Stim_Init(void);
-void  Switch_Demo_Mode(void);
 int   Get_Demo_Mode(void);
 int   Get_Num_Demo_Stimulations(void);
 int   Get_Phase_Set_Mode(void);

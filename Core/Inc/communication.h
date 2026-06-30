@@ -40,6 +40,8 @@
 #define RSP_TRANSDUCER_INFO     0x87
 #define RSP_ERROR_CODE          0xFF
 
+#define RX_FRAME_TIMEOUT_MS     100U
+
 // 协议帧结构
 typedef struct {
     uint8_t header[2];      // 帧头 0xAA 0x55
@@ -69,11 +71,12 @@ typedef struct {
     comm_frame_t frame;
     uint8_t data_index;
     uint8_t calculated_checksum;
+    uint32_t last_byte_tick;
 } rx_buffer_t;
 
 
 typedef struct __attribute__((packed)) {
-    char serial_number[12];
+    char serial_number[25];
     uint32_t version;
     uint8_t array_type;
     uint32_t array_size;
@@ -102,3 +105,4 @@ void Comm_Send_Response(uint8_t cmd_type, uint8_t* data, uint8_t data_length);
 uint8_t Comm_Calculate_Checksum(uint8_t cmd_type, uint8_t data_length, uint8_t* data);
 void Comm_Handle_Ping_Command(uint8_t* data, uint8_t data_length);
 void Comm_Reset_Rx_State(void);
+void Comm_Check_Rx_Timeout(void);

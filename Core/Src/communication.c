@@ -27,6 +27,15 @@ void Comm_Reset_Rx_State(void)
     memset(&rx_buffer.frame, 0, sizeof(comm_frame_t));
 }
 
+void Comm_Check_Rx_Timeout(void)
+{
+    if (rx_buffer.state != RX_STATE_WAIT_HEADER1) {
+        if (HAL_GetTick() - rx_buffer.last_byte_tick > RX_FRAME_TIMEOUT_MS) {
+            Comm_Reset_Rx_State();
+        }
+    }
+}
+
 /**
  * @brief 计算校验和
  * @param cmd_type 命令类型
@@ -103,6 +112,7 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
 {
     for (uint32_t i = 0; i < length; i++) {
         uint8_t byte = data[i];
+        rx_buffer.last_byte_tick = HAL_GetTick();
 
         switch (rx_buffer.state) {
             case RX_STATE_WAIT_HEADER1:
@@ -208,7 +218,8 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
 
                             // 设备序列号
                             char* serial_number = Get_Device_Serial_Number();
-                            memcpy(config.serial_number, serial_number, 12);
+                            strncpy(config.serial_number, serial_number, sizeof(config.serial_number) - 1);
+                            config.serial_number[sizeof(config.serial_number) - 1] = '\0';
 
                             config.version = VERSION;
                             config.array_type = ARRAY_TYPE_CONCENTRIC_RINGS; // 0x00: Rect, 0x01: Hex, 0x02: Concentric Rings

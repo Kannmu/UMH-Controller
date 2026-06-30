@@ -8,34 +8,77 @@
 float Wave_K = ((2.0*M_PI*TRANSDUCER_BASE_FREQ)/SPEED_OF_SOUND);
 
 // Transducer Array — V5.5 同心圆环 (6/12/18/24 = 60) + 虚拟 + 2 触发
-const char *TransducerPins[] =
-{
-    // Ring 0 (6 阵元, r=12.6mm, 首阵元在 0°/+X 轴)
-    "PD1", "PB6", "PB7",  "PC0", "PE8",  "PD13",
-
-    // Ring 1 (12 阵元, r=25.2mm, 整环旋转 137.5°)
-    "PB9", "PC1", "PC2", "PE9", "PE10",
-    "PD11", "PD12", "PC12", "PD0", "PB4", "PB5",  "PB8",
-
-    // Ring 2 (18 阵元, r=37.8mm, 整环旋转 2×137.5°)
-    "PD8", "PD9", "PD10", "PC8", "PC10", "PC11",
-    "PD6", "PD7", "PB3", "PE0", "PE1", "PE2",
-    "PC3", "PC4", "PC5", "PE11", "PE12", "PE13",
-
-    // Ring 3 (24 阵元, r=50.4mm, 整环旋转 3×137.5°)
-    "PE15", "PB10", "PB11", "PB12", "PB13", "PB14",
-    "PB15", "PD14", "PD15", "PC6", "PC7", "PD2",
-    "PD3", "PD4", "PD5", "PE3", "PE4", "PE5",
-    "PE6", "PB0", "PB1", "PB2", "PE7", "PE14",
-
-    // VIRTUALTRANSDUCER — PC13, 40kHz 相位参考
-    "PC13",
-
-    // TRIGGER0 — PC14, 200Hz 周期开头 1ms 脉冲
-    "PC14",
-
-    // TRIGGER1 — PC15, 可配置 (默认全0)
-    "PC15"
+const TransducerPinDef TransducerPins[NUM_TOTAL_CHANNELS] = {
+    /* Ring 0 (6 elements, r=12.6mm) */
+    {GPIOD, 2, GPIO_PIN_1},
+    {GPIOB, 0, GPIO_PIN_6},
+    {GPIOB, 0, GPIO_PIN_7},
+    {GPIOC, 1, GPIO_PIN_0},
+    {GPIOE, 3, GPIO_PIN_8},
+    {GPIOD, 2, GPIO_PIN_13},
+    /* Ring 1 (12 elements, r=25.2mm) */
+    {GPIOB, 0, GPIO_PIN_9},
+    {GPIOC, 1, GPIO_PIN_1},
+    {GPIOC, 1, GPIO_PIN_2},
+    {GPIOE, 3, GPIO_PIN_9},
+    {GPIOE, 3, GPIO_PIN_10},
+    {GPIOD, 2, GPIO_PIN_11},
+    {GPIOD, 2, GPIO_PIN_12},
+    {GPIOC, 1, GPIO_PIN_12},
+    {GPIOD, 2, GPIO_PIN_0},
+    {GPIOB, 0, GPIO_PIN_4},
+    {GPIOB, 0, GPIO_PIN_5},
+    {GPIOB, 0, GPIO_PIN_8},
+    /* Ring 2 (18 elements, r=37.8mm) */
+    {GPIOD, 2, GPIO_PIN_8},
+    {GPIOD, 2, GPIO_PIN_9},
+    {GPIOD, 2, GPIO_PIN_10},
+    {GPIOC, 1, GPIO_PIN_8},
+    {GPIOC, 1, GPIO_PIN_10},
+    {GPIOC, 1, GPIO_PIN_11},
+    {GPIOD, 2, GPIO_PIN_6},
+    {GPIOD, 2, GPIO_PIN_7},
+    {GPIOB, 0, GPIO_PIN_3},
+    {GPIOE, 3, GPIO_PIN_0},
+    {GPIOE, 3, GPIO_PIN_1},
+    {GPIOE, 3, GPIO_PIN_2},
+    {GPIOC, 1, GPIO_PIN_3},
+    {GPIOC, 1, GPIO_PIN_4},
+    {GPIOC, 1, GPIO_PIN_5},
+    {GPIOE, 3, GPIO_PIN_11},
+    {GPIOE, 3, GPIO_PIN_12},
+    {GPIOE, 3, GPIO_PIN_13},
+    /* Ring 3 (24 elements, r=50.4mm) */
+    {GPIOE, 3, GPIO_PIN_15},
+    {GPIOB, 0, GPIO_PIN_10},
+    {GPIOB, 0, GPIO_PIN_11},
+    {GPIOB, 0, GPIO_PIN_12},
+    {GPIOB, 0, GPIO_PIN_13},
+    {GPIOB, 0, GPIO_PIN_14},
+    {GPIOB, 0, GPIO_PIN_15},
+    {GPIOD, 2, GPIO_PIN_14},
+    {GPIOD, 2, GPIO_PIN_15},
+    {GPIOC, 1, GPIO_PIN_6},
+    {GPIOC, 1, GPIO_PIN_7},
+    {GPIOD, 2, GPIO_PIN_2},
+    {GPIOD, 2, GPIO_PIN_3},
+    {GPIOD, 2, GPIO_PIN_4},
+    {GPIOD, 2, GPIO_PIN_5},
+    {GPIOE, 3, GPIO_PIN_3},
+    {GPIOE, 3, GPIO_PIN_4},
+    {GPIOE, 3, GPIO_PIN_5},
+    {GPIOE, 3, GPIO_PIN_6},
+    {GPIOB, 0, GPIO_PIN_0},
+    {GPIOB, 0, GPIO_PIN_1},
+    {GPIOB, 0, GPIO_PIN_2},
+    {GPIOE, 3, GPIO_PIN_7},
+    {GPIOE, 3, GPIO_PIN_14},
+    /* VIRTUALTRANSDUCER — PC13 */
+    {GPIOC, 1, GPIO_PIN_13},
+    /* TRIGGER0 — PC14 */
+    {GPIOC, 1, GPIO_PIN_14},
+    /* TRIGGER1 — PC15 */
+    {GPIOC, 1, GPIO_PIN_15},
 };
 
 Transducer TransducerArray[NUM_TOTAL_CHANNELS];
@@ -49,9 +92,9 @@ void Transducer_Init(void)
     {
         Transducer *t = &TransducerArray[i];
         t->index     = (uint8_t)i;
-        t->port      = map_pin_name_to_gpio_port(TransducerPins[i]);
-        t->port_num  = map_pin_name_to_gpio_port_num(TransducerPins[i]);
-        t->pin       = map_pin_name_to_pin_number(TransducerPins[i]);
+        t->port      = TransducerPins[i].port;
+        t->port_num  = TransducerPins[i].port_num;
+        t->pin       = TransducerPins[i].pin;
         t->calib     = (i < NUM_REAL_TRANSDUCER)
                        ? (uint16_t)(Transducer_Calibration_Array[i] * BufferGapPerMicroseconds)
                        : 0;
@@ -169,86 +212,4 @@ float Distance_to_Phase(float distance)
 float Phase_to_Gap_Ticks(float phase)
 {
     return (phase / (2.0 * M_PI * TRANSDUCER_BASE_FREQ)) / TIME_GAP_PER_DMA_BUFFER_BIT;
-}
-
-GPIO_TypeDef *map_pin_name_to_gpio_port(const char *pin_name)
-{
-    if (pin_name == NULL)
-        return NULL;
-
-    switch (pin_name[1])
-    {
-    case 'A':
-        return GPIOA;
-    case 'B':
-        return GPIOB;
-    case 'C':
-        return GPIOC;
-    case 'D':
-        return GPIOD;
-    case 'E':
-        return GPIOE;
-    case 'F':
-        return GPIOF;
-    default:
-        return GPIOA;
-    }
-}
-
-static const uint16_t port_num_map[] = {
-    ['A']=0xFF, ['B']=0, ['C']=1, ['D']=2, ['E']=3
-};
-
-uint8_t map_pin_name_to_gpio_port_num(const char *pin) {
-    return port_num_map[(int)pin[1]];
-}
-
-uint16_t map_pin_name_to_pin_number(const char *pin_name)
-{
-
-    if (pin_name == NULL)
-        return 0;
-
-    char pin_number_str[4];
-    strncpy(pin_number_str, &pin_name[2], 3);
-    pin_number_str[3] = '\0';
-
-    int pin_number = atoi(pin_number_str);
-    switch (pin_number)
-    {
-    case 0:
-        return GPIO_PIN_0;
-    case 1:
-        return GPIO_PIN_1;
-    case 2:
-        return GPIO_PIN_2;
-    case 3:
-        return GPIO_PIN_3;
-    case 4:
-        return GPIO_PIN_4;
-    case 5:
-        return GPIO_PIN_5;
-    case 6:
-        return GPIO_PIN_6;
-    case 7:
-        return GPIO_PIN_7;
-    case 8:
-        return GPIO_PIN_8;
-    case 9:
-        return GPIO_PIN_9;
-    case 10:
-        return GPIO_PIN_10;
-    case 11:
-        return GPIO_PIN_11;
-    case 12:
-        return GPIO_PIN_12;
-    case 13:
-        return GPIO_PIN_13;
-    case 14:
-        return GPIO_PIN_14;
-    case 15:
-        return GPIO_PIN_15;
-    default:
-        return GPIO_PIN_0;
-    }
 }

@@ -218,7 +218,7 @@ void Error_Handler(void);
 /* USER CODE BEGIN Private defines */
 # define VERSION 505U
 
-# define target_loop_freq 3000
+# define target_loop_freq 6000
 # define target_loop_period_us (1e6f/target_loop_freq)
 
 # define LOOP_FREQ_CHECK_MS 1000U

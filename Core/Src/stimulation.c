@@ -183,47 +183,7 @@ void Update_Stimulation_State(float progress)
         CurrentStimulation.type_desc->update(&CurrentStimulation, progress);
 }
 
-/* ================================================================
- *  Button / Demo switching
- * ================================================================ */
-
-void Switch_Demo_Mode(void)
-{
-    if (Get_Calibration_Mode())
-        return;
-
-    static GPIO_PinState debouncedState = GPIO_PIN_SET;
-    static GPIO_PinState lastRawState = GPIO_PIN_SET;
-    static uint32_t lastDebounceTime = 0;
-    const uint32_t debounceDelay = 50;
-
-    GPIO_PinState currentRawState = HAL_GPIO_ReadPin(KEY1_GPIO_Port, KEY1_Pin);
-
-    if (currentRawState != lastRawState)
-        lastDebounceTime = HAL_GetTick();
-    lastRawState = currentRawState;
-
-    if ((HAL_GetTick() - lastDebounceTime) > debounceDelay)
-    {
-        if (currentRawState != debouncedState)
-        {
-            if (debouncedState == GPIO_PIN_SET && currentRawState == GPIO_PIN_RESET)
-            {
-                uint8_t num = Stim_Num_Demos();
-                if (num > 0) {
-                    demo_mode = (demo_mode + 1) % num;
-                    const StimDemoDescriptor *d = Stim_Get_Demo_By_Index((uint8_t)demo_mode);
-                    if (d) Set_Stimulation_From_Demo(d);
-                }
-            }
-            debouncedState = currentRawState;
-        }
-    }
-}
-
-/* ================================================================
- *  Enable / Disable helpers
- * ================================================================ */
+/* ---- Enable / Disable helpers ---- */
 
 int Get_Stimulation_Enabled(void)
 {

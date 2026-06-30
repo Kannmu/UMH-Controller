@@ -43,35 +43,24 @@ static uint8_t  trigger0_enable   = 1;
 static uint32_t trigger0_pulse_us = TRIGGER0_DEFAULT_PULSE_US;
 static uint8_t  trigger1_enable   = 0;
 
+const PortDMAConfig port_dma_configs[DMA_CHANNELS] = {
+    {0, 'B', GPIOB, &hdma_memtomem_dma1_stream1, DMA1_Stream1, DMA_REQUEST_TIM1_CH1, TIM_CHANNEL_1},
+    {1, 'C', GPIOC, &hdma_memtomem_dma1_stream2, DMA1_Stream2, DMA_REQUEST_TIM1_CH2, TIM_CHANNEL_2},
+    {2, 'D', GPIOD, &hdma_memtomem_dma2_stream0, DMA2_Stream0, DMA_REQUEST_TIM1_CH3, TIM_CHANNEL_3},
+    {3, 'E', GPIOE, &hdma_memtomem_dma2_stream1, DMA2_Stream1, DMA_REQUEST_TIM1_CH4, TIM_CHANNEL_4},
+};
+
 void DMA_Init()
 {
     /* DMA controller clock enable */
     __HAL_RCC_DMA1_CLK_ENABLE();
     __HAL_RCC_DMA2_CLK_ENABLE();
 
-    /* DMA_CHANNELS=4: B(idx0)=TIM1_CH1, C(idx1)=TIM1_CH2, D(idx2)=TIM1_CH3, E(idx3)=TIM1_CH4 */
-    DMA_Stream_Handles[0] = &hdma_memtomem_dma1_stream1;   /* GPIOB */
-    DMA_Stream_Handles[1] = &hdma_memtomem_dma1_stream2;   /* GPIOC */
-    DMA_Stream_Handles[2] = &hdma_memtomem_dma2_stream0;   /* GPIOD */
-    DMA_Stream_Handles[3] = &hdma_memtomem_dma2_stream1;   /* GPIOE */
-
-    /* Configure Init fields for each DMA stream */
-    static const DMA_Stream_TypeDef *const dma_instances[4] = {
-        DMA1_Stream1,  /* GPIOB */
-        DMA1_Stream2,  /* GPIOC */
-        DMA2_Stream0,  /* GPIOD */
-        DMA2_Stream1   /* GPIOE */
-    };
-    static const uint32_t dma_requests[4] = {
-        DMA_REQUEST_TIM1_CH1,  /* GPIOB */
-        DMA_REQUEST_TIM1_CH2,  /* GPIOC */
-        DMA_REQUEST_TIM1_CH3,  /* GPIOD */
-        DMA_REQUEST_TIM1_CH4   /* GPIOE */
-    };
     for (int i = 0; i < DMA_CHANNELS; i++)
     {
-        DMA_Stream_Handles[i]->Instance               = dma_instances[i];
-        DMA_Stream_Handles[i]->Init.Request           = dma_requests[i];
+        DMA_Stream_Handles[i] = port_dma_configs[i].dma_handle;
+        DMA_Stream_Handles[i]->Instance               = port_dma_configs[i].dma_instance;
+        DMA_Stream_Handles[i]->Init.Request           = port_dma_configs[i].dma_request;
         DMA_Stream_Handles[i]->Init.Direction         = DMA_MEMORY_TO_PERIPH;
         DMA_Stream_Handles[i]->Init.PeriphInc         = DMA_PINC_DISABLE;
         DMA_Stream_Handles[i]->Init.MemInc            = DMA_MINC_ENABLE;
@@ -101,12 +90,6 @@ void Start_DMAs()
 {
     uint32_t total_length = NUM_STIMULATION_SAMPLES * WAVEFORM_BUFFER_SIZE;
 
-    uint32_t *dest_addrs[DMA_CHANNELS] = {
-        (uint32_t *)(&(GPIOB->ODR)),
-        (uint32_t *)(&(GPIOC->ODR)),
-        (uint32_t *)(&(GPIOD->ODR)),
-        (uint32_t *)(&(GPIOE->ODR))};
-
     for (int i = 0; i < DMA_CHANNELS; i++)
     {
         DMA_Stream_Handles[i]->Init.Mode = DMA_CIRCULAR;
@@ -114,7 +97,7 @@ void Start_DMAs()
             Error_Handler();
         if (HAL_DMA_Start(DMA_Stream_Handles[i],
                           (uint32_t)&Waveform_Storage[i][0][0],
-                          (uint32_t)dest_addrs[i],
+                          (uint32_t)&port_dma_configs[i].gpio->ODR,
                           total_length) != HAL_OK)
             Error_Handler();
     }

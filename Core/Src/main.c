@@ -86,22 +86,6 @@ void MX_TIM6_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-/**
-  * Enable DMA controller clock
-  * Configure DMA for memory to memory transfers
-  *   hdma_memtomem_dma1_stream0
-  *   hdma_memtomem_dma1_stream1
-  *   hdma_memtomem_dma1_stream2
-  *   hdma_memtomem_dma2_stream0
-  *   hdma_memtomem_dma2_stream1
-  */
-static void MX_DMA_Init(void)
-{
-  /* DMA clocks enabled in DMA_Init (dma_manager.c).
-   * DMA stream Init fields configured there too. */
-  (void)0;
-}
-
 /* USER CODE END 0 */
 
 /**
@@ -178,6 +162,8 @@ int main(void)
 
   while (1)
   {
+    Comm_Check_Rx_Timeout();
+
     loop_count++;
     if (HAL_GetTick() - last_check_tick >= LOOP_FREQ_CHECK_MS)
     {
@@ -193,12 +179,12 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 
-    // Throttle loop to target frequency
-    // while ((DWT_GetMicroseconds() - loop_start_time) < target_loop_period_us)
-    // {
-    //     // Busy wait
-    //     __NOP();
-    // }
+    /* Throttle loop to target frequency (~3kHz) */
+    uint32_t loop_start = DWT_GetMicroseconds();
+    while ((DWT_GetMicroseconds() - loop_start) < target_loop_period_us)
+    {
+      __NOP();
+    }
   }
   /* USER CODE END 3 */
 }
