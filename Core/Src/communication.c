@@ -62,8 +62,8 @@ uint8_t Comm_Calculate_Checksum(uint8_t cmd_type, uint8_t data_length, uint8_t* 
  */
 void Comm_Send_Response(uint8_t cmd_type, uint8_t* data, uint8_t data_length)
 {
-    uint8_t tx_buffer[260]; // 最大帧长度
-    uint8_t index = 0;
+    uint8_t tx_buffer[COMM_MAX_FRAME]; // 最大帧长度 = 7 + 255
+    uint16_t index = 0;
 
     // 帧头
     tx_buffer[index++] = FRAME_HEADER_1;

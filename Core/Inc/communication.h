@@ -42,6 +42,10 @@
 
 #define RX_FRAME_TIMEOUT_MS     100U
 
+/* Frame size helpers: HEADER(2)+CMD(1)+LEN(1)+CS(1)+TAIL(2) = 7, plus up to 255 data bytes */
+#define COMM_FRAME_OVERHEAD     7U
+#define COMM_MAX_FRAME          (COMM_FRAME_OVERHEAD + 255U)
+
 // 协议帧结构
 typedef struct {
     uint8_t header[2];      // 帧头 0xAA 0x55

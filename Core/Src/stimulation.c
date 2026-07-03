@@ -6,7 +6,6 @@
 #include "dma_manager.h"
 #include "stim_types.h"
 #include <string.h>
-#include <stdlib.h>
 
 int phase_set_mode = 0;
 int is_stimulation_enabled = 1;
@@ -105,11 +104,8 @@ void Stim_Init(void)
 {
     const StimTypeDescriptor *point_type = Stim_Get_Type_By_Id(0);
 
-    /* Allocate the per-type delta-time array — Stim_Num_Types() entries */
-    {
-        uint8_t n = Stim_Num_Types();
-        updateDMABufferDeltaTimeByType = (double *)calloc(n, sizeof(double));
-    }
+    /* updateDMABufferDeltaTimeByType is a fixed-size static array (STIM_MAX_TYPES
+     * entries, see utiles.h); no runtime allocation needed. */
 
     /* EmptyStimulation — safe fallback */
     memset(&EmptyStimulation, 0, sizeof(EmptyStimulation));

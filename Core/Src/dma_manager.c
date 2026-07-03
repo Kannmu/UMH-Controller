@@ -4,6 +4,11 @@
 #include "calibration.h"
 #include "stimulation.h"
 
+/* TRIGGER0 / TRIGGER1 配置 */
+static uint8_t  trigger0_enable   = 0;
+static uint32_t trigger0_pulse_us = TRIGGER0_DEFAULT_PULSE_US;
+static uint8_t  trigger1_enable   = 0;
+
 const uint16_t half_period = WAVEFORM_BUFFER_SIZE / 2;
 
 const uint16_t BufferGapPerMicroseconds = ((float)(1e-6) / TIME_GAP_PER_DMA_BUFFER_BIT);
@@ -38,10 +43,7 @@ extern TIM_HandleTypeDef htim1;
 static Transducer *TransducersByPort[DMA_CHANNELS][NUM_TOTAL_CHANNELS];
 static int TransducersByPortCount[DMA_CHANNELS];
 
-/* TRIGGER0 / TRIGGER1 配置 */
-static uint8_t  trigger0_enable   = 1;
-static uint32_t trigger0_pulse_us = TRIGGER0_DEFAULT_PULSE_US;
-static uint8_t  trigger1_enable   = 0;
+
 
 const PortDMAConfig port_dma_configs[DMA_CHANNELS] = {
     {0, 'B', GPIOB, &hdma_memtomem_dma1_stream1, DMA1_Stream1, DMA_REQUEST_TIM1_CH1, TIM_CHANNEL_1},
@@ -314,8 +316,7 @@ void Update_Full_Waveform_Buffer()
         updateDMABufferDeltaTime = (double)(end_cycles - start_cycles) / (SystemCoreClock / 1000.0);
         uint8_t tid = Stim_Get_Type_Id(&CurrentStimulation);
         uint8_t idx = Stim_Get_Index_By_Type_Id(tid);
-        uint8_t n   = Stim_Num_Types();
-        if (idx < n)
+        if (idx < STIM_MAX_TYPES)
             updateDMABufferDeltaTimeByType[idx] = updateDMABufferDeltaTime;
     }
 }

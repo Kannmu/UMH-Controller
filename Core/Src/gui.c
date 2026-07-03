@@ -277,6 +277,7 @@ static void render_refresh(const void *ctx) {
     SSD1306_DrawHLine(CONTENT_X, HEADER_H - 2, CONTENT_W, WHITE);
 
     uint8_t ntypes = Stim_Num_Types();
+    if (ntypes > STIM_MAX_TYPES) ntypes = STIM_MAX_TYPES;
     for (uint8_t i = 0; i < ntypes; i++) {
         int16_t y = HEADER_H + (int16_t)i * ROW_H - (int16_t)scroll_y_smooth;
         if (y < HEADER_H - ROW_H || y > GUI_HEIGHT) continue;

@@ -140,12 +140,24 @@ void SSD1306_Flush(void)
         }
     }
 
-    /* Auto-reinit display on consecutive I2C failures */
+    /* Auto-reinit display on consecutive I2C failures.
+     * Reentrancy guard: SSD1306_Init() internally calls SSD1306_Flush(),
+     * so we must (a) clear i2c_err_cnt BEFORE calling SSD1306_Init to avoid
+     * the inner Flush re-entering this recovery block, and (b) block nested
+     * recovery attempts via the static flag. Without this, an I2C bus stuck
+     * low would cause unbounded recursion → MSP overflow → HardFault. */
     if (i2c_err_cnt >= 3) {
+        static uint8_t recovering = 0;
+        if (recovering) {
+            i2c_err_cnt = 0;
+            return;
+        }
+        recovering = 1;
+        i2c_err_cnt = 0;
         HAL_I2C_DeInit(&hi2c3);
         HAL_I2C_Init(&hi2c3);
         SSD1306_Init();
-        i2c_err_cnt = 0;
+        recovering = 0;
     }
 
     ssd1306_write_cmd(0x21); ssd1306_write_cmd(0);

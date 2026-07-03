@@ -8,7 +8,7 @@
 uint32_t sysTickDelta = 0;
 float System_Loop_Freq = 0.0f;
 double updateDMABufferDeltaTime = 0;
-double *updateDMABufferDeltaTimeByType = NULL;
+double updateDMABufferDeltaTimeByType[STIM_MAX_TYPES] = {0};
 
 void Init_DWT()
 {

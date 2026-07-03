@@ -7,7 +7,12 @@
 extern uint32_t sysTickDelta;
 extern float System_Loop_Freq;
 extern double updateDMABufferDeltaTime;
-extern double *updateDMABufferDeltaTimeByType; /* runtime-allocated, Stim_Num_Types() entries */
+
+/* Per-type DMA buffer update time. Bounded by STIM_MAX_TYPES; indexed by
+ * Stim_Get_Index_By_Type_Id(). Sized to cover the linker-section registry
+ * (currently 5 types); avoids runtime heap allocation. */
+#define STIM_MAX_TYPES 16
+extern double updateDMABufferDeltaTimeByType[STIM_MAX_TYPES];
 
 void Init_DWT(void);
 uint32_t DWT_GetCycles(void);
