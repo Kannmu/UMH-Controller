@@ -116,8 +116,8 @@ typedef struct __attribute__((packed)) {
 void Comm_Init(void);
 void Comm_Process_Received_Data(uint8_t* data, uint32_t length);
 void Comm_Tick(void);                          /* main loop: dequeue & execute one command */
-void Comm_Send_Response(uint8_t cmd_type, uint8_t* data, uint8_t data_length);
-uint8_t Comm_Calculate_Checksum(uint8_t cmd_type, uint8_t data_length, uint8_t* data);
-void Comm_Handle_Ping_Command(uint8_t* data, uint8_t data_length);
+void Comm_Send_Response(uint8_t cmd_type, const uint8_t* data, uint8_t data_length);
+uint8_t Comm_Calculate_Checksum(uint8_t cmd_type, uint8_t data_length, const uint8_t* data);
+void Comm_Handle_Ping_Command(const uint8_t* data, uint8_t data_length);
 void Comm_Reset_Rx_State(void);
 void Comm_Check_Rx_Timeout(void);

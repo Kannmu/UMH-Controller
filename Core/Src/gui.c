@@ -1,4 +1,4 @@
-/* GUI — Multi-level menu framework (portrait 32x128 OLED)
+/* GUI — Multi-level menu framework (128x32 landscape OLED, SSD1306)
  *
  * Navigation: UP/DOWN = cursor, CONFIRM = enter/execute, RETURN = back/cancel.
  * Layout: left 10px sidebar (vertical title) + 118px scrollable content area.
@@ -117,17 +117,34 @@ void GUI_FormatSmartUnits(char *buf, size_t sz, float value, const char *suffix,
     snprintf(buf, sz, "%s %s%s", num, pfx, suffix);
 }
 
-/* ---- Draw vertical sidebar title (one char per row, top→down) ---- */
+/* ---- Draw vertical sidebar title (one char per row, top→down) ----
+ * Vertical sidebar fits at most 4 chars (32px / 7px per char). Use short
+ * aliases for longer page titles so they are not visually truncated
+ * (e.g. "ABOUT"→"INF", "CALIB"→"CAL", "REFRESH"→"RFS", "SEMI CAL"→"SEM"). */
+static const char *sidebar_alias(const char *title)
+{
+    static const struct { const char *full; const char *alias; } aliases[] = {
+        {"ABOUT",     "INF"},
+        {"CALIB",     "CAL"},
+        {"REFRESH",   "RFS"},
+        {"SEMI CAL",  "SEM"},
+    };
+    for (size_t i = 0; i < sizeof(aliases)/sizeof(aliases[0]); i++) {
+        if (strcmp(title, aliases[i].full) == 0) return aliases[i].alias;
+    }
+    return title;
+}
 static void draw_sidebar(const char *title)
 {
+    const char *t = sidebar_alias(title);
     SSD1306_FillRect(0, 0, SIDEBAR_W, GUI_HEIGHT, WHITE);
-    int len = (int)strlen(title);
+    int len = (int)strlen(t);
     int max_chars = GUI_HEIGHT / 7;
     if (len > max_chars) len = max_chars;
     int start_y = (GUI_HEIGHT - len * 7) / 2;
     if (start_y < 0) start_y = 0;
     for (int i = 0; i < len; i++) {
-        Font_DrawChar(SIDEBAR_W / 2 - 2, start_y + i * 7, title[i], 0, 1, BLACK);
+        Font_DrawChar(SIDEBAR_W / 2 - 2, start_y + i * 7, t[i], 0, 1, BLACK);
     }
 }
 
@@ -512,29 +529,30 @@ static const MenuItem items_semi_calib[] = {
 const MenuPage Page_SemiCalib = {"SEMI CAL", items_semi_calib, 1, 0, semi_calib_on_input, NULL};
 
 static bool semi_calib_on_input(NavAction nav) {
-    /* SemiCalib active: intercept buttons for state machine.
-     * CALIB_SAVING is also active (EEPROM write in progress): swallow all
-     * input so the user cannot pop the page mid-save. */
-    if (calib_state != CALIB_IDLE && calib_state != CALIB_DONE
-        && calib_state != CALIB_ERROR && calib_state != CALIB_SAVING) {
+    /* SemiCalib state machine controls button routing. CALIB_SAVING
+     * (EEPROM write in progress) swallows all input so the user cannot
+     * pop the page mid-save. IDLE/DONE/ERROR exit on RETURN or CONFIRM. */
+    switch (calib_state) {
+    case CALIB_PROMPT:
+    case CALIB_MEASURING:
+    case CALIB_SHOW_RESULT:
+        /* Active calibration: forward button events to the state machine. */
         if (nav == NAV_CONFIRM)      calib_button_pressed = 1;
         else if (nav == NAV_RETURN)  calib_button_pressed = 2;
         gui_dirty = 1;
         return true;
-    }
-    if (calib_state == CALIB_SAVING) {
+    case CALIB_SAVING:
         /* Saving in progress: consume input without effect. */
         gui_dirty = 1;
         return true;
-    }
-    /* IDLE / DONE / ERROR: RETURN to go back */
-    if (calib_state == CALIB_IDLE || calib_state == CALIB_ERROR
-        || (calib_state == CALIB_DONE && nav == NAV_CONFIRM))
-    {
+    case CALIB_IDLE:
+    case CALIB_ERROR:
+    case CALIB_DONE:
+    default:
+        /* IDLE / DONE / ERROR: RETURN or CONFIRM exits the page. */
         if (nav == NAV_RETURN || nav == NAV_CONFIRM) { GUI_PopPage(); return true; }
+        return false;
     }
-    if (nav == NAV_RETURN) { GUI_PopPage(); return true; }
-    return false;
 }
 
 /* ================================================================

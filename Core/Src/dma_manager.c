@@ -174,6 +174,8 @@ void Update_Full_Waveform_Buffer()
                 for (int k = 0; k < count; k++)
                 {
                     Transducer *t = TransducersByPort[p][k];
+                    /* __builtin_ctz(0) is UB; guard against an uninitialized pin. */
+                    if (t->pin == 0) continue;
 
                     /* Virtual reference (PC13): continuous 40kHz, phase=0, 50% duty */
                     if (t->index == VIRTUAL_INDEX)

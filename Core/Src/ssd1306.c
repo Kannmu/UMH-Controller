@@ -122,14 +122,17 @@ void SSD1306_FillRect(int16_t x, int16_t y, int16_t w, int16_t h, Colour c)
         SSD1306_DrawHLine(x, yy, w, c);
 }
 
-/* Transpose: logical 32x128 (portrait) → hardware 128x32 (native).
- * Logical (x,y) → Hardware (X=y, Y=31-x): 90° clockwise rotation. */
+/* Repack the logical framebuffer (horizontal byte packing — bit n of the
+ * linear buffer = pixel (x=n%GUI_WIDTH, y=n/GUI_WIDTH)) into the SSD1306
+ * native format (vertical byte packing — byte at (page*SSD1306_WIDTH + x)
+ * covers pixels (x, page*8 .. page*8+7)). Both buffers are 128×32 landscape;
+ * this is a pure byte-repacking pass, NOT a rotation or transposition. */
 void SSD1306_Flush(void)
 {
     memset(fb_hw, 0, sizeof(fb_hw));
-    for (int y = 0; y < GUI_HEIGHT; y++)       /* logical rows (0..31) */
+    for (int y = 0; y < GUI_HEIGHT; y++)       /* pixel rows 0..31 */
     {
-        for (int x = 0; x < GUI_WIDTH; x++)    /* logical cols (0..127) */
+        for (int x = 0; x < GUI_WIDTH; x++)    /* pixel cols 0..127 */
         {
             uint16_t li = (uint16_t)y * GUI_WIDTH + (uint16_t)x;
             if (fb_log[li >> 3] & (1U << (li & 7)))

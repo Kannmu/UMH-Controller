@@ -60,7 +60,6 @@ TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
 
 /* USER CODE BEGIN PV */
-DMA_HandleTypeDef hdma_memtomem_dma1_stream0;
 DMA_HandleTypeDef hdma_memtomem_dma1_stream1;
 DMA_HandleTypeDef hdma_memtomem_dma1_stream2;
 DMA_HandleTypeDef hdma_memtomem_dma2_stream0;
@@ -134,7 +133,10 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM6_Init();
   /* USER CODE BEGIN 2 */
-
+  /* Init order matters: DWT before any timing-sensitive code; Transducer_Init
+   * before Stim_Init (Stim references transducer state); EEPROM load before
+   * DMA_Init (calibration values feed Waveform_Storage); DMA_Init before
+   * I2C3/GUI (main loop polls DMA-backed stimulus). */
   Comm_Init();
   Init_DWT();
   Transducer_Init();

@@ -150,7 +150,7 @@ void Load_Calib_to_Transducers()
 }
 
 // Update Point to Transducers Parameters
-void Set_Point_Focus(float *position)
+void Set_Point_Focus(const float *position)
 {
     for (int i = 0; i < NUM_REAL_TRANSDUCER; i++)
     {
@@ -165,7 +165,7 @@ void Set_Point_Focus(float *position)
     }
 }
 
-void Set_Twin_Trap_Focus(float *position)
+void Set_Twin_Trap_Focus(const float *position)
 {
     for (int i = 0; i < NUM_REAL_TRANSDUCER; i++)
     {

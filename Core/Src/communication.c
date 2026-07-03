@@ -58,7 +58,7 @@ void Comm_Check_Rx_Timeout(void)
  * @param data 数据指针
  * @return 校验和
  */
-uint8_t Comm_Calculate_Checksum(uint8_t cmd_type, uint8_t data_length, uint8_t* data)
+uint8_t Comm_Calculate_Checksum(uint8_t cmd_type, uint8_t data_length, const uint8_t* data)
 {
     uint16_t sum = cmd_type + data_length;
 
@@ -75,7 +75,7 @@ uint8_t Comm_Calculate_Checksum(uint8_t cmd_type, uint8_t data_length, uint8_t* 
  * @param data 数据指针
  * @param data_length 数据长度
  */
-void Comm_Send_Response(uint8_t cmd_type, uint8_t* data, uint8_t data_length)
+void Comm_Send_Response(uint8_t cmd_type, const uint8_t* data, uint8_t data_length)
 {
     uint8_t tx_buffer[COMM_MAX_FRAME]; // 最大帧长度 = 7 + 255
     uint16_t index = 0;
@@ -119,7 +119,7 @@ void Comm_Send_Response(uint8_t cmd_type, uint8_t* data, uint8_t data_length)
  * @param data 接收到的数据
  * @param data_length 数据长度
  */
-void Comm_Handle_Ping_Command(uint8_t* data, uint8_t data_length)
+void Comm_Handle_Ping_Command(const uint8_t* data, uint8_t data_length)
 {
     // 将接收到的随机数原样返回
     Comm_Send_Response(RSP_PING_ACK, data, data_length);

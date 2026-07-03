@@ -5,7 +5,7 @@
 #define SSD1306_HEIGHT   32
 #define SSD1306_ADDR    (0x3C << 1)  /* 8-bit write = 0x78 */
 
-/* Logical canvas (portrait orientation): 32 wide x 128 tall */
+/* Logical canvas: 128 wide × 32 tall (landscape, matches SSD1306 native) */
 #define GUI_WIDTH      128
 #define GUI_HEIGHT      32
 

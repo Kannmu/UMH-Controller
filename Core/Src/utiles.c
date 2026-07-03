@@ -62,18 +62,7 @@ char* Get_Device_Serial_Number(void)
     return serial_str;
 }
 
-extern ADC_HandleTypeDef hadc1;
 extern ADC_HandleTypeDef hadc3;
-
-static void Get_ADC1_Values(uint32_t *v33_raw, uint32_t *v50_raw)
-{
-    HAL_ADC_Start(&hadc1);
-    if (HAL_ADC_PollForConversion(&hadc1, 10) == HAL_OK)
-        *v33_raw = HAL_ADC_GetValue(&hadc1);
-    if (HAL_ADC_PollForConversion(&hadc1, 10) == HAL_OK)
-        *v50_raw = HAL_ADC_GetValue(&hadc1);
-    HAL_ADC_Stop(&hadc1);
-}
 
 static void Get_ADC3_Values(uint32_t *temp_raw, uint32_t *vref_raw)
 {
