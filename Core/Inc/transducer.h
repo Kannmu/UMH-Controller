@@ -65,7 +65,7 @@ extern const TransducerPinDef TransducerPins[];
 extern Transducer TransducerArray[NUM_TOTAL_CHANNELS];
 
 
-extern float Wave_K;
+extern const float Wave_K;
 
 void Transducer_Init(void);
 void Enter_Calibration_Mode(void);

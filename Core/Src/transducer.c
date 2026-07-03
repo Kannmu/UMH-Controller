@@ -5,7 +5,7 @@
 # include "communication.h"
 # include "custom_math.h"
 
-float Wave_K = ((2.0*M_PI*TRANSDUCER_BASE_FREQ)/SPEED_OF_SOUND);
+const float Wave_K = ((2.0*M_PI*TRANSDUCER_BASE_FREQ)/SPEED_OF_SOUND);
 
 // Transducer Array — V5.5 同心圆环 (6/12/18/24 = 60) + 虚拟 + 2 触发
 const TransducerPinDef TransducerPins[NUM_TOTAL_CHANNELS] = {

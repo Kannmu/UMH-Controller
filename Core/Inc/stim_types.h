@@ -23,6 +23,24 @@ typedef struct {
     Stim_Deserialize_Fn deserialize;
 } StimTypeDescriptor;
 
+/* TLV tags used by the per-type deserialize functions. The semantic meaning
+ * of each tag depends on the type (e.g. tag 0x04 is normalVector[0] for
+ * circular/discrete, endPoint[0] for linear); the names below describe the
+ * generic field slot. Adding a tag requires updating exactly one enum entry
+ * instead of hunting magic numbers across 5 files. */
+enum StimTag {
+    STIM_TAG_FIELD_0 = 0x01,   /* X / pos[0] / startPoint[0] / position[0] */
+    STIM_TAG_FIELD_1 = 0x02,   /* Y / pos[1] / startPoint[1] / position[1] */
+    STIM_TAG_FIELD_2 = 0x03,   /* Z / pos[2] / startPoint[2] / position[2] */
+    STIM_TAG_FIELD_3 = 0x04,   /* normalVector[0] / endPoint[0]            */
+    STIM_TAG_FIELD_4 = 0x05,   /* normalVector[1] / endPoint[1]            */
+    STIM_TAG_FIELD_5 = 0x06,   /* normalVector[2] / endPoint[2]            */
+    STIM_TAG_FIELD_6 = 0x07,   /* radius (circular/discrete)               */
+    STIM_TAG_FIELD_7 = 0x08,   /* segments / points (linear/discrete)      */
+    STIM_TAG_STRENGTH = 0xA0,
+    STIM_TAG_FREQUENCY = 0xA1
+};
+
 typedef void (*Stim_Demo_Populate_Fn)(struct Stimulation *stim);
 
 /* ---- Demo Preset Descriptor ---- */

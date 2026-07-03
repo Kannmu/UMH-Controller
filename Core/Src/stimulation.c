@@ -62,7 +62,8 @@ const StimTypeDescriptor* Stim_Get_Type_By_Name(const char *name)
 {
     uint8_t n = Stim_Num_Types();
     for (uint8_t i = 0; i < n; i++) {
-        if (strncmp(_stim_type_registry_start[i]->name, name, 32) == 0)
+        if (strncmp(_stim_type_registry_start[i]->name, name,
+                    sizeof(((struct Stimulation *)0)->name)) == 0)
             return _stim_type_registry_start[i];
     }
     return NULL;

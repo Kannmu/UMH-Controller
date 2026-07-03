@@ -1,6 +1,10 @@
 #pragma once
 #include "main.h"
 
+/* adc_buffer must reside in the non-cacheable MPU region (RAM_D2,
+ * 0x30000000-0x30080000, see SystemClock_Config MPU setup in main.c).
+ * Calib_semi.c calls SCB_InvalidateDCache_by_Addr before reading it as a
+ * defensive measure in case the MPU attribute is ever changed. */
 #define CALIB_ADC_BUFFER_SIZE   8000U   /* ADC @ 400kHz, 2 conv/trigger (ch16+ch17) -> 4000 triggers -> 10ms capture */
 #define CALIB_ADC_SAMPLING_FREQ 400000U
 

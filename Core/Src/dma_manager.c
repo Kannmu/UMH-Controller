@@ -9,7 +9,7 @@ static uint8_t  trigger0_enable   = 0;
 static uint32_t trigger0_pulse_us = TRIGGER0_DEFAULT_PULSE_US;
 static uint8_t  trigger1_enable   = 0;
 
-const uint16_t half_period = WAVEFORM_BUFFER_SIZE / 2;
+static const uint16_t half_period = WAVEFORM_BUFFER_SIZE / 2;
 
 const uint16_t BufferGapPerMicroseconds = ((float)(1e-6) / TIME_GAP_PER_DMA_BUFFER_BIT);
 

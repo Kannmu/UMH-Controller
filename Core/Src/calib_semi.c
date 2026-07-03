@@ -73,6 +73,11 @@ SemiCalibState SemiCalib_Tick(void)
 
     case CALIB_MEASURING:
         if (adc_capture_done) {
+            /* Defensive cache invalidate before CPU reads the DMA-filled buffer.
+             * The MPU currently marks RAM_D2 non-cacheable (so this is a no-op),
+             * but if the MPU is ever changed to cacheable this prevents stale
+             * cached reads. adc_buffer is 32-byte aligned (see calib_adc.c). */
+            SCB_InvalidateDCache_by_Addr((uint32_t *)adc_buffer, sizeof(adc_buffer));
             float amp;
             float phase = Calib_IQ_Demodulate(adc_buffer, CALIB_ADC_BUFFER_SIZE, &amp);
             float calib_us = Calib_PhaseToMicroseconds(phase);

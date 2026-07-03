@@ -72,15 +72,15 @@ static uint8_t circular_deserialize(struct Stimulation *stim,
         uint8_t flen = data[i]; i++;
         if (i + flen > len) break;
         switch (tag) {
-        case 0x01: if (flen == 4) { float v; __builtin_memcpy(&v, &data[i], 4); ctx->position[0] = v; } break;
-        case 0x02: if (flen == 4) { float v; __builtin_memcpy(&v, &data[i], 4); ctx->position[1] = v; } break;
-        case 0x03: if (flen == 4) { float v; __builtin_memcpy(&v, &data[i], 4); ctx->position[2] = v; } break;
-        case 0x04: if (flen == 4) { float v; __builtin_memcpy(&v, &data[i], 4); ctx->normalVector[0] = v; } break;
-        case 0x05: if (flen == 4) { float v; __builtin_memcpy(&v, &data[i], 4); ctx->normalVector[1] = v; } break;
-        case 0x06: if (flen == 4) { float v; __builtin_memcpy(&v, &data[i], 4); ctx->normalVector[2] = v; } break;
-        case 0x07: if (flen == 4) { float v; __builtin_memcpy(&v, &data[i], 4); ctx->radius = v; } break;
-        case 0xA0: if (flen == 4) { float v; __builtin_memcpy(&v, &data[i], 4); stim->strength  = v; } break;
-        case 0xA1: if (flen == 4) { float v; __builtin_memcpy(&v, &data[i], 4); stim->frequency = v; } break;
+        case STIM_TAG_FIELD_0: if (flen == 4) { float v; __builtin_memcpy(&v, &data[i], 4); ctx->position[0] = v; } break;
+        case STIM_TAG_FIELD_1: if (flen == 4) { float v; __builtin_memcpy(&v, &data[i], 4); ctx->position[1] = v; } break;
+        case STIM_TAG_FIELD_2: if (flen == 4) { float v; __builtin_memcpy(&v, &data[i], 4); ctx->position[2] = v; } break;
+        case STIM_TAG_FIELD_3: if (flen == 4) { float v; __builtin_memcpy(&v, &data[i], 4); ctx->normalVector[0] = v; } break;
+        case STIM_TAG_FIELD_4: if (flen == 4) { float v; __builtin_memcpy(&v, &data[i], 4); ctx->normalVector[1] = v; } break;
+        case STIM_TAG_FIELD_5: if (flen == 4) { float v; __builtin_memcpy(&v, &data[i], 4); ctx->normalVector[2] = v; } break;
+        case STIM_TAG_FIELD_6: if (flen == 4) { float v; __builtin_memcpy(&v, &data[i], 4); ctx->radius = v; } break;
+        case STIM_TAG_STRENGTH:  if (flen == 4) { float v; __builtin_memcpy(&v, &data[i], 4); stim->strength  = v; } break;
+        case STIM_TAG_FREQUENCY: if (flen == 4) { float v; __builtin_memcpy(&v, &data[i], 4); stim->frequency = v; } break;
         default: break;
         }
         i += flen;

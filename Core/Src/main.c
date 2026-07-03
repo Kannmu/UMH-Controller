@@ -740,7 +740,11 @@ void MPU_Config(void)
   MPU_InitStruct.Enable = MPU_REGION_ENABLE;
   MPU_InitStruct.Number = MPU_REGION_NUMBER0;
   MPU_InitStruct.BaseAddress = 0x30000000;
-  MPU_InitStruct.Size = MPU_REGION_SIZE_256KB;
+  /* RAM_D2 is 288KB (0x30000000-0x30048000) per linker script; round up to
+   * 512KB so any future .storage_buffer allocation in the top 32KB of RAM_D2
+   * remains non-cacheable for DMA coherency. The over-mapped region above
+   * 0x30048000 has no physical RAM, so this is harmless. */
+  MPU_InitStruct.Size = MPU_REGION_SIZE_512KB;
   MPU_InitStruct.SubRegionDisable = 0x0;
   MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL1;
   MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
@@ -762,14 +766,30 @@ void MPU_Config(void)
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return state */
+  /* Previously this disabled IRQs and busy-looped forever, leaving the device
+   * in a stuck state that required a power cycle. Now we blink the heartbeat
+   * LED for ~5 seconds (using the DWT cycle counter, since SysTick may have
+   * been halted) and then trigger a system reset so the firmware can recover
+   * automatically. */
   __disable_irq();
-  while (1)
+
+  /* Enable DEMCEN so DWT cycle counter ticks even with SysTick stopped. */
+  CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+  DWT->CYCCNT = 0;
+  DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+
+  uint32_t cycles_per_sec = SystemCoreClock;          /* e.g. 480 MHz */
+  uint32_t blink_end = 5U * cycles_per_sec;           /* 5 seconds */
+  uint32_t toggle_period = cycles_per_sec / 4U;       /* 4 Hz blink */
+
+  while (DWT->CYCCNT < blink_end)
   {
-    HAL_GPIO_TogglePin(HEARTBEAT_GPIO_Port, HEARTBEAT_Pin);
-    // Busy wait loop since SysTick is disabled
-    for(volatile int i=0; i<5000000; i++); 
+    if ((DWT->CYCCNT % toggle_period) == 0) {
+      HAL_GPIO_TogglePin(HEARTBEAT_GPIO_Port, HEARTBEAT_Pin);
+    }
   }
+
+  NVIC_SystemReset();
   /* USER CODE END Error_Handler_Debug */
 }
 
@@ -784,8 +804,12 @@ void Error_Handler(void)
 void assert_failed(uint8_t *file, uint32_t line)
 {
   /* USER CODE BEGIN 6 */
-  /* User can add his own implementation to report the file name and line number,
-     ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
+  /* A failed assert_param indicates a HAL misconfiguration; route into
+   * Error_Handler so the device resets rather than continuing in a bad state.
+   * (Only compiled when USE_FULL_ASSERT is defined, i.e. debug builds.) */
+  (void)file;
+  (void)line;
+  Error_Handler();
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */

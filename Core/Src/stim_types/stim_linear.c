@@ -60,15 +60,15 @@ static uint8_t linear_deserialize(struct Stimulation *stim,
         uint8_t flen = data[i]; i++;
         if (i + flen > len) break;
         switch (tag) {
-        case 0x01: if (flen == 4) { float v; __builtin_memcpy(&v, &data[i], 4); ctx->startPoint[0] = v; } break;
-        case 0x02: if (flen == 4) { float v; __builtin_memcpy(&v, &data[i], 4); ctx->startPoint[1] = v; } break;
-        case 0x03: if (flen == 4) { float v; __builtin_memcpy(&v, &data[i], 4); ctx->startPoint[2] = v; } break;
-        case 0x04: if (flen == 4) { float v; __builtin_memcpy(&v, &data[i], 4); ctx->endPoint[0] = v; } break;
-        case 0x05: if (flen == 4) { float v; __builtin_memcpy(&v, &data[i], 4); ctx->endPoint[1] = v; } break;
-        case 0x06: if (flen == 4) { float v; __builtin_memcpy(&v, &data[i], 4); ctx->endPoint[2] = v; } break;
-        case 0x08: if (flen == 4) { int32_t v; __builtin_memcpy(&v, &data[i], 4); ctx->segments = (int)v; } break;
-        case 0xA0: if (flen == 4) { float v; __builtin_memcpy(&v, &data[i], 4); stim->strength  = v; } break;
-        case 0xA1: if (flen == 4) { float v; __builtin_memcpy(&v, &data[i], 4); stim->frequency = v; } break;
+        case STIM_TAG_FIELD_0: if (flen == 4) { float v; __builtin_memcpy(&v, &data[i], 4); ctx->startPoint[0] = v; } break;
+        case STIM_TAG_FIELD_1: if (flen == 4) { float v; __builtin_memcpy(&v, &data[i], 4); ctx->startPoint[1] = v; } break;
+        case STIM_TAG_FIELD_2: if (flen == 4) { float v; __builtin_memcpy(&v, &data[i], 4); ctx->startPoint[2] = v; } break;
+        case STIM_TAG_FIELD_3: if (flen == 4) { float v; __builtin_memcpy(&v, &data[i], 4); ctx->endPoint[0] = v; } break;
+        case STIM_TAG_FIELD_4: if (flen == 4) { float v; __builtin_memcpy(&v, &data[i], 4); ctx->endPoint[1] = v; } break;
+        case STIM_TAG_FIELD_5: if (flen == 4) { float v; __builtin_memcpy(&v, &data[i], 4); ctx->endPoint[2] = v; } break;
+        case STIM_TAG_FIELD_7: if (flen == 4) { int32_t v; __builtin_memcpy(&v, &data[i], 4); ctx->segments = (int)v; } break;
+        case STIM_TAG_STRENGTH:  if (flen == 4) { float v; __builtin_memcpy(&v, &data[i], 4); stim->strength  = v; } break;
+        case STIM_TAG_FREQUENCY: if (flen == 4) { float v; __builtin_memcpy(&v, &data[i], 4); stim->frequency = v; } break;
         default: break;
         }
         i += flen;
