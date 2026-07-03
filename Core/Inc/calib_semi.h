@@ -21,11 +21,11 @@ typedef struct {
     uint8_t  quality;  /* 2=good, 1=marginal, 0=bad */
 } CalibResult;
 
-extern volatile SemiCalibState calib_state;
-extern volatile uint8_t        calib_current_element;
-extern CalibResult             calib_results[NUM_REAL_TRANSDUCER];
-extern volatile uint8_t        calib_results_valid[NUM_REAL_TRANSDUCER];
-extern volatile uint8_t        calib_button_pressed;
+extern SemiCalibState calib_state;
+extern uint8_t        calib_current_element;
+extern CalibResult    calib_results[NUM_REAL_TRANSDUCER];
+extern uint8_t        calib_results_valid[NUM_REAL_TRANSDUCER];
+extern uint8_t        calib_button_pressed;
 
 void SemiCalib_Init(void);
 SemiCalibState SemiCalib_Tick(void);

@@ -7,10 +7,14 @@
 #include "stim_types.h"
 #include <string.h>
 
-int phase_set_mode = 0;
-int is_stimulation_enabled = 1;
+/* These flags are written by the main loop (Comm_Tick / GUI_Tick) and read
+ * from the USB RX ISR (CMD_GET_STATUS response path in Comm_Execute_Command,
+ * which is now main-loop but the USB TX path can still observe them). Mark
+ * them volatile to guarantee the ISR observes the latest value. */
+volatile int phase_set_mode = 0;
+volatile int is_stimulation_enabled = 1;
 
-int demo_mode = -1;
+volatile int demo_mode = -1;
 
 Stimulation CurrentStimulation;
 Stimulation EmptyStimulation;

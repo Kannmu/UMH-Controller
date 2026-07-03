@@ -78,6 +78,16 @@ typedef struct {
     uint32_t last_byte_tick;
 } rx_buffer_t;
 
+/* Command queue entry: produced by the USB RX ISR (Comm_Process_Received_Data)
+ * and consumed by the main loop (Comm_Tick). Decouples frame parsing from the
+ * heavy command execution (Update_Full_Waveform_Buffer, EEPROM, etc.) so the
+ * ISR returns quickly and avoids racing the main loop on shared state. */
+typedef struct {
+    uint8_t cmd_type;
+    uint8_t data_length;
+    uint8_t data[255];
+} Comm_Command;
+
 
 typedef struct __attribute__((packed)) {
     char serial_number[25];
@@ -105,6 +115,7 @@ typedef struct __attribute__((packed)) {
 // 函数声明
 void Comm_Init(void);
 void Comm_Process_Received_Data(uint8_t* data, uint32_t length);
+void Comm_Tick(void);                          /* main loop: dequeue & execute one command */
 void Comm_Send_Response(uint8_t cmd_type, uint8_t* data, uint8_t data_length);
 uint8_t Comm_Calculate_Checksum(uint8_t cmd_type, uint8_t data_length, uint8_t* data);
 void Comm_Handle_Ping_Command(uint8_t* data, uint8_t data_length);

@@ -7,18 +7,23 @@
 #include <string.h>
 #include <math.h>
 
-volatile SemiCalibState calib_state = CALIB_IDLE;
-volatile uint8_t        calib_current_element = 0;
-CalibResult             calib_results[NUM_REAL_TRANSDUCER];
-volatile uint8_t        calib_results_valid[NUM_REAL_TRANSDUCER];
-volatile uint8_t        calib_button_pressed = 0;
+/* All calib_* state below is read and written exclusively from the main loop
+ * (SemiCalib_Tick and semi_calib_on_input, both invoked from GUI_Tick). The
+ * earlier `volatile` qualifiers were misleading: there is no ISR sharing
+ * here. Removing them lets the compiler keep these in registers across the
+ * tick function, which is the correct optimization. */
+SemiCalibState calib_state = CALIB_IDLE;
+uint8_t        calib_current_element = 0;
+CalibResult    calib_results[NUM_REAL_TRANSDUCER];
+uint8_t        calib_results_valid[NUM_REAL_TRANSDUCER];
+uint8_t        calib_button_pressed = 0;
 
 static uint32_t measure_start_time;
 
 void SemiCalib_Init(void)
 {
     memset(calib_results, 0, NUM_REAL_TRANSDUCER * sizeof(CalibResult));
-    memset((void *)calib_results_valid, 0, NUM_REAL_TRANSDUCER * sizeof(uint8_t));
+    memset(calib_results_valid, 0, NUM_REAL_TRANSDUCER * sizeof(uint8_t));
     calib_state           = CALIB_IDLE;
     calib_current_element = 0;
     calib_button_pressed  = 0;

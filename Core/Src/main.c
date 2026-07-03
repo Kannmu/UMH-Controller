@@ -163,6 +163,7 @@ int main(void)
   while (1)
   {
     Comm_Check_Rx_Timeout();
+    Comm_Tick();
 
     loop_count++;
     if (HAL_GetTick() - last_check_tick >= LOOP_FREQ_CHECK_MS)

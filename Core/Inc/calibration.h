@@ -3,7 +3,9 @@
 #include "transducer.h"
 
 // calibration.h
-extern int calibration_mode;
+/* calibration_mode is written by the main loop and read from the USB RX ISR
+ * response path; declared volatile for cross-context visibility. */
+extern volatile int calibration_mode;
 extern float Transducer_Calibration_Array[];
 
 

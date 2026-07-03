@@ -26,8 +26,11 @@ struct Stimulation {
 };
 
 /* ---- Extern globals ---- */
-extern int                  phase_set_mode;
-extern int                  demo_mode;
+/* phase_set_mode / demo_mode are written from the main loop and read from
+ * the USB RX ISR (CMD_GET_STATUS response path); declared volatile for
+ * cross-context visibility. */
+extern volatile int         phase_set_mode;
+extern volatile int         demo_mode;
 extern struct Stimulation   CurrentStimulation;
 extern struct Stimulation   EmptyStimulation;
 

@@ -191,7 +191,7 @@ const MenuPage* GUI_CurrentPage(void) {
  *  PAGE DEFINITIONS
  * ================================================================ */
 extern const MenuPage Page_Root, Page_Demo, Page_Calibration, Page_About;
-extern int calibration_mode;
+extern volatile int calibration_mode;
 
 /* --- Root page (12 rows: 9 data slots + 3 folders) --- */
 static const MenuItem items_root[] = {

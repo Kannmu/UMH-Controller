@@ -313,11 +313,18 @@ void Update_Full_Waveform_Buffer()
 
     uint32_t end_cycles = DWT_GetCycles();
     if (SystemCoreClock > 0) {
-        updateDMABufferDeltaTime = (double)(end_cycles - start_cycles) / (SystemCoreClock / 1000.0);
+        /* 8-byte double writes on Cortex-M7 are not guaranteed atomic when
+         * the writer can be preempted by an ISR that reads the same variable
+         * (CMD_GET_STATUS path). Disable IRQs around the store to prevent
+         * the ISR from observing a half-updated value (torn read). */
+        double delta_ms = (double)(end_cycles - start_cycles) / (SystemCoreClock / 1000.0);
+        __disable_irq();
+        updateDMABufferDeltaTime = delta_ms;
+        __enable_irq();
         uint8_t tid = Stim_Get_Type_Id(&CurrentStimulation);
         uint8_t idx = Stim_Get_Index_By_Type_Id(tid);
         if (idx < STIM_MAX_TYPES)
-            updateDMABufferDeltaTimeByType[idx] = updateDMABufferDeltaTime;
+            updateDMABufferDeltaTimeByType[idx] = delta_ms;
     }
 }
 
