@@ -7,7 +7,8 @@ typedef enum {
     CALIB_PROMPT,
     CALIB_MEASURING,
     CALIB_SHOW_RESULT,
-    CALIB_DONE,
+    CALIB_DONE,        /* transient: kicks off async EEPROM save -> CALIB_SAVING */
+    CALIB_SAVING,      /* EEPROM write in progress (non-blocking, polled by tick) */
     CALIB_ERROR
 } SemiCalibState;
 

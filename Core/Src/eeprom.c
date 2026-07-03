@@ -92,3 +92,72 @@ uint8_t EEPROM_LoadCalibration(float calib_us_out[NUM_REAL_TRANSDUCER])
     memcpy(calib_us_out, &buf[8], EEPROM_CAL_DATA_BYTES);
     return 1;
 }
+
+/* ---- Asynchronous calibration save state machine ----
+ * EEPROM_CAL_SIZE (252 bytes) is written in 16-byte pages; each page write
+ * needs a ~5ms window before the device ACKs again. We avoid the 80ms
+ * blocking HAL_Delay in EEPROM_SaveCalibration by writing one page per Poll
+ * call and gating the next write on the page-write delay using HAL_GetTick. */
+static struct {
+    uint8_t  buf[EEPROM_CAL_SIZE];
+    uint16_t offset;        /* byte offset into buf / EEPROM */
+    uint32_t last_write_tick;
+    uint8_t  waiting;       /* 1 = in the 5ms page-write settle window */
+    EEPROM_SaveState state;
+} eeprom_save;
+
+void EEPROM_SaveCalibration_Start(const float calib_us[NUM_REAL_TRANSDUCER])
+{
+    memset(eeprom_save.buf, 0, sizeof(eeprom_save.buf));
+    eeprom_save.buf[0] = 'U'; eeprom_save.buf[1] = 'M';
+    eeprom_save.buf[2] = 'H'; eeprom_save.buf[3] = 'C';
+    uint16_t ver = EEPROM_CAL_VERSION;
+    uint16_t num = NUM_REAL_TRANSDUCER;
+    memcpy(&eeprom_save.buf[4], &ver, 2);
+    memcpy(&eeprom_save.buf[6], &num, 2);
+    memcpy(&eeprom_save.buf[8], calib_us, EEPROM_CAL_DATA_BYTES);
+    uint32_t cs = eeprom_checksum(eeprom_save.buf, EEPROM_CAL_CS_OFFSET);
+    memcpy(&eeprom_save.buf[EEPROM_CAL_CS_OFFSET], &cs, 4);
+
+    eeprom_save.offset          = 0;
+    eeprom_save.last_write_tick = 0;
+    eeprom_save.waiting         = 0;
+    eeprom_save.state           = EEPROM_SAVE_BUSY;
+}
+
+EEPROM_SaveState EEPROM_SaveCalibration_Poll(void)
+{
+    if (eeprom_save.state != EEPROM_SAVE_BUSY)
+        return eeprom_save.state;
+
+    /* If we just wrote a page, wait for the EEPROM page-write cycle (5ms)
+     * before issuing the next write. HAL_GetTick is driven by SysTick (1ms)
+     * and runs in the main loop, so this does not block. */
+    if (eeprom_save.waiting) {
+        if ((HAL_GetTick() - eeprom_save.last_write_tick) < EEPROM_WRITE_DELAY_MS)
+            return EEPROM_SAVE_BUSY;
+        eeprom_save.waiting = 0;
+    }
+
+    if (eeprom_save.offset >= sizeof(eeprom_save.buf)) {
+        eeprom_save.state = EEPROM_SAVE_DONE;
+        return EEPROM_SAVE_DONE;
+    }
+
+    /* Write the next page-aligned chunk. */
+    uint16_t addr  = EEPROM_CAL_OFFSET + eeprom_save.offset;
+    uint16_t chunk = EEPROM_PAGE_SIZE - (addr % EEPROM_PAGE_SIZE);
+    uint16_t remaining = (uint16_t)(sizeof(eeprom_save.buf) - eeprom_save.offset);
+    if (chunk > remaining) chunk = remaining;
+
+    if (HAL_I2C_Mem_Write(&hi2c3, EEPROM_DEV_ADDR, addr, I2C_MEMADD_SIZE_8BIT,
+                          &eeprom_save.buf[eeprom_save.offset], chunk, 10) != HAL_OK) {
+        eeprom_save.state = EEPROM_SAVE_FAIL;
+        return EEPROM_SAVE_FAIL;
+    }
+
+    eeprom_save.offset         += chunk;
+    eeprom_save.last_write_tick = HAL_GetTick();
+    eeprom_save.waiting         = 1;
+    return EEPROM_SAVE_BUSY;
+}

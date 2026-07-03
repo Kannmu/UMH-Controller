@@ -298,7 +298,7 @@ static void MX_ADC1_Init(void)
   hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
   hadc1.Init.LowPowerAutoWait = DISABLE;
   hadc1.Init.ContinuousConvMode = DISABLE;
-  hadc1.Init.NbrOfConversion = 2;
+  hadc1.Init.NbrOfConversion = 1;
   hadc1.Init.DiscontinuousConvMode = DISABLE;
   hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
   hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
@@ -333,13 +333,10 @@ static void MX_ADC1_Init(void)
     Error_Handler();
   }
 
-  /** Configure Regular Channel
-  */
-  sConfig.Rank = ADC_REGULAR_RANK_2;
-  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
+  /* Note: normal-mode ADC1 is currently unused (Get_ADC1_Values is dead code,
+   * to be removed in phase 5). Only one channel/rank is configured here; the
+   * previous RANK_2 with the same channel was a no-op bug. Calib_ADC_Configure
+   * sets up two ranks (ch16 + ch17) for IQ demodulation when needed. */
   /* USER CODE BEGIN ADC1_Init 2 */
 
   /* USER CODE END ADC1_Init 2 */

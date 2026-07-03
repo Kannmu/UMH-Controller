@@ -103,8 +103,15 @@ void Comm_Send_Response(uint8_t cmd_type, uint8_t* data, uint8_t data_length)
     tx_buffer[index++] = FRAME_TAIL_1;
     tx_buffer[index++] = FRAME_TAIL_2;
 
-    // 通过USB CDC发送
-    CDC_Transmit_FS(tx_buffer, index);
+    /* CDC_Transmit_FS returns USBD_BUSY when the host is not draining the
+     * endpoint fast enough; retry briefly to avoid silently dropping
+     * responses. Safe to block here: Comm_Send_Response now runs from the
+     * main loop (Comm_Tick), not from the USB ISR. */
+    uint8_t retry = 0;
+    while (CDC_Transmit_FS(tx_buffer, index) == USBD_BUSY && retry < 2) {
+        HAL_Delay(1);
+        retry++;
+    }
 }
 
 /**

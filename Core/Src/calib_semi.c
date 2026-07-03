@@ -124,21 +124,34 @@ SemiCalibState SemiCalib_Tick(void)
         break;
 
     case CALIB_DONE: {
+        /* Calib_ADC_Deinit() and HAL_TIM_Base_Stop() already ran when leaving
+         * CALIB_MEASURING (success or timeout); do not repeat them here. */
         float calib_array[NUM_REAL_TRANSDUCER];
         for (int i = 0; i < NUM_REAL_TRANSDUCER; i++)
             calib_array[i] = calib_results[i].calib_us;
 
         memcpy(Transducer_Calibration_Array, calib_array, sizeof(float) * NUM_REAL_TRANSDUCER);
-        EEPROM_SaveCalibration(calib_array);
 
-        Calib_SetNormalDrive();
-        Load_Calib_to_Transducers();
+        /* Start non-blocking EEPROM save; poll in CALIB_SAVING. The previous
+         * synchronous EEPROM_SaveCalibration blocked the main loop for >=80ms. */
+        EEPROM_SaveCalibration_Start(calib_array);
+        calib_state = CALIB_SAVING;
+        break;
+    }
 
-        /* Stop TIM6 and leave ADC1 in polling mode */
-        HAL_TIM_Base_Stop(&htim6);
-        Calib_ADC_Deinit();
-
-        calib_state = CALIB_IDLE;
+    case CALIB_SAVING: {
+        EEPROM_SaveState st = EEPROM_SaveCalibration_Poll();
+        if (st == EEPROM_SAVE_DONE) {
+            Calib_SetNormalDrive();
+            Load_Calib_to_Transducers();
+            calib_state = CALIB_IDLE;
+        } else if (st == EEPROM_SAVE_FAIL) {
+            /* EEPROM write failed: still apply calibration to transducers in
+             * RAM so the device works this session; user can retry. */
+            Calib_SetNormalDrive();
+            Load_Calib_to_Transducers();
+            calib_state = CALIB_ERROR;
+        }
         break;
     }
 

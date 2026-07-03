@@ -64,22 +64,27 @@ static void refresh_on_event(PageEvent event);
  * ================================================================ */
 static void format_fixed(char *buf, size_t sz, float val, uint8_t dec)
 {
+    if (sz == 0) return;
+    buf[0] = '\0';  /* ensure null-terminated on early-return paths */
     if (dec > 6) dec = 6;
     float mul = 1.0f;
     for (uint8_t d = 0; d < dec; d++) mul *= 10.0f;
-    int32_t sv = (int32_t)(val * mul + (val >= 0 ? 0.5f : -0.5f));
-    int32_t ip = sv / (int32_t)mul;
-    uint32_t fp = (uint32_t)(sv >= 0 ? sv : -sv) % (uint32_t)mul;
+    /* Use 64-bit math to avoid overflow for large magnitudes (e.g. val=3000,
+     * dec=6 -> 3e9 which exceeds int32_t range). int64_t is more than enough
+     * for any reasonable float magnitude at dec<=6. */
+    int64_t sv = (int64_t)(val * mul + (val >= 0 ? 0.5f : -0.5f));
+    int64_t ip = sv / (int64_t)mul;
+    uint64_t fp = (uint64_t)(sv >= 0 ? sv : -sv) % (uint64_t)mul;
 
     char tmp[16]; int pos = 0;
-    int32_t n = ip;
+    int64_t n = ip;
     if (n == 0) { tmp[pos++] = '0'; }
     else {
         if (n < 0) { n = -n; }
-        int32_t m = n, digits = 0;
+        int64_t m = n; int digits = 0;
         while (m > 0) { digits++; m /= 10; }
         pos = digits;
-        for (int i = digits-1; i >= 0; i--) { tmp[i] = (char)('0'+(n%10)); n /= 10; }
+        for (int i = digits-1; i >= 0; i--) { tmp[i] = (char)('0'+(int)(n%10)); n /= 10; }
     }
     if (sz < (size_t)(pos + 1 + dec + 1)) return;
     size_t w = 0;
@@ -88,9 +93,9 @@ static void format_fixed(char *buf, size_t sz, float val, uint8_t dec)
     if (dec > 0) {
         ((char*)buf)[w++] = '.';
         for (int d = dec-1; d >= 0; d--) {
-            uint32_t p10 = 1;
+            uint64_t p10 = 1;
             for (int x = 0; x < d; x++) p10 *= 10;
-            ((char*)buf)[w++] = (char)('0' + ((fp / p10) % 10));
+            ((char*)buf)[w++] = (char)('0' + (int)((fp / p10) % 10));
         }
     }
     ((char*)buf)[w] = '\0';
@@ -482,13 +487,21 @@ static void render_semi_calib(const void *ctx) {
         Font_DrawStr(CONTENT_X, 24, "[OK]next [<]retry", 0, 1, WHITE);
         break;
     case CALIB_DONE:
+        /* Transient: CALIB_DONE immediately hands off to CALIB_SAVING.
+         * Rendered only if a frame happens to be drawn between the two. */
         Font_DrawStr(CONTENT_X, 0, "CAL COMPLETE", 0, 1, WHITE);
-        Font_DrawStr(CONTENT_X, 10, "Saved to EEPROM", 0, 1, WHITE);
-        Font_DrawStr(CONTENT_X, 22, "[<] exit", 0, 1, WHITE);
+        Font_DrawStr(CONTENT_X, 10, "Saving...", 0, 1, WHITE);
         break;
+    case CALIB_SAVING: {
+        Font_DrawStr(CONTENT_X, 0, "CAL COMPLETE", 0, 1, WHITE);
+        char sp[]={'|','/','-','\\'}, s2[2]={sp[(HAL_GetTick()/200)%4],0};
+        Font_DrawStr(CONTENT_X, 10, "Saving", 0, 1, WHITE);
+        Font_DrawStr(CONTENT_X+50, 12, s2, 0, 1, WHITE);
+        break;
+    }
     case CALIB_ERROR:
         Font_DrawStr(CONTENT_X, 0, "ERROR", 0, 1, WHITE);
-        Font_DrawStr(CONTENT_X, 12, "ADC timeout", 0, 1, WHITE);
+        Font_DrawStr(CONTENT_X, 12, "Save failed", 0, 1, WHITE);
         break;
     default: break;
     }
@@ -499,10 +512,18 @@ static const MenuItem items_semi_calib[] = {
 const MenuPage Page_SemiCalib = {"SEMI CAL", items_semi_calib, 1, 0, semi_calib_on_input, NULL};
 
 static bool semi_calib_on_input(NavAction nav) {
-    /* SemiCalib active: intercept buttons for state machine */
-    if (calib_state != CALIB_IDLE && calib_state != CALIB_DONE && calib_state != CALIB_ERROR) {
+    /* SemiCalib active: intercept buttons for state machine.
+     * CALIB_SAVING is also active (EEPROM write in progress): swallow all
+     * input so the user cannot pop the page mid-save. */
+    if (calib_state != CALIB_IDLE && calib_state != CALIB_DONE
+        && calib_state != CALIB_ERROR && calib_state != CALIB_SAVING) {
         if (nav == NAV_CONFIRM)      calib_button_pressed = 1;
         else if (nav == NAV_RETURN)  calib_button_pressed = 2;
+        gui_dirty = 1;
+        return true;
+    }
+    if (calib_state == CALIB_SAVING) {
+        /* Saving in progress: consume input without effect. */
         gui_dirty = 1;
         return true;
     }

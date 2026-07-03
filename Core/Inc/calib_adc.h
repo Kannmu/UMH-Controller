@@ -1,7 +1,7 @@
 #pragma once
 #include "main.h"
 
-#define CALIB_ADC_BUFFER_SIZE   8000U   /* 400kHz × 20ms */
+#define CALIB_ADC_BUFFER_SIZE   8000U   /* ADC @ 400kHz, 2 conv/trigger (ch16+ch17) -> 4000 triggers -> 10ms capture */
 #define CALIB_ADC_SAMPLING_FREQ 400000U
 
 extern TIM_HandleTypeDef htim6;
