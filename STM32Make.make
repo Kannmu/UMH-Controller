@@ -56,7 +56,7 @@ BUILD_DIRECTORY ?= build
 DEBUG ?= 1
 
 # debug flags when debug is defined
-OPTIMIZATION ?= -O2
+OPTIMIZATION ?= -O3
 
 RELEASE_DIRECTORY = $(BUILD_DIRECTORY)/debug
 ifeq ($(DEBUG),1)
@@ -229,7 +229,7 @@ CFLAGS = $(MCU) $(C_DEFS) $(C_INCLUDES) $(OPTIMIZATION_FLAGS)
 CXXFLAGS = $(MCU) $(CXX_DEFS) $(C_INCLUDES) $(OPTIMIZATION_FLAGS)
 
 # Add additional flags
-CFLAGS += -Wall -fdata-sections -ffunction-sections 
+CFLAGS += -Wall -fdata-sections -ffunction-sections -fno-math-errno 
 ASFLAGS += -Wall -fdata-sections -ffunction-sections 
 CXXFLAGS += 
 

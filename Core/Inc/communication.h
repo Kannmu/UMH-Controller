@@ -91,6 +91,8 @@ typedef struct __attribute__((packed)) {
 
 // 函数声明
 void Comm_Init(void);
+void Comm_Task(void);
+void Comm_Queue_Received_Data(const uint8_t* data, uint32_t length);
 void Comm_Process_Received_Data(uint8_t* data, uint32_t length);
 void Comm_Send_Response(uint8_t cmd_type, uint8_t* data, uint8_t data_length);
 uint8_t Comm_Calculate_Checksum(uint8_t cmd_type, uint8_t data_length, uint8_t* data);

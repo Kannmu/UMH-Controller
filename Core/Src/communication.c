@@ -7,12 +7,106 @@
 // 全局变量
 static rx_buffer_t rx_buffer;
 
+#define COMM_RX_QUEUE_SIZE 4096U
+#define COMM_RX_QUEUE_MASK (COMM_RX_QUEUE_SIZE - 1U)
+
+static uint8_t comm_rx_queue[COMM_RX_QUEUE_SIZE];
+static volatile uint16_t comm_rx_head;
+static volatile uint16_t comm_rx_tail;
+static volatile uint32_t comm_rx_dropped_bytes;
+
 /**
  * @brief 初始化通信模块
  */
 void Comm_Init(void)
 {
+    comm_rx_head = 0U;
+    comm_rx_tail = 0U;
+    comm_rx_dropped_bytes = 0U;
     Comm_Reset_Rx_State();
+}
+
+void Comm_Queue_Received_Data(const uint8_t* data, uint32_t length)
+{
+    uint16_t head = comm_rx_head;
+
+    for (uint32_t i = 0; i < length; i++)
+    {
+        uint16_t next_head = (uint16_t)((head + 1U) & COMM_RX_QUEUE_MASK);
+        if (next_head == comm_rx_tail)
+        {
+            comm_rx_dropped_bytes += length - i;
+            break;
+        }
+
+        comm_rx_queue[head] = data[i];
+        head = next_head;
+    }
+
+    __DMB();
+    comm_rx_head = head;
+}
+
+void Comm_Task(void)
+{
+    uint16_t tail = comm_rx_tail;
+    uint16_t head = comm_rx_head;
+    uint32_t remaining_budget = 64U;
+
+    while (tail != head && remaining_budget > 0U)
+    {
+        uint32_t contiguous_length = (head > tail)
+            ? (uint32_t)(head - tail)
+            : (COMM_RX_QUEUE_SIZE - (uint32_t)tail);
+        if (contiguous_length > 64U)
+        {
+            contiguous_length = 64U;
+        }
+        if (contiguous_length > remaining_budget)
+        {
+            contiguous_length = remaining_budget;
+        }
+
+        Comm_Process_Received_Data(&comm_rx_queue[tail], contiguous_length);
+        remaining_budget -= contiguous_length;
+        tail = (uint16_t)((tail + contiguous_length) & COMM_RX_QUEUE_MASK);
+        __DMB();
+        comm_rx_tail = tail;
+        head = comm_rx_head;
+    }
+}
+
+static uint8_t Comm_Get_Stimulation_Payload_Length(StimulationType type)
+{
+    switch (type)
+    {
+    case Point:
+    case TwinTrap:
+        return 21U;
+    case Discrete:
+        return 41U;
+    case Linear:
+    case Circular:
+        return 37U;
+    default:
+        return 0U;
+    }
+}
+
+static int Comm_Is_Stimulation_Finite(const Stimulation *stimulation)
+{
+    const float *values = stimulation->position;
+    for (uint32_t i = 0; i < 3U; i++) if (!isfinite(values[i])) return 0;
+    values = stimulation->startPoint;
+    for (uint32_t i = 0; i < 3U; i++) if (!isfinite(values[i])) return 0;
+    values = stimulation->endPoint;
+    for (uint32_t i = 0; i < 3U; i++) if (!isfinite(values[i])) return 0;
+    values = stimulation->normalVector;
+    for (uint32_t i = 0; i < 3U; i++) if (!isfinite(values[i])) return 0;
+
+    return isfinite(stimulation->radius) &&
+           isfinite(stimulation->strength) &&
+           isfinite(stimulation->frequency);
 }
 
 /**
@@ -52,7 +146,7 @@ uint8_t Comm_Calculate_Checksum(uint8_t cmd_type, uint8_t data_length, uint8_t* 
  */
 void Comm_Send_Response(uint8_t cmd_type, uint8_t* data, uint8_t data_length)
 {
-    uint8_t tx_buffer[260]; // 最大帧长度
+    uint8_t tx_buffer[262]; // 2-byte header + 255-byte payload + 5-byte framing
     uint8_t index = 0;
     
     // 帧头
@@ -222,11 +316,17 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                         case CMD_GET_STATUS:
                         {
                             device_status status;
+                            float voltage_vdda;
+                            float voltage_3v3;
+                            float voltage_5v0;
+                            float temperature;
 
-                            status.voltage_VDDA = Get_Voltage_VDDA();
-                            status.voltage_3V3 = Get_Voltage_3V3();
-                            status.voltage_5V0 = Get_Voltage_5V0();
-                            status.temperature = Get_Temperature();
+                            Get_Device_Measurements(&voltage_vdda, &voltage_3v3,
+                                                    &voltage_5v0, &temperature);
+                            status.voltage_VDDA = voltage_vdda;
+                            status.voltage_3V3 = voltage_3v3;
+                            status.voltage_5V0 = voltage_5v0;
+                            status.temperature = temperature;
                             status.updateDMABufferDeltaTime = updateDMABufferDeltaTime;
                             status.loop_freq = System_Loop_Freq;
                             status.stimulation_type = (uint8_t)CurrentStimulation.type;
@@ -238,7 +338,10 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                         }
                         case CMD_SET_STIMULATION:
                         {
-                            if (rx_buffer.frame.data_length >= 20)
+                            StimulationType requested_type = (StimulationType)rx_buffer.frame.data[0];
+                            uint8_t required_length = Comm_Get_Stimulation_Payload_Length(requested_type);
+                            if (required_length > 0U &&
+                                rx_buffer.frame.data_length >= required_length)
                             {
                                 Stimulation stimulation;
                                 memset(&stimulation, 0, sizeof(Stimulation));
@@ -251,6 +354,7 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                                 switch (type)
                                 {
                                 case Point:
+                                case TwinTrap:
                                     memcpy(&stimulation.position[0], &pData[offset], 4); offset += 4;
                                     memcpy(&stimulation.position[1], &pData[offset], 4); offset += 4;
                                     memcpy(&stimulation.position[2], &pData[offset], 4); offset += 4;
@@ -293,11 +397,15 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                                 memcpy(&stimulation.strength,    &pData[offset], 4); offset += 4;
                                 memcpy(&stimulation.frequency,   &pData[offset], 4); 
                                 
-                                Set_Stimulation(&stimulation);
-                                
-                                phase_set_mode = 0;
-
-                                Comm_Send_Response(RSP_SACK, NULL, 0);
+                                if (Comm_Is_Stimulation_Finite(&stimulation))
+                                {
+                                    Set_Stimulation(&stimulation);
+                                    Comm_Send_Response(RSP_SACK, NULL, 0);
+                                }
+                                else
+                                {
+                                    Comm_Send_Response(RSP_ERROR_CODE, NULL, 0);
+                                }
                                 
                             }
                             else
@@ -335,7 +443,6 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                                 {
                                     demo_mode = index;
                                     Set_Stimulation(DemoStimulations[index]);
-                                    phase_set_mode = 0;
 
                                     // Send ACK with name
                                     const char *name = DemoStimulations[index]->name;

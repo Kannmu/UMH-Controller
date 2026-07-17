@@ -4,7 +4,15 @@
 # include "dma_manager.h"
 # include "custom_math.h"
 
-float Wave_K = ((2.0*M_PI*TRANSDUCER_BASE_FREQ)/SPEED_OF_SOUND);
+float Wave_K = ((2.0f * (float)M_PI * (float)TRANSDUCER_BASE_FREQ) / SPEED_OF_SOUND);
+
+static inline float Distance_Between(const float from[3], const float to[3])
+{
+    float dx = from[0] - to[0];
+    float dy = from[1] - to[1];
+    float dz = from[2] - to[2];
+    return sqrtf(dx * dx + dy * dy + dz * dz);
+}
 
 // Transducer Array
 const char *TransducerPins[] =
@@ -81,7 +89,7 @@ void Transducer_Init(void)
 
 void Enter_Calibration_Mode()
 {
-    for (int i = 0; i < NUM_TRANSDUCER-1; i++)
+    for (uint32_t i = 0; i < NUM_TRANSDUCER - 1U; i++)
     {
         TransducerArray[i].calib = 0;
         TransducerArray[i].phase = 0;
@@ -91,7 +99,7 @@ void Enter_Calibration_Mode()
 
 void Load_Calib_to_Transducers()
 {
-    for (int i = 0; i < NUM_TRANSDUCER-1; i++)
+    for (uint32_t i = 0; i < NUM_TRANSDUCER - 1U; i++)
     {
         TransducerArray[i].calib = Transducer_Calibration_Array[i] * BufferGapPerMicroseconds;
     }
@@ -100,10 +108,10 @@ void Load_Calib_to_Transducers()
 // Update Point to Transducers Parameters
 void Set_Point_Focus(float *position)
 {
-    for (int i = 0; i < NUM_TRANSDUCER-1; i++)
+    for (uint32_t i = 0; i < NUM_TRANSDUCER - 1U; i++)
     {
         // Distance Calculation
-        TransducerArray[i].distance = Euler_Distance(TransducerArray[i].position3D, position);
+        TransducerArray[i].distance = Distance_Between(TransducerArray[i].position3D, position);
 
         // Distance to Phase
         TransducerArray[i].phase = Distance_to_Phase(TransducerArray[i].distance);
@@ -115,17 +123,22 @@ void Set_Point_Focus(float *position)
 
 void Set_Twin_Trap_Focus(float *position)
 {
-    for (int i = 0; i < NUM_TRANSDUCER - 1; i++)
+    for (uint32_t i = 0; i < NUM_TRANSDUCER - 1U; i++)
     {
         // 1. Focusing Lens Phase
-        TransducerArray[i].distance = Euler_Distance(TransducerArray[i].position3D, position);
+        TransducerArray[i].distance = Distance_Between(TransducerArray[i].position3D, position);
         float phi_focus = Distance_to_Phase(TransducerArray[i].distance);
 
         // 2. Twin Signature (基于几何位置分割)
         float phi_twin = (TransducerArray[i].position3D[1] > 0) ? 0.0f : (float)M_PI;
 
         // 3. Final Phase
-        TransducerArray[i].phase = fmod(phi_focus + phi_twin, 2.0 * M_PI);
+        float phase = phi_focus + phi_twin;
+        if (phase >= (2.0f * (float)M_PI))
+        {
+            phase -= 2.0f * (float)M_PI;
+        }
+        TransducerArray[i].phase = phase;
 
         // Phase to Gap Ticks
         TransducerArray[i].shift_buffer_bits = Phase_to_Gap_Ticks(TransducerArray[i].phase);
@@ -135,7 +148,7 @@ void Set_Twin_Trap_Focus(float *position)
 // Set Phases and Duty Cycles to Transducers
 void Set_Transducers(uint8_t *data)
 {
-    for (int i = 0; i < NUM_TRANSDUCER-1; i++)
+    for (uint32_t i = 0; i < NUM_TRANSDUCER - 1U; i++)
     {
         uint16_t phase_raw = data[i * 3 + 0] | (data[i * 3 + 1] << 8);
         uint8_t duty_raw = data[i * 3 + 2];
@@ -159,7 +172,8 @@ float Distance_to_Phase(float distance)
 
 float Phase_to_Gap_Ticks(float phase)
 {
-    return (phase / (2.0 * M_PI * TRANSDUCER_BASE_FREQ)) / TIME_GAP_PER_DMA_BUFFER_BIT;
+    const float ticks_per_radian = (float)WAVEFORM_BUFFER_SIZE / (2.0f * (float)M_PI);
+    return phase * ticks_per_radian;
 }
 
 GPIO_TypeDef *map_pin_name_to_gpio_port(const char *pin_name)

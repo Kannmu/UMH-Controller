@@ -10,7 +10,7 @@ target: SubController
 # Can be C or C++
 language: C
 
-optimization: O2
+optimization: O3
 
 # MCU settings
 targetMCU: stm32h7x
@@ -37,6 +37,7 @@ cFlags:
   - -Wall
   - -fdata-sections
   - -ffunction-sections
+  - -fno-math-errno
 
 cxxFlags: []
 assemblyFlags: 
@@ -100,10 +101,9 @@ suppressMakefileWarning: false
 customMakefileRules:
 # - command: sayhello
 #   rule: echo "hello"
-#   dependsOn: $(BUILD_DIR)/$(TARGET).elf # can be left out    
+#   dependsOn: $(BUILD_DIR)/$(TARGET).elf # can be left out
 
 # Additional flags which will be used when invoking the make command
 makeFlags:
 # - -O  # use this option when the output of make is mixed up only works for make version 4.0 and upwards
 # - --silent # use this option to silence the output of the build
-    

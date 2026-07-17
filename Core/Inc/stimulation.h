@@ -67,3 +67,4 @@ void Stimulation_Enable(void);
 void Stimulation_Disable(void);
 void Set_Stimulation(const Stimulation *stimulation);
 void Update_Stimulation_State(float progress);
+void Update_Stimulation_State_Sample(uint32_t sample_index);

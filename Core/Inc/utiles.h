@@ -39,4 +39,6 @@ float Get_Voltage_VDDA(void);
 float Get_Voltage_3V3(void);
 float Get_Voltage_5V0(void);
 float Get_Temperature(void);
+void Get_Device_Measurements(float *vdda, float *voltage_3v3,
+                             float *voltage_5v0, float *temperature);
 

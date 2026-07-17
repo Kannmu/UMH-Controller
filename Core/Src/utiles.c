@@ -211,6 +211,37 @@ static void Get_ADC3_Values(uint32_t *temp_raw, uint32_t *vref_raw)
     HAL_ADC_Stop(&hadc3);
 }
 
+void Get_Device_Measurements(float *vdda, float *voltage_3v3,
+                             float *voltage_5v0, float *temperature)
+{
+    uint32_t v33_raw = 0;
+    uint32_t v50_raw = 0;
+    uint32_t temp_raw = 0;
+    uint32_t vref_raw = 0;
+
+    Get_ADC1_Values(&v33_raw, &v50_raw);
+    Get_ADC3_Values(&temp_raw, &vref_raw);
+
+    if (vref_raw == 0U)
+    {
+        *vdda = 0.0f;
+        *voltage_3v3 = 0.0f;
+        *voltage_5v0 = 0.0f;
+        *temperature = 0.0f;
+        return;
+    }
+
+    uint32_t vdda_mv = __HAL_ADC_CALC_VREFANALOG_VOLTAGE(vref_raw, ADC_RESOLUTION_16B);
+    uint32_t v33_mv = __HAL_ADC_CALC_DATA_TO_VOLTAGE(vdda_mv, v33_raw, ADC_RESOLUTION_16B);
+    uint32_t v50_mv = __HAL_ADC_CALC_DATA_TO_VOLTAGE(vdda_mv, v50_raw, ADC_RESOLUTION_16B);
+
+    *vdda = (float)vdda_mv / 1000.0f;
+    *voltage_3v3 = (float)v33_mv / 1000.0f * 2.0f;
+    *voltage_5v0 = (float)v50_mv / 1000.0f * 2.0f;
+    *temperature = (float)__HAL_ADC_CALC_TEMPERATURE(vdda_mv, temp_raw,
+                                                     ADC_RESOLUTION_16B);
+}
+
 float Get_Voltage_VDDA(void)
 {
     uint32_t temp_raw = 0, vref_raw = 0;

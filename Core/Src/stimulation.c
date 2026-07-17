@@ -43,6 +43,33 @@ Stimulation EmptyStimulation = {
     .cached_circ_v = {0.0f, 0.0f, 0.0f},
 };
 
+static float unit_circle_cos[NUM_STIMULATION_SAMPLES];
+static float unit_circle_sin[NUM_STIMULATION_SAMPLES];
+static uint8_t unit_circle_ready;
+static int cached_discrete_segments = -1;
+static int cached_discrete_index = -1;
+static float cached_discrete_cos;
+static float cached_discrete_sin;
+
+static void Ensure_Unit_Circle_Table(void)
+{
+    if (unit_circle_ready)
+    {
+        return;
+    }
+
+    for (uint32_t i = 0; i < NUM_STIMULATION_SAMPLES; i++)
+    {
+        float progress = (float)i / (float)NUM_STIMULATION_SAMPLES;
+        float angle = 2.0f * (float)M_PI * progress;
+        unit_circle_cos[i] = cosf(angle);
+        unit_circle_sin[i] = sinf(angle);
+    }
+
+    __DMB();
+    unit_circle_ready = 1U;
+}
+
 const Stimulation DemoPointStimulation = {
     .name = "Point",
     .type = Point,
@@ -273,6 +300,8 @@ static int Is_Stimulation_Param_Equal(const Stimulation *s1, const Stimulation *
         return 0;
     if (s1->radius != s2->radius)
         return 0;
+    if (s1->segments != s2->segments)
+        return 0;
 
     // Compare vector parameters
     if (memcmp(s1->position, s2->position, sizeof(s1->position)) != 0)
@@ -289,10 +318,22 @@ static int Is_Stimulation_Param_Equal(const Stimulation *s1, const Stimulation *
 
 void Set_Stimulation(const Stimulation *stimulation)
 {
+    int was_phase_set_mode = phase_set_mode;
+    phase_set_mode = 0;
+
     Stimulation sanitized_stimulation = *stimulation;
     sanitized_stimulation.strength = DMA_Clamp_Stimulation_Strength(sanitized_stimulation.strength);
+    if (sanitized_stimulation.segments < 1)
+    {
+        sanitized_stimulation.segments = 1;
+    }
+    else if (sanitized_stimulation.segments > (int)NUM_STIMULATION_SAMPLES)
+    {
+        sanitized_stimulation.segments = (int)NUM_STIMULATION_SAMPLES;
+    }
 
-    if (Is_Stimulation_Param_Equal(&CurrentStimulation, &sanitized_stimulation))
+    if (!was_phase_set_mode &&
+        Is_Stimulation_Param_Equal(&CurrentStimulation, &sanitized_stimulation))
     {
         return;
     }
@@ -346,7 +387,7 @@ void Set_Stimulation(const Stimulation *stimulation)
     Update_Full_Waveform_Buffer();
 }
 
-void Update_Stimulation_State(float progress)
+static void Update_Stimulation_State_Internal(float progress, int32_t sample_index)
 {
     if (Get_Calibration_Mode() == 1 || Get_Phase_Set_Mode() == 1)
     {
@@ -365,9 +406,18 @@ void Update_Stimulation_State(float progress)
         int segment_index = (int)(progress * (float)CurrentStimulation.segments);
         if (segment_index >= CurrentStimulation.segments) segment_index = CurrentStimulation.segments - 1;
 
-        float angle = (float)segment_index * 2.0f * (float)M_PI / (float)CurrentStimulation.segments;
-        float cos_a = cosf(angle);
-        float sin_a = sinf(angle);
+        if (cached_discrete_segments != CurrentStimulation.segments ||
+            cached_discrete_index != segment_index)
+        {
+            float angle = (float)segment_index * 2.0f * (float)M_PI /
+                          (float)CurrentStimulation.segments;
+            cached_discrete_cos = cosf(angle);
+            cached_discrete_sin = sinf(angle);
+            cached_discrete_segments = CurrentStimulation.segments;
+            cached_discrete_index = segment_index;
+        }
+        float cos_a = cached_discrete_cos;
+        float sin_a = cached_discrete_sin;
 
         float discretePosition[3];
         // Use cached u and v vectors
@@ -409,9 +459,20 @@ void Update_Stimulation_State(float progress)
     }
     case Circular:
     {
-        float angle = 2.0f * (float)M_PI * progress;
-        float cos_a = cosf(angle);
-        float sin_a = sinf(angle);
+        float cos_a;
+        float sin_a;
+        if (sample_index >= 0 && (uint32_t)sample_index < NUM_STIMULATION_SAMPLES)
+        {
+            Ensure_Unit_Circle_Table();
+            cos_a = unit_circle_cos[sample_index];
+            sin_a = unit_circle_sin[sample_index];
+        }
+        else
+        {
+            float angle = 2.0f * (float)M_PI * progress;
+            cos_a = cosf(angle);
+            sin_a = sinf(angle);
+        }
 
         float circularPosition[3];
         // Use cached u and v vectors
@@ -430,6 +491,22 @@ void Update_Stimulation_State(float progress)
     default:
         break;
     }
+}
+
+void Update_Stimulation_State(float progress)
+{
+    Update_Stimulation_State_Internal(progress, -1);
+}
+
+void Update_Stimulation_State_Sample(uint32_t sample_index)
+{
+    if (sample_index >= NUM_STIMULATION_SAMPLES)
+    {
+        return;
+    }
+
+    float progress = (float)sample_index / (float)NUM_STIMULATION_SAMPLES;
+    Update_Stimulation_State_Internal(progress, (int32_t)sample_index);
 }
 
 int Get_Stimulation_Enabled()

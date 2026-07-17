@@ -127,6 +127,38 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length);
 static int8_t CDC_Receive_FS(uint8_t* pbuf, uint32_t *Len);
 static int8_t CDC_TransmitCplt_FS(uint8_t *pbuf, uint32_t *Len, uint8_t epnum);
 
+#define CDC_TX_QUEUE_DEPTH 16U
+#define CDC_TX_BUFFER_SIZE 262U
+
+typedef struct
+{
+  uint16_t length;
+  uint8_t data[CDC_TX_BUFFER_SIZE];
+} CDC_TxQueueEntry;
+
+static CDC_TxQueueEntry cdc_tx_queue[CDC_TX_QUEUE_DEPTH];
+static volatile uint8_t cdc_tx_head;
+static volatile uint8_t cdc_tx_tail;
+static volatile uint8_t cdc_tx_active;
+
+static uint8_t CDC_StartNextTransmit_FS(void)
+{
+  if (cdc_tx_active || cdc_tx_tail == cdc_tx_head)
+  {
+    return USBD_OK;
+  }
+
+  CDC_TxQueueEntry *entry = &cdc_tx_queue[cdc_tx_tail];
+  cdc_tx_active = 1U;
+  USBD_CDC_SetTxBuffer(&hUsbDeviceFS, entry->data, entry->length);
+  uint8_t result = USBD_CDC_TransmitPacket(&hUsbDeviceFS);
+  if (result != USBD_OK)
+  {
+    cdc_tx_active = 0U;
+  }
+  return result;
+}
+
 /* USER CODE BEGIN PRIVATE_FUNCTIONS_DECLARATION */
 
 /* USER CODE END PRIVATE_FUNCTIONS_DECLARATION */
@@ -152,6 +184,10 @@ USBD_CDC_ItfTypeDef USBD_Interface_fops_FS =
 static int8_t CDC_Init_FS(void)
 {
   /* USER CODE BEGIN 3 */
+  cdc_tx_head = 0U;
+  cdc_tx_tail = 0U;
+  cdc_tx_active = 0U;
+
   /* Set Application Buffers */
   USBD_CDC_SetTxBuffer(&hUsbDeviceFS, UserTxBufferFS, 0);
   USBD_CDC_SetRxBuffer(&hUsbDeviceFS, UserRxBufferFS);
@@ -180,6 +216,9 @@ static int8_t CDC_DeInit_FS(void)
 static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
 {
   /* USER CODE BEGIN 5 */
+  UNUSED(pbuf);
+  UNUSED(length);
+
   switch(cmd)
   {
     case CDC_SEND_ENCAPSULATED_COMMAND:
@@ -261,7 +300,7 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
 static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
 {
   /* USER CODE BEGIN 6 */
-  Comm_Process_Received_Data(Buf, *Len);
+  Comm_Queue_Received_Data(Buf, *Len);
   USBD_CDC_SetRxBuffer(&hUsbDeviceFS, &Buf[0]);
   USBD_CDC_ReceivePacket(&hUsbDeviceFS);
   return (USBD_OK);
@@ -281,16 +320,33 @@ static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
   */
 uint8_t CDC_Transmit_FS(uint8_t* Buf, uint16_t Len)
 {
-  uint8_t result = USBD_OK;
+  uint8_t result;
   /* USER CODE BEGIN 7 */
-  USBD_CDC_HandleTypeDef *hcdc = (USBD_CDC_HandleTypeDef*)hUsbDeviceFS.pClassData;
-  if (hcdc->TxState != 0){
+  if (Len > CDC_TX_BUFFER_SIZE)
+  {
+    return USBD_FAIL;
+  }
+
+  uint32_t primask = __get_PRIMASK();
+  __disable_irq();
+
+  uint8_t next_head = (uint8_t)((cdc_tx_head + 1U) % CDC_TX_QUEUE_DEPTH);
+  if (next_head == cdc_tx_tail)
+  {
+    if (primask == 0U) __enable_irq();
     return USBD_BUSY;
   }
-  USBD_CDC_SetTxBuffer(&hUsbDeviceFS, Buf, Len);
-  result = USBD_CDC_TransmitPacket(&hUsbDeviceFS);
+
+  CDC_TxQueueEntry *entry = &cdc_tx_queue[cdc_tx_head];
+  memcpy(entry->data, Buf, Len);
+  entry->length = Len;
+  __DMB();
+  cdc_tx_head = next_head;
+
+  result = CDC_StartNextTransmit_FS();
+  if (primask == 0U) __enable_irq();
   /* USER CODE END 7 */
-  return result;
+  return (result == USBD_FAIL) ? USBD_FAIL : USBD_OK;
 }
 
 /**
@@ -312,6 +368,12 @@ static int8_t CDC_TransmitCplt_FS(uint8_t *Buf, uint32_t *Len, uint8_t epnum)
   UNUSED(Buf);
   UNUSED(Len);
   UNUSED(epnum);
+  if (cdc_tx_active)
+  {
+    cdc_tx_tail = (uint8_t)((cdc_tx_tail + 1U) % CDC_TX_QUEUE_DEPTH);
+    cdc_tx_active = 0U;
+  }
+  CDC_StartNextTransmit_FS();
   /* USER CODE END 13 */
   return result;
 }

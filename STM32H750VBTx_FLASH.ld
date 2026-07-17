@@ -113,9 +113,13 @@ SECTIONS
     __exidx_end = .;
   } >FLASH
 
-  .storage_buffer (NOLOAD) : ALIGN(4) {
+  .storage_buffer (NOLOAD) : ALIGN(32) {
         KEEP(*(.storage_buffer))
   } >RAM_D2
+
+  .waveform_staging (NOLOAD) : ALIGN(32) {
+        KEEP(*(.waveform_staging))
+  } >RAM_D1
   
   .preinit_array     :
   {
