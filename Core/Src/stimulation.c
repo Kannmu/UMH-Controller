@@ -107,6 +107,70 @@ const Stimulation DemoULM_LStimulation = {
     .cached_circ_v = {0.0f, 0.0f, 0.0f},
 };
 
+const Stimulation DemoULM_L_M02_Stimulation = {
+    .name = "ULM_L_M0.2",
+    .type = Linear,
+    .position = {0.0f, 0.0f, 0.1f},
+    .strength = 100,
+    .startPoint = {0.0f, 2.5e-3f, 0.1f},
+    .endPoint = {0.0f, -2.5e-3f, 0.1f},
+    .segments = 1,
+    .normalVector = {0.0f, 0.0f, 1.0f},
+    .radius = 0.0f,
+    .frequency = 200.0f,
+    .cached_period_us = 0,
+    .cached_circ_u = {0.0f, 0.0f, 0.0f},
+    .cached_circ_v = {0.0f, 0.0f, 0.0f},
+};
+
+const Stimulation DemoULM_L_M05_Stimulation = {
+    .name = "ULM_L_M0.5",
+    .type = Linear,
+    .position = {0.0f, 0.0f, 0.1f},
+    .strength = 100,
+    .startPoint = {0.0f, 6.25e-3f, 0.1f},
+    .endPoint = {0.0f, -6.25e-3f, 0.1f},
+    .segments = 1,
+    .normalVector = {0.0f, 0.0f, 1.0f},
+    .radius = 0.0f,
+    .frequency = 200.0f,
+    .cached_period_us = 0,
+    .cached_circ_u = {0.0f, 0.0f, 0.0f},
+    .cached_circ_v = {0.0f, 0.0f, 0.0f},
+};
+
+const Stimulation DemoULM_L_M10_Stimulation = {
+    .name = "ULM_L_M1.0",
+    .type = Linear,
+    .position = {0.0f, 0.0f, 0.1f},
+    .strength = 100,
+    .startPoint = {0.0f, 12.5e-3f, 0.1f},
+    .endPoint = {0.0f, -12.5e-3f, 0.1f},
+    .segments = 1,
+    .normalVector = {0.0f, 0.0f, 1.0f},
+    .radius = 0.0f,
+    .frequency = 200.0f,
+    .cached_period_us = 0,
+    .cached_circ_u = {0.0f, 0.0f, 0.0f},
+    .cached_circ_v = {0.0f, 0.0f, 0.0f},
+};
+
+const Stimulation DemoULM_L_M20_Stimulation = {
+    .name = "ULM_L_M2.0",
+    .type = Linear,
+    .position = {0.0f, 0.0f, 0.1f},
+    .strength = 100,
+    .startPoint = {0.0f, 25e-3f, 0.1f},
+    .endPoint = {0.0f, -25e-3f, 0.1f},
+    .segments = 1,
+    .normalVector = {0.0f, 0.0f, 1.0f},
+    .radius = 0.0f,
+    .frequency = 200.0f,
+    .cached_period_us = 0,
+    .cached_circ_u = {0.0f, 0.0f, 0.0f},
+    .cached_circ_v = {0.0f, 0.0f, 0.0f},
+};
+
 const Stimulation DemoLM_LStimulation = {
     .name = "LM_L",
     .type = Linear,
@@ -159,6 +223,10 @@ const Stimulation *DemoStimulations[] = {
     &DemoULM_LStimulation,
     &DemoLM_LStimulation,
     &DemoLM_CStimulation,
+    &DemoULM_L_M02_Stimulation,
+    &DemoULM_L_M05_Stimulation,
+    &DemoULM_L_M10_Stimulation,
+    &DemoULM_L_M20_Stimulation,
 };
 
 void Switch_Demo_Mode()
