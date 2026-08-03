@@ -1,58 +1,70 @@
-#pragma once
-#include "main.h"
-#include "transducer.h"
-#include "stim_types.h"
+# pragma once
+# include "main.h"
+# include "transducer.h"
 
-#define STIMULATION_FREQ (200U)
-#define STIMULATION_PERIOD (1.0 / STIMULATION_FREQ)
-#define NUM_STIMULATION_SAMPLES (uint32_t)(TRANSDUCER_BASE_FREQ / STIMULATION_FREQ)
+# define STIMULATION_FREQ (200U)
+# define STIMULATION_PERIOD (1.0 / STIMULATION_FREQ)
+# define NUM_STIMULATION_SAMPLES (uint32_t)(TRANSDUCER_BASE_FREQ / STIMULATION_FREQ)
 
-#define STIM_CTX_SIZE      64   /* inline context buffer for type-specific cached data */
-#define DEFAULT_FOCUS_Z     0.1f
 
-struct Stimulation {
-    /* Common fields across all types */
-    char         name[32];
-    uint8_t      type_id;
-    float        strength;
-    float        frequency;
-    uint32_t     cached_period_us;
+typedef enum StimulationType
+{
+    Point = 0,
+    Discrete = 1,
+    Linear = 2,
+    Circular = 3,
+    TwinTrap = 4,
+}StimulationType;
 
-    /* Vtable pointer to the type's descriptor */
-    const StimTypeDescriptor *type_desc;
 
-    /* Inline context buffer (type-specific cached data) */
-    uint8_t      _ctx[STIM_CTX_SIZE];
-};
+typedef struct Stimulation
+{
+  char name[32];
+  // Stimulation Parameters
+  StimulationType type; // Type of Stimulation
 
-/* ---- Extern globals ---- */
-/* phase_set_mode / demo_mode are written from the main loop and read from
- * the USB RX ISR (CMD_GET_STATUS response path); declared volatile for
- * cross-context visibility. */
-extern volatile int         phase_set_mode;
-extern volatile int         demo_mode;
-extern struct Stimulation   CurrentStimulation;
-extern struct Stimulation   EmptyStimulation;
+  // Point Stimulation Parameters
+  float position[3]; // X Axis is Along Row, Y Axis Along Column, and Z Axis Target Outside Direction of the Array. In Meters. For Point Stimulation.
 
-/* ---- Accessor inlines (zero-overhead, used by dma_manager.c hot path) ---- */
-static inline uint8_t  Stim_Get_Type_Id(const struct Stimulation *s) {
-    return s->type_id;
-}
-static inline float    Stim_Get_Strength(const struct Stimulation *s) {
-    return s->strength;
-}
-static inline int      Stim_Is_Static(const struct Stimulation *s) {
-    return s->type_desc && s->type_desc->is_static;
-}
+  // Stimulation Parameters
+  float startPoint[3]; // Start Point
+  float endPoint[3]; // End Point
+  
+  int segments; // Number of Segments for Linear and Discrete Stimulation
 
-/* ---- Public API ---- */
-void  Stim_Init(void);
-int   Get_Demo_Mode(void);
-int   Get_Num_Demo_Stimulations(void);
-int   Get_Phase_Set_Mode(void);
-int   Get_Stimulation_Enabled(void);
-void  Stimulation_Enable(void);
-void  Stimulation_Disable(void);
-void  Set_Stimulation(const struct Stimulation *stim);
-void  Set_Stimulation_From_Demo(const StimDemoDescriptor *demo);
-void  Update_Stimulation_State(float progress);
+  // Circular Stimulation Parameters
+  float normalVector[3]; // Normal Vector for Circular Stimulation. In Meters.
+  float radius; // Radius for Circular Stimulation. In Meters.
+
+  // General Parameters
+  float strength;     // Overall strength Coefficient, Default to 100
+  float frequency;
+
+  // Cached Values (Internal Use)
+  uint32_t cached_period_us;
+  float cached_circ_u[3]; // For Circular and CSF Stimulation
+  float cached_circ_v[3]; // For Circular and CSF Stimulation
+
+}Stimulation;
+
+extern int phase_set_mode;
+
+extern int demo_mode;
+
+extern Stimulation CurrentStimulation;
+
+extern Stimulation EmptyStimulation;
+
+extern const Stimulation *DemoStimulations[];
+
+void Switch_Demo_Mode(void);
+int Get_Demo_Mode(void);
+int Get_Num_Demo_Stimulations(void);
+
+int Get_Phase_Set_Mode(void);
+int Get_Stimulation_Enabled(void);
+void Stimulation_Enable(void);
+void Stimulation_Disable(void);
+void Set_Stimulation(const Stimulation *stimulation);
+void Update_Stimulation_State(float progress);
+void Update_Stimulation_State_Sample(uint32_t sample_index);

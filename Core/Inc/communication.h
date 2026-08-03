@@ -23,12 +23,6 @@
 #define CMD_SET_DEMO            0x07
 #define CMD_GET_TRANSDUCER_INFO 0x08
 
-// 序列化参数
-#define SERIAL_TRANSDUCER_BYTES           3    /* uint16 phase + uint8 duty */
-#define TRANSDUCER_POSITION_BYTES         12   /* 3 × float X/Y/Z */
-#define MAX_TRANSDUCER_INFO_PER_REQUEST   21   /* (255 - 2) / 12 */
-#define ARRAY_TYPE_CONCENTRIC_RINGS       0x02
-
 // 响应类型 (UMH -> PC)
 #define RSP_ACK                 0x80
 #define RSP_NACK                0x81
@@ -39,12 +33,6 @@
 #define RSP_DEMO_ACK            0x86
 #define RSP_TRANSDUCER_INFO     0x87
 #define RSP_ERROR_CODE          0xFF
-
-#define RX_FRAME_TIMEOUT_MS     100U
-
-/* Frame size helpers: HEADER(2)+CMD(1)+LEN(1)+CS(1)+TAIL(2) = 7, plus up to 255 data bytes */
-#define COMM_FRAME_OVERHEAD     7U
-#define COMM_MAX_FRAME          (COMM_FRAME_OVERHEAD + 255U)
 
 // 协议帧结构
 typedef struct {
@@ -75,22 +63,11 @@ typedef struct {
     comm_frame_t frame;
     uint8_t data_index;
     uint8_t calculated_checksum;
-    uint32_t last_byte_tick;
 } rx_buffer_t;
-
-/* Command queue entry: produced by the USB RX ISR (Comm_Process_Received_Data)
- * and consumed by the main loop (Comm_Tick). Decouples frame parsing from the
- * heavy command execution (Update_Full_Waveform_Buffer, EEPROM, etc.) so the
- * ISR returns quickly and avoids racing the main loop on shared state. */
-typedef struct {
-    uint8_t cmd_type;
-    uint8_t data_length;
-    uint8_t data[255];
-} Comm_Command;
 
 
 typedef struct __attribute__((packed)) {
-    char serial_number[25];
+    char serial_number[12];
     uint32_t version;
     uint8_t array_type;
     uint32_t array_size;
@@ -114,10 +91,10 @@ typedef struct __attribute__((packed)) {
 
 // 函数声明
 void Comm_Init(void);
+void Comm_Task(void);
+void Comm_Queue_Received_Data(const uint8_t* data, uint32_t length);
 void Comm_Process_Received_Data(uint8_t* data, uint32_t length);
-void Comm_Tick(void);                          /* main loop: dequeue & execute one command */
-void Comm_Send_Response(uint8_t cmd_type, const uint8_t* data, uint8_t data_length);
-uint8_t Comm_Calculate_Checksum(uint8_t cmd_type, uint8_t data_length, const uint8_t* data);
-void Comm_Handle_Ping_Command(const uint8_t* data, uint8_t data_length);
+void Comm_Send_Response(uint8_t cmd_type, uint8_t* data, uint8_t data_length);
+uint8_t Comm_Calculate_Checksum(uint8_t cmd_type, uint8_t data_length, uint8_t* data);
+void Comm_Handle_Ping_Command(uint8_t* data, uint8_t data_length);
 void Comm_Reset_Rx_State(void);
-void Comm_Check_Rx_Timeout(void);
