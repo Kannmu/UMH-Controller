@@ -2,6 +2,7 @@
 #include "transducer.h"
 #include "dma_manager.h"
 #include "communication.h"
+#include "indexed_linear.h"
 #include "utiles.h"
 
 // 全局变量
@@ -88,6 +89,8 @@ static uint8_t Comm_Get_Stimulation_Payload_Length(StimulationType type)
     case Linear:
     case Circular:
         return 37U;
+    case IndexedLinear:
+        return INDEXED_LINEAR_PAYLOAD_LENGTH;
     default:
         return 0U;
     }
@@ -338,10 +341,21 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                         }
                         case CMD_SET_STIMULATION:
                         {
+                            if (rx_buffer.frame.data_length < 1U)
+                            {
+                                Comm_Send_Response(RSP_ERROR_CODE, NULL, 0);
+                                break;
+                            }
                             StimulationType requested_type = (StimulationType)rx_buffer.frame.data[0];
                             uint8_t required_length = Comm_Get_Stimulation_Payload_Length(requested_type);
-                            if (required_length > 0U &&
-                                rx_buffer.frame.data_length >= required_length)
+                            int valid_length = required_length > 0U &&
+                                rx_buffer.frame.data_length >= required_length;
+                            if (requested_type == IndexedLinear)
+                            {
+                                valid_length = rx_buffer.frame.data_length ==
+                                               INDEXED_LINEAR_PAYLOAD_LENGTH;
+                            }
+                            if (valid_length)
                             {
                                 Stimulation stimulation;
                                 memset(&stimulation, 0, sizeof(Stimulation));
@@ -380,6 +394,16 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                                     memcpy(&stimulation.endPoint[2], &pData[offset], 4); offset += 4;
                                     memcpy(&stimulation.segments, &pData[offset], 4); offset += 4;
                                     break;
+                                case IndexedLinear:
+                                    memcpy(&stimulation.startPoint[0], &pData[offset], 4); offset += 4;
+                                    memcpy(&stimulation.startPoint[1], &pData[offset], 4); offset += 4;
+                                    memcpy(&stimulation.startPoint[2], &pData[offset], 4); offset += 4;
+                                    memcpy(&stimulation.endPoint[0], &pData[offset], 4); offset += 4;
+                                    memcpy(&stimulation.endPoint[1], &pData[offset], 4); offset += 4;
+                                    memcpy(&stimulation.endPoint[2], &pData[offset], 4); offset += 4;
+                                    offset += 2; // sample count and control flags
+                                    offset += INDEXED_LINEAR_SAMPLE_COUNT;
+                                    break;
                                 case Circular:
                                     memcpy(&stimulation.position[0], &pData[offset], 4); offset += 4;
                                     memcpy(&stimulation.position[1], &pData[offset], 4); offset += 4;
@@ -397,9 +421,28 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                                 memcpy(&stimulation.strength,    &pData[offset], 4); offset += 4;
                                 memcpy(&stimulation.frequency,   &pData[offset], 4); 
                                 
-                                if (Comm_Is_Stimulation_Finite(&stimulation))
+                                int valid_stimulation = Comm_Is_Stimulation_Finite(&stimulation);
+                                if (type == IndexedLinear)
                                 {
-                                    Set_Stimulation(&stimulation);
+                                    valid_stimulation = valid_stimulation &&
+                                        Indexed_Linear_Validate_Payload(
+                                            pData, rx_buffer.frame.data_length);
+                                    if (valid_stimulation)
+                                    {
+                                        valid_stimulation = Set_Indexed_Linear_Stimulation(
+                                            &stimulation,
+                                            &pData[INDEXED_LINEAR_ORDER_OFFSET],
+                                            pData[INDEXED_LINEAR_SAMPLE_COUNT_OFFSET],
+                                            pData[INDEXED_LINEAR_CONTROL_FLAGS_OFFSET]);
+                                    }
+                                }
+
+                                if (valid_stimulation)
+                                {
+                                    if (type != IndexedLinear)
+                                    {
+                                        Set_Stimulation(&stimulation);
+                                    }
                                     Comm_Send_Response(RSP_SACK, NULL, 0);
                                 }
                                 else

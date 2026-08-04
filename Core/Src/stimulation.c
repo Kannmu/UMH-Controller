@@ -5,6 +5,10 @@
 #include "utiles.h"
 #include "custom_math.h"
 #include "dma_manager.h"
+#include "indexed_linear.h"
+
+_Static_assert(NUM_STIMULATION_SAMPLES == INDEXED_LINEAR_SAMPLE_COUNT,
+               "IndexedLinear protocol requires exactly 200 DMA samples");
 
 int phase_set_mode = 0;
 int is_stimulation_enabled = 1;
@@ -50,6 +54,7 @@ static int cached_discrete_segments = -1;
 static int cached_discrete_index = -1;
 static float cached_discrete_cos;
 static float cached_discrete_sin;
+static uint8_t indexed_linear_order[INDEXED_LINEAR_SAMPLE_COUNT];
 
 static void Ensure_Unit_Circle_Table(void)
 {
@@ -302,7 +307,6 @@ static int Is_Stimulation_Param_Equal(const Stimulation *s1, const Stimulation *
         return 0;
     if (s1->segments != s2->segments)
         return 0;
-
     // Compare vector parameters
     if (memcmp(s1->position, s2->position, sizeof(s1->position)) != 0)
         return 0;
@@ -316,7 +320,7 @@ static int Is_Stimulation_Param_Equal(const Stimulation *s1, const Stimulation *
     return 1;
 }
 
-void Set_Stimulation(const Stimulation *stimulation)
+static void Set_Stimulation_Internal(const Stimulation *stimulation, int force_update)
 {
     int was_phase_set_mode = phase_set_mode;
     phase_set_mode = 0;
@@ -331,8 +335,7 @@ void Set_Stimulation(const Stimulation *stimulation)
     {
         sanitized_stimulation.segments = (int)NUM_STIMULATION_SAMPLES;
     }
-
-    if (!was_phase_set_mode &&
+    if (!force_update && !was_phase_set_mode &&
         Is_Stimulation_Param_Equal(&CurrentStimulation, &sanitized_stimulation))
     {
         return;
@@ -385,6 +388,31 @@ void Set_Stimulation(const Stimulation *stimulation)
     }
 
     Update_Full_Waveform_Buffer();
+}
+
+void Set_Stimulation(const Stimulation *stimulation)
+{
+    if (stimulation == NULL || stimulation->type == IndexedLinear)
+    {
+        return;
+    }
+    Set_Stimulation_Internal(stimulation, 0);
+}
+
+int Set_Indexed_Linear_Stimulation(const Stimulation *stimulation,
+                                   const uint8_t *spatial_order,
+                                   uint8_t sample_count,
+                                   uint8_t control_flags)
+{
+    if (stimulation == NULL || stimulation->type != IndexedLinear ||
+        !Indexed_Linear_Validate_Order(spatial_order, sample_count, control_flags))
+    {
+        return 0;
+    }
+
+    memcpy(indexed_linear_order, spatial_order, sizeof(indexed_linear_order));
+    Set_Stimulation_Internal(stimulation, 1);
+    return 1;
 }
 
 static void Update_Stimulation_State_Internal(float progress, int32_t sample_index)
@@ -454,6 +482,31 @@ static void Update_Stimulation_State_Internal(float progress, int32_t sample_ind
             Vector3Lerp(linearPosition, CurrentStimulation.endPoint, CurrentStimulation.startPoint, segment_progress);
         }
 
+        Set_Point_Focus(linearPosition);
+        break;
+    }
+    case IndexedLinear:
+    {
+        uint32_t time_index;
+        if (sample_index >= 0 && (uint32_t)sample_index < NUM_STIMULATION_SAMPLES)
+        {
+            time_index = (uint32_t)sample_index;
+        }
+        else
+        {
+            time_index = (uint32_t)(progress * (float)NUM_STIMULATION_SAMPLES);
+            if (time_index >= NUM_STIMULATION_SAMPLES)
+            {
+                time_index = NUM_STIMULATION_SAMPLES - 1U;
+            }
+        }
+
+        uint32_t spatial_index = indexed_linear_order[time_index];
+        float spatial_progress = (float)spatial_index /
+                                 (float)NUM_STIMULATION_SAMPLES;
+        float linearPosition[3];
+        Vector3Lerp(linearPosition, CurrentStimulation.startPoint,
+                    CurrentStimulation.endPoint, spatial_progress);
         Set_Point_Focus(linearPosition);
         break;
     }

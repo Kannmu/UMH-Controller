@@ -14,6 +14,7 @@ typedef enum StimulationType
     Linear = 2,
     Circular = 3,
     TwinTrap = 4,
+    IndexedLinear = 5,
 }StimulationType;
 
 
@@ -66,5 +67,9 @@ int Get_Stimulation_Enabled(void);
 void Stimulation_Enable(void);
 void Stimulation_Disable(void);
 void Set_Stimulation(const Stimulation *stimulation);
+int Set_Indexed_Linear_Stimulation(const Stimulation *stimulation,
+                                   const uint8_t *spatial_order,
+                                   uint8_t sample_count,
+                                   uint8_t control_flags);
 void Update_Stimulation_State(float progress);
 void Update_Stimulation_State_Sample(uint32_t sample_index);
