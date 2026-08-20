@@ -3,6 +3,7 @@
 #include "utiles.h"
 #include "calibration.h"
 #include "stimulation.h"
+#include "stm32h7xx_hal_dma_ex.h"
 
 const float GPIO_Group_Output_Offset[DMA_CHANNELS] = {0U, 0.06, 0.09, 0.16, 0.12};
 
@@ -45,10 +46,10 @@ uint16_t DMA_Convert_Strength_To_On_Ticks(float strength)
 DMA_HandleTypeDef *DMA_Stream_Handles[DMA_CHANNELS];
 
 __ALIGNED(32)
-uint16_t Waveform_Storage[DMA_CHANNELS][NUM_STIMULATION_SAMPLES][WAVEFORM_BUFFER_SIZE] __attribute__((section(".storage_buffer")));
+DMA_WaveformBlock Waveform_Storage __attribute__((section(".storage_buffer")));
 
 __ALIGNED(32)
-static uint16_t Waveform_Staging[DMA_CHANNELS][NUM_STIMULATION_SAMPLES][WAVEFORM_BUFFER_SIZE] __attribute__((section(".waveform_staging")));
+static DMA_WaveformBlock Waveform_Staging __attribute__((section(".waveform_staging")));
 
 typedef uint16_t WaveformChannel[NUM_STIMULATION_SAMPLES][WAVEFORM_BUFFER_SIZE];
 
@@ -61,10 +62,41 @@ static int TransducersByPortCount[DMA_CHANNELS];
 static uint16_t TransducerPinMaskByPort[DMA_CHANNELS];
 static WaveformChannel *Active_Waveform = Waveform_Storage;
 static uint8_t DMAs_Started;
+static uint8_t Audio_DMA_Active;
+static uint8_t Audio_DMA_Prepared;
 
 static GPIO_TypeDef * const Output_Ports[DMA_CHANNELS] = {
     GPIOA, GPIOB, GPIOC, GPIOD, GPIOE
 };
+
+static int TIM1_Stop_Output(void)
+{
+    int ok = 1;
+
+    /* Keep the peripheral state and the HAL handle state synchronized. */
+    if (HAL_TIM_OC_Stop(&htim1, TIM_CHANNEL_1) != HAL_OK) ok = 0;
+    if (HAL_TIM_OC_Stop(&htim1, TIM_CHANNEL_2) != HAL_OK) ok = 0;
+    if (HAL_TIM_OC_Stop(&htim1, TIM_CHANNEL_3) != HAL_OK) ok = 0;
+    if (HAL_TIM_OC_Stop(&htim1, TIM_CHANNEL_4) != HAL_OK) ok = 0;
+    if (HAL_TIM_Base_Stop(&htim1) != HAL_OK) ok = 0;
+
+    __HAL_TIM_DISABLE_DMA(&htim1, TIM_DMA_UPDATE);
+    __HAL_TIM_DISABLE_DMA(&htim1, TIM_DMA_CC1);
+    __HAL_TIM_DISABLE_DMA(&htim1, TIM_DMA_CC2);
+    __HAL_TIM_DISABLE_DMA(&htim1, TIM_DMA_CC3);
+    __HAL_TIM_DISABLE_DMA(&htim1, TIM_DMA_CC4);
+    return ok;
+}
+
+static int TIM1_Start_Output(void)
+{
+    if (HAL_TIM_OC_Start(&htim1, TIM_CHANNEL_1) != HAL_OK) return 0;
+    if (HAL_TIM_OC_Start(&htim1, TIM_CHANNEL_2) != HAL_OK) return 0;
+    if (HAL_TIM_OC_Start(&htim1, TIM_CHANNEL_3) != HAL_OK) return 0;
+    if (HAL_TIM_OC_Start(&htim1, TIM_CHANNEL_4) != HAL_OK) return 0;
+    if (HAL_TIM_Base_Start(&htim1) != HAL_OK) return 0;
+    return 1;
+}
 
 static void Activate_Waveform(WaveformChannel *waveform)
 {
@@ -177,15 +209,123 @@ void Start_DMAs()
     __HAL_TIM_ENABLE_DMA(&htim1, TIM_DMA_CC3);
     __HAL_TIM_ENABLE_DMA(&htim1, TIM_DMA_CC4);
 
-    // Start TIM1 Output Compare channels
-    HAL_TIM_OC_Start(&htim1, TIM_CHANNEL_1);
-    HAL_TIM_OC_Start(&htim1, TIM_CHANNEL_2);
-    HAL_TIM_OC_Start(&htim1, TIM_CHANNEL_3);
-    HAL_TIM_OC_Start(&htim1, TIM_CHANNEL_4);
-
-    // Start TIM1
-    HAL_TIM_Base_Start(&htim1);
+    __HAL_TIM_SET_COUNTER(&htim1, 0U);
+    if (!TIM1_Start_Output()) Error_Handler();
     DMAs_Started = 1U;
+    Audio_DMA_Active = 0U;
+    Audio_DMA_Prepared = 0U;
+}
+
+DMA_WaveformBlock *DMA_Audio_Get_Block(uint8_t block)
+{
+    return (block == 0U) ? &Waveform_Storage : &Waveform_Staging;
+}
+
+void DMA_Audio_Clean_Block(uint8_t block)
+{
+    DMA_WaveformBlock *waveform = DMA_Audio_Get_Block(block);
+    SCB_CleanDCache_by_Addr((uint32_t *)&(*waveform)[0][0][0],
+                            (int32_t)sizeof(*waveform));
+}
+
+int DMA_Is_Audio_Active(void)
+{
+    return Audio_DMA_Active != 0U;
+}
+
+uint8_t DMA_Audio_Get_Playing_Block(void)
+{
+    if (!Audio_DMA_Active) return 0U;
+    return ((DMA_Stream_TypeDef *)DMA_Stream_Handles[0]->Instance)->CR & DMA_SxCR_CT ? 1U : 0U;
+}
+
+int DMA_Audio_Prepare(void)
+{
+    if (Audio_DMA_Active) return 0;
+    if (Audio_DMA_Prepared) return 1;
+
+    if (!TIM1_Stop_Output()) return 0;
+    if (DMAs_Started)
+    {
+        for (uint32_t p = 0; p < DMA_CHANNELS; p++)
+        {
+            if (HAL_DMA_Abort(DMA_Stream_Handles[p]) != HAL_OK) return 0;
+        }
+    }
+
+    for (uint32_t p = 0; p < DMA_CHANNELS; p++)
+        Output_Ports[p]->BSRR = (uint32_t)TransducerPinMaskByPort[p] << 16U;
+
+    /* Both buffers are now safe to render because the legacy DMA is stopped. */
+    memset(&Waveform_Storage[0][0][0], 0, sizeof(Waveform_Storage));
+    memset(&Waveform_Staging[0][0][0], 0, sizeof(Waveform_Staging));
+    DMA_Audio_Clean_Block(0U);
+    DMA_Audio_Clean_Block(1U);
+    DMAs_Started = 0U;
+    Audio_DMA_Prepared = 1U;
+    return 1;
+}
+
+int DMA_Audio_Start(void)
+{
+    uint32_t total_length = NUM_STIMULATION_SAMPLES * WAVEFORM_BUFFER_SIZE;
+
+    if (Audio_DMA_Active) return 1;
+    if (!Audio_DMA_Prepared && !DMA_Audio_Prepare()) return 0;
+
+    for (uint32_t p = 0; p < DMA_CHANNELS; p++)
+    {
+        if (HAL_DMAEx_MultiBufferStart(DMA_Stream_Handles[p],
+                                       (uint32_t)&Waveform_Storage[p][0][0],
+                                       (uint32_t)&Output_Ports[p]->ODR,
+                                       (uint32_t)&Waveform_Staging[p][0][0],
+                                       total_length) != HAL_OK)
+        {
+            for (uint32_t i = 0; i < p; i++)
+            {
+                if (HAL_DMA_Abort(DMA_Stream_Handles[i]) != HAL_OK) Error_Handler();
+            }
+            Audio_DMA_Prepared = 0U;
+            return 0;
+        }
+    }
+
+    __HAL_TIM_ENABLE_DMA(&htim1, TIM_DMA_UPDATE);
+    __HAL_TIM_ENABLE_DMA(&htim1, TIM_DMA_CC1);
+    __HAL_TIM_ENABLE_DMA(&htim1, TIM_DMA_CC2);
+    __HAL_TIM_ENABLE_DMA(&htim1, TIM_DMA_CC3);
+    __HAL_TIM_ENABLE_DMA(&htim1, TIM_DMA_CC4);
+    __HAL_TIM_SET_COUNTER(&htim1, 0U);
+    if (!TIM1_Start_Output())
+    {
+        if (!TIM1_Stop_Output()) Error_Handler();
+        for (uint32_t p = 0; p < DMA_CHANNELS; p++)
+        {
+            if (HAL_DMA_Abort(DMA_Stream_Handles[p]) != HAL_OK) Error_Handler();
+        }
+        Audio_DMA_Prepared = 0U;
+        return 0;
+    }
+    Audio_DMA_Active = 1U;
+    DMAs_Started = 1U;
+    Audio_DMA_Prepared = 0U;
+    return 1;
+}
+
+int DMA_Audio_Stop(void)
+{
+    if (!Audio_DMA_Active) return 1;
+    if (!TIM1_Stop_Output()) return 0;
+    int ok = 1;
+    for (uint32_t p = 0; p < DMA_CHANNELS; p++)
+    {
+        if (HAL_DMA_Abort(DMA_Stream_Handles[p]) != HAL_OK) ok = 0;
+        Output_Ports[p]->BSRR = (uint32_t)TransducerPinMaskByPort[p] << 16U;
+    }
+    Audio_DMA_Active = 0U;
+    DMAs_Started = 0U;
+    Audio_DMA_Prepared = 0U;
+    return ok;
 }
 
 void Update_Full_Waveform_Buffer()
@@ -382,21 +522,20 @@ void DMA_Update_LED_State(uint16_t led_mask)
     // If the bit in led_mask is 0, it means LED ON
     uint16_t led_bits = led_mask & LED_MASK_BITS;
 
-    // Iterate over all samples for Channel 0
-    for (uint32_t s = 0; s < NUM_STIMULATION_SAMPLES; s++)
+    uint32_t block_count = DMA_Is_Audio_Active() ? 2U : 1U;
+    for (uint32_t b = 0; b < block_count; b++)
     {
-        uint16_t *buffer_ptr = Active_Waveform[0][s];
-        for (uint32_t i = 0; i < WAVEFORM_BUFFER_SIZE; i++)
+        DMA_WaveformBlock *block;
+        if (DMA_Is_Audio_Active())
+            block = DMA_Audio_Get_Block((uint8_t)b);
+        else
+            block = (DMA_WaveformBlock *)Active_Waveform;
+        for (uint32_t s = 0; s < NUM_STIMULATION_SAMPLES; s++)
         {
-            // Read-Modify-Write
-            // Preserve other bits (Transducers), replace LED bits
-            buffer_ptr[i] = (buffer_ptr[i] & ~LED_MASK_BITS) | led_bits;
+            uint16_t *buffer_ptr = &(*block)[0][s][0];
+            for (uint32_t i = 0; i < WAVEFORM_BUFFER_SIZE; i++)
+                buffer_ptr[i] = (buffer_ptr[i] & ~LED_MASK_BITS) | led_bits;
         }
-    }
-
-    if (Active_Waveform == Waveform_Staging)
-    {
-        SCB_CleanDCache_by_Addr((uint32_t *)&Waveform_Staging[0][0][0],
-                               (int32_t)sizeof(Waveform_Staging[0]));
+        if (DMA_Is_Audio_Active()) DMA_Audio_Clean_Block((uint8_t)b);
     }
 }

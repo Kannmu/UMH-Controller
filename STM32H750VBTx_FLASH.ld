@@ -117,6 +117,10 @@ SECTIONS
         KEEP(*(.storage_buffer))
   } >RAM_D2
 
+  .audio_ring (NOLOAD) : ALIGN(32) {
+        KEEP(*(.audio_ring))
+  } >RAM_D2
+
   .waveform_staging (NOLOAD) : ALIGN(32) {
         KEEP(*(.waveform_staging))
   } >RAM_D1

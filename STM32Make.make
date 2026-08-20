@@ -75,6 +75,9 @@ endif
 ######################################
 # C sources
 C_SOURCES =  \
+Core/Src/audio_playback.c \
+Core/Src/audio_resampler.c \
+Core/Src/audio_waveform.c \
 Core/Src/calibration.c \
 Core/Src/communication.c \
 Core/Src/custom_math.c \

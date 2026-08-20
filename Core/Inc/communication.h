@@ -6,6 +6,8 @@
 #include "calibration.h"
 #include "stimulation.h"
 #include "usbd_cdc_if.h"
+#include "audio_protocol.h"
+#include "audio_playback.h"
 
 // 协议定义
 #define FRAME_HEADER_1          0xAA
@@ -87,6 +89,13 @@ typedef struct __attribute__((packed)) {
     uint32_t calibration_mode;
     uint32_t phase_set_mode;
 } device_status;
+
+typedef struct __attribute__((packed)) {
+    uint32_t sample_rate;
+    uint8_t channels;
+    uint8_t bits_per_sample;
+    uint16_t reserved;
+} audio_caps;
 
 
 // 函数声明
