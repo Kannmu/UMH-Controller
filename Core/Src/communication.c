@@ -58,9 +58,9 @@ void Comm_Task(void)
 {
     uint16_t tail = comm_rx_tail;
     uint16_t head = comm_rx_head;
-    // Stereo sequence-data frames remain 251 bytes on the wire, but now carry
-    // 60 complete samples (phase L/R plus independent 8-bit envelopes). Drain
-    // enough data for several frames while the parser remains incremental.
+    // Mono sequence-data frames remain 251 bytes on the wire: 120 packed
+    // phase/envelope samples plus the sequence number. Drain enough data for
+    // several frames while the parser remains incremental.
     uint32_t remaining_budget = 2048U;
 
     while (tail != head && remaining_budget > 0U)
@@ -613,11 +613,11 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                         case SEQUENCE_DATA:
                         {
                             const uint32_t expected_length = 4U +
-                                SEQUENCE_PACKET_SAMPLES * sizeof(uint32_t);
+                                SEQUENCE_PACKET_SAMPLES * sizeof(uint16_t);
                             if (rx_buffer.frame.data_length == expected_length)
                             {
                                 uint32_t sequence;
-                                uint32_t samples[SEQUENCE_PACKET_SAMPLES];
+                                uint16_t samples[SEQUENCE_PACKET_SAMPLES];
                                 memcpy(&sequence, &rx_buffer.frame.data[0], sizeof(sequence));
                                 memcpy(samples, &rx_buffer.frame.data[4], sizeof(samples));
                                 Sequence_Push_Data(sequence, samples, SEQUENCE_PACKET_SAMPLES);

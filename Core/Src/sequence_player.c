@@ -14,32 +14,30 @@ static uint8_t sequence_phase_offsets[SEQUENCE_MAX_STATES][SEQUENCE_OUTPUT_CHANN
 
 /* The generic event cache supports arbitrary per-transducer phase tables.
  * For the common shared-phase table, the same storage is reused for complete
- * left/right waveforms at every duty level, which removes the hot event scan. */
+ * mono waveforms at every duty level, which removes the hot event scan. */
 typedef union
 {
     uint16_t start_masks[DMA_CHANNELS][SEQUENCE_RENDER_STATES]
                         [WAVEFORM_BUFFER_SIZE];
-    uint16_t uniform_waveforms[DMA_CHANNELS][2][SEQUENCE_DUTY_LEVELS]
+    uint16_t uniform_waveforms[DMA_CHANNELS][SEQUENCE_DUTY_LEVELS]
                               [WAVEFORM_BUFFER_SIZE];
 } SequenceRenderCache;
 
 static SequenceRenderCache sequence_render_cache
     __attribute__((section(".sequence_templates")));
-static uint16_t sequence_left_port_masks[DMA_CHANNELS];
-static uint16_t sequence_right_port_masks[DMA_CHANNELS];
+static uint16_t sequence_port_masks[DMA_CHANNELS];
 static uint8_t sequence_duty_ticks[256];
 static uint8_t sequence_state_tick_indices[SEQUENCE_RENDER_STATES]
                                          [WAVEFORM_BUFFER_SIZE];
 static uint8_t sequence_uniform_phase;
-static uint32_t sequence_ring[SEQUENCE_RING_CAPACITY];
+static uint16_t sequence_ring[SEQUENCE_RING_CAPACITY];
 static uint16_t sequence_base_shift[SEQUENCE_OUTPUT_CHANNELS];
 static SequenceDescriptor sequence_descriptor;
 static SequenceState sequence_state;
 static uint16_t sequence_uploaded_states;
 static uint16_t sequence_ring_head;
 static uint16_t sequence_ring_tail;
-static uint8_t sequence_last_left_state;
-static uint8_t sequence_last_right_state;
+static uint8_t sequence_last_state;
 static uint8_t sequence_packet_valid;
 static uint32_t sequence_expected_packet;
 static uint32_t sequence_underrun_count;
@@ -64,7 +62,7 @@ static uint16_t Sequence_Ring_Free(void)
     return (uint16_t)((SEQUENCE_RING_CAPACITY - 1U) - Sequence_Ring_Fill());
 }
 
-static uint32_t Sequence_Ring_Peek(uint16_t offset)
+static uint16_t Sequence_Ring_Peek(uint16_t offset)
 {
     return sequence_ring[(sequence_ring_tail + offset) &
                          (SEQUENCE_RING_CAPACITY - 1U)];
@@ -83,8 +81,7 @@ static void Sequence_Reset_Stream(void)
 {
     sequence_ring_head = 0U;
     sequence_ring_tail = 0U;
-    sequence_last_left_state = sequence_descriptor.neutral_state;
-    sequence_last_right_state = sequence_descriptor.neutral_state;
+    sequence_last_state = sequence_descriptor.neutral_state;
     sequence_packet_valid = 0U;
     sequence_expected_packet = 0U;
     sequence_clock_correction_ppm = 0;
@@ -109,8 +106,7 @@ static int Sequence_Descriptor_Is_Valid(const SequenceDescriptor *descriptor)
 
 static void Sequence_Build_Render_Cache(void)
 {
-    memset(sequence_left_port_masks, 0, sizeof(sequence_left_port_masks));
-    memset(sequence_right_port_masks, 0, sizeof(sequence_right_port_masks));
+    memset(sequence_port_masks, 0, sizeof(sequence_port_masks));
     sequence_uniform_phase = 1U;
     for (uint16_t state = 0U; state < sequence_descriptor.state_count; state++)
     {
@@ -138,10 +134,7 @@ static void Sequence_Build_Render_Cache(void)
         if (transducer->port_num >= DMA_CHANNELS) continue;
 
         uint8_t port = transducer->port_num;
-        uint16_t *port_mask = transducer->position3D[0] < 0.0f
-            ? &sequence_left_port_masks[port]
-            : &sequence_right_port_masks[port];
-        *port_mask |= transducer->pin;
+        sequence_port_masks[port] |= transducer->pin;
 
         uint32_t phase = (uint32_t)transducer->calib + sequence_base_shift[index] +
             sequence_phase_offsets[0][index] +
@@ -180,36 +173,28 @@ static void Sequence_Build_Render_Cache(void)
 
         for (uint32_t port = 0U; port < DMA_CHANNELS; port++)
         {
-            for (uint32_t side = 0U; side < 2U; side++)
+            for (uint32_t duty = 0U; duty < SEQUENCE_DUTY_LEVELS; duty++)
             {
-                uint16_t side_mask = side == 0U
-                    ? sequence_left_port_masks[port]
-                    : sequence_right_port_masks[port];
-                for (uint32_t duty = 0U; duty < SEQUENCE_DUTY_LEVELS; duty++)
+                uint16_t turn_on[WAVEFORM_BUFFER_SIZE] = {0};
+                uint16_t turn_off[WAVEFORM_BUFFER_SIZE] = {0};
+                uint16_t running_state = 0U;
+                for (uint32_t index = 0U; index < SEQUENCE_OUTPUT_CHANNELS; index++)
                 {
-                    uint16_t turn_on[WAVEFORM_BUFFER_SIZE] = {0};
-                    uint16_t turn_off[WAVEFORM_BUFFER_SIZE] = {0};
-                    uint16_t running_state = 0U;
-                    for (uint32_t index = 0U; index < SEQUENCE_OUTPUT_CHANNELS; index++)
-                    {
-                        const Transducer *transducer = &TransducerArray[index];
-                        if (transducer->port_num != port ||
-                            (transducer->position3D[0] < 0.0f ? 0U : 1U) != side)
-                            continue;
-                        uint32_t start = base_starts[index];
-                        uint32_t end = start + duty;
-                        if (end >= WAVEFORM_BUFFER_SIZE) end -= WAVEFORM_BUFFER_SIZE;
-                        turn_on[start] |= transducer->pin;
-                        turn_off[end] |= transducer->pin;
-                        if (start >= end) running_state |= transducer->pin;
-                    }
-                    for (uint32_t tick = 0U; tick < WAVEFORM_BUFFER_SIZE; tick++)
-                    {
-                        running_state |= turn_on[tick];
-                        running_state &= (uint16_t)~turn_off[tick];
-                        sequence_render_cache.uniform_waveforms[port][side][duty][tick] =
-                            running_state & side_mask;
-                    }
+                    const Transducer *transducer = &TransducerArray[index];
+                    if (transducer->port_num != port) continue;
+                    uint32_t start = base_starts[index];
+                    uint32_t end = start + duty;
+                    if (end >= WAVEFORM_BUFFER_SIZE) end -= WAVEFORM_BUFFER_SIZE;
+                    turn_on[start] |= transducer->pin;
+                    turn_off[end] |= transducer->pin;
+                    if (start >= end) running_state |= transducer->pin;
+                }
+                for (uint32_t tick = 0U; tick < WAVEFORM_BUFFER_SIZE; tick++)
+                {
+                    running_state |= turn_on[tick];
+                    running_state &= (uint16_t)~turn_off[tick];
+                    sequence_render_cache.uniform_waveforms[port][duty][tick] =
+                        running_state & sequence_port_masks[port];
                 }
             }
         }
@@ -223,37 +208,40 @@ static void Sequence_Build_Render_Cache(void)
 }
 
 static void Sequence_Render_Sample(DMA_WaveformBlock *waveform, uint32_t sample,
-                                   uint16_t left_state, uint16_t right_state,
-                                   uint8_t left_envelope, uint8_t right_envelope,
+                                   uint16_t state, uint8_t envelope,
                                    uint16_t led_mask)
 {
-    uint32_t left_duty = sequence_duty_ticks[left_envelope];
-    uint32_t right_duty = sequence_duty_ticks[right_envelope];
+    if (state >= sequence_descriptor.state_count)
+        state = sequence_descriptor.neutral_state;
+    uint32_t duty = sequence_duty_ticks[envelope];
 
     if (sequence_uniform_phase != 0U)
     {
-        const uint8_t *indices = sequence_state_tick_indices[left_state];
-        const uint8_t *right_indices = sequence_state_tick_indices[right_state];
+        const uint8_t *indices = sequence_state_tick_indices[state];
+        const uint32_t shift = indices[0];
         for (uint32_t port = 0U; port < DMA_CHANNELS; port++)
         {
-            const uint16_t *left = sequence_render_cache.uniform_waveforms[port][0][left_duty];
-            const uint16_t *right = sequence_render_cache.uniform_waveforms[port][1][right_duty];
+            const uint16_t *source = sequence_render_cache.uniform_waveforms[port][duty];
             uint16_t *destination = (*waveform)[port][sample];
-            if (left_state == right_state)
+            uint16_t port_mask = port == 0U ? led_mask : 0U;
+            if (port != 0U || port_mask == 0U)
             {
-                for (uint32_t tick = 0U; tick < WAVEFORM_BUFFER_SIZE; tick++)
+                if (shift == 0U)
                 {
-                    uint16_t value = left[indices[tick]] | right[indices[tick]];
-                    destination[tick] = value | (port == 0U ? led_mask : 0U);
+                    memcpy(destination, source,
+                           WAVEFORM_BUFFER_SIZE * sizeof(uint16_t));
+                }
+                else
+                {
+                    const uint32_t first = WAVEFORM_BUFFER_SIZE - shift;
+                    memcpy(destination, &source[shift], first * sizeof(uint16_t));
+                    memcpy(&destination[first], source, shift * sizeof(uint16_t));
                 }
             }
             else
             {
                 for (uint32_t tick = 0U; tick < WAVEFORM_BUFFER_SIZE; tick++)
-                {
-                    uint16_t value = left[indices[tick]] | right[right_indices[tick]];
-                    destination[tick] = value | (port == 0U ? led_mask : 0U);
-                }
+                    destination[tick] = source[indices[tick]] | port_mask;
             }
         }
         return;
@@ -261,35 +249,24 @@ static void Sequence_Render_Sample(DMA_WaveformBlock *waveform, uint32_t sample,
 
     for (uint32_t port = 0U; port < DMA_CHANNELS; port++)
     {
-        const uint16_t *left_starts = sequence_render_cache.start_masks[port][left_state];
-        const uint16_t *right_starts = sequence_render_cache.start_masks[port][right_state];
-        const uint16_t left_mask = sequence_left_port_masks[port];
-        const uint16_t right_mask = sequence_right_port_masks[port];
+        const uint16_t *starts = sequence_render_cache.start_masks[port][state];
+        const uint16_t port_mask = sequence_port_masks[port];
         uint16_t running_state = 0U;
 
         /* Restore pulses that cross tick zero. The loop is bounded by the
          * 50-tick maximum duty and replaces the old per-channel setup. */
-        for (uint32_t offset = 0U; offset < left_duty; offset++)
+        for (uint32_t offset = 0U; offset < duty; offset++)
         {
-            uint32_t tick = WAVEFORM_BUFFER_SIZE - left_duty + offset;
-            running_state |= left_starts[tick] & left_mask;
-        }
-        for (uint32_t offset = 0U; offset < right_duty; offset++)
-        {
-            uint32_t tick = WAVEFORM_BUFFER_SIZE - right_duty + offset;
-            running_state |= right_starts[tick] & right_mask;
+            uint32_t tick = WAVEFORM_BUFFER_SIZE - duty + offset;
+            running_state |= starts[tick] & port_mask;
         }
 
         for (uint32_t tick = 0U; tick < WAVEFORM_BUFFER_SIZE; tick++)
         {
-            uint32_t left_end = tick + WAVEFORM_BUFFER_SIZE - left_duty;
-            if (left_end >= WAVEFORM_BUFFER_SIZE) left_end -= WAVEFORM_BUFFER_SIZE;
-            uint32_t right_end = tick + WAVEFORM_BUFFER_SIZE - right_duty;
-            if (right_end >= WAVEFORM_BUFFER_SIZE) right_end -= WAVEFORM_BUFFER_SIZE;
-            uint16_t turn_on = (left_starts[tick] & left_mask) |
-                               (right_starts[tick] & right_mask);
-            uint16_t turn_off = (left_starts[left_end] & left_mask) |
-                                (right_starts[right_end] & right_mask);
+            uint32_t end = tick + WAVEFORM_BUFFER_SIZE - duty;
+            if (end >= WAVEFORM_BUFFER_SIZE) end -= WAVEFORM_BUFFER_SIZE;
+            uint16_t turn_on = starts[tick] & port_mask;
+            uint16_t turn_off = starts[end] & port_mask;
             running_state |= turn_on;
             running_state &= (uint16_t)~turn_off;
             (*waveform)[port][sample][tick] = running_state |
@@ -305,16 +282,12 @@ static void Sequence_Render_Data_Block(uint8_t block)
     uint16_t led_mask = Get_Current_LED_Mask();
     for (uint32_t sample = 0U; sample < SEQUENCE_BLOCK_SAMPLES; sample++)
     {
-        uint32_t packed = Sequence_Ring_Peek(0U);
+        uint16_t packed = Sequence_Ring_Peek(0U);
         Sequence_Ring_Consume(1U);
-        uint8_t left_state = (uint8_t)(packed & 0x7FU);
-        uint8_t right_state = (uint8_t)((packed >> 7U) & 0x7FU);
-        uint8_t left_envelope = (uint8_t)((packed >> 14U) & 0xffU);
-        uint8_t right_envelope = (uint8_t)((packed >> 22U) & 0xffU);
-        sequence_last_left_state = left_state;
-        sequence_last_right_state = right_state;
-        Sequence_Render_Sample(waveform, sample, left_state, right_state,
-                               left_envelope, right_envelope, led_mask);
+        uint8_t state = (uint8_t)(packed & 0x7FU);
+        uint8_t envelope = (uint8_t)((packed >> 7U) & 0xffU);
+        sequence_last_state = state;
+        Sequence_Render_Sample(waveform, sample, state, envelope, led_mask);
     }
 }
 
@@ -325,8 +298,7 @@ static void Sequence_Render_Hold_Block(uint8_t block, int ramp)
     for (uint32_t sample = 0U; sample < SEQUENCE_BLOCK_SAMPLES; sample++)
     {
         (void)ramp;
-        Sequence_Render_Sample(waveform, sample, sequence_last_left_state,
-                               sequence_last_right_state, 0U, 0U, led_mask);
+        Sequence_Render_Sample(waveform, sample, sequence_last_state, 0U, led_mask);
     }
 }
 
@@ -425,7 +397,7 @@ int Sequence_Commit(void)
     return 1;
 }
 
-void Sequence_Push_Data(uint32_t packet_sequence, const uint32_t *samples,
+void Sequence_Push_Data(uint32_t packet_sequence, const uint16_t *samples,
                         uint16_t sample_count)
 {
     if (samples == NULL || sample_count != SEQUENCE_PACKET_SAMPLES ||

@@ -10,7 +10,7 @@ int Sequence_Begin_Configuration(const SequenceDescriptor *descriptor);
 int Sequence_Upload_States(uint16_t first_state, uint8_t count,
                            const uint8_t *phase_offsets);
 int Sequence_Commit(void);
-void Sequence_Push_Data(uint32_t packet_sequence, const uint32_t *samples,
+void Sequence_Push_Data(uint32_t packet_sequence, const uint16_t *samples,
                         uint16_t sample_count);
 void Sequence_Abort(void);
 int Sequence_Is_Active(void);
