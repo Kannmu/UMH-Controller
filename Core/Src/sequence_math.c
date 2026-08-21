@@ -34,7 +34,9 @@ int32_t Sequence_Clock_Correction_Ppm(uint16_t ring_fill, uint16_t target_fill)
 
 uint32_t Sequence_Resampler_Step_Q16(int32_t correction_ppm)
 {
-    const uint32_t base_step_q16 = (6U << 16U) / 5U;
+    /* The host already supplies 40 kHz samples.  The correction only
+     * compensates the small drift between the host and timer clocks. */
+    const uint32_t base_step_q16 = 1U << 16U;
     return (uint32_t)(((uint64_t)base_step_q16 *
                        (uint32_t)(1000000 + correction_ppm)) / 1000000U);
 }

@@ -50,6 +50,9 @@ static uint32_t sequence_maximum_render_us;
 static uint32_t sequence_rendered_block_count;
 static uint32_t sequence_render_over_budget_count;
 static uint32_t sequence_dma_deadline_miss_count;
+static uint32_t sequence_source_phase_q16;
+
+#define SEQUENCE_CLOCK_TARGET_FILL SEQUENCE_PREBUFFER_SAMPLES
 
 static uint16_t Sequence_Ring_Fill(void)
 {
@@ -85,6 +88,7 @@ static void Sequence_Reset_Stream(void)
     sequence_packet_valid = 0U;
     sequence_expected_packet = 0U;
     sequence_clock_correction_ppm = 0;
+    sequence_source_phase_q16 = 0U;
 }
 
 static int Sequence_Descriptor_Is_Valid(const SequenceDescriptor *descriptor)
@@ -278,16 +282,24 @@ static void Sequence_Render_Sample(DMA_WaveformBlock *waveform, uint32_t sample,
 static void Sequence_Render_Data_Block(uint8_t block)
 {
     DMA_WaveformBlock *waveform = DMA_Sequence_Get_Block(block);
-    sequence_clock_correction_ppm = 0;
+    sequence_clock_correction_ppm = Sequence_Clock_Correction_Ppm(
+        Sequence_Ring_Fill(), SEQUENCE_CLOCK_TARGET_FILL);
+    uint32_t source_step_q16 = Sequence_Resampler_Step_Q16(
+        sequence_clock_correction_ppm);
     uint16_t led_mask = Get_Current_LED_Mask();
     for (uint32_t sample = 0U; sample < SEQUENCE_BLOCK_SAMPLES; sample++)
     {
-        uint16_t packed = Sequence_Ring_Peek(0U);
-        Sequence_Ring_Consume(1U);
+        uint16_t source_offset = (uint16_t)(sequence_source_phase_q16 >> 16U);
+        uint16_t packed = Sequence_Ring_Peek(source_offset);
         uint8_t state = (uint8_t)(packed & 0x7FU);
         uint8_t envelope = (uint8_t)((packed >> 7U) & 0xffU);
         sequence_last_state = state;
         Sequence_Render_Sample(waveform, sample, state, envelope, led_mask);
+
+        sequence_source_phase_q16 += source_step_q16;
+        uint16_t consumed = (uint16_t)(sequence_source_phase_q16 >> 16U);
+        sequence_source_phase_q16 &= 0xffffU;
+        Sequence_Ring_Consume(consumed);
     }
 }
 
@@ -304,7 +316,8 @@ static void Sequence_Render_Hold_Block(uint8_t block, int ramp)
 
 static int Sequence_Has_Render_Input(void)
 {
-    return Sequence_Ring_Fill() >= SEQUENCE_BLOCK_SAMPLES;
+    /* At +1000 ppm a block can consume one extra source sample. */
+    return Sequence_Ring_Fill() >= SEQUENCE_BLOCK_SAMPLES + 1U;
 }
 
 static void Sequence_Record_Render_Time(uint32_t started_cycles)
