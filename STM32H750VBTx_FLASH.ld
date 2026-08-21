@@ -121,6 +121,10 @@ SECTIONS
         KEEP(*(.waveform_staging))
   } >RAM_D1
 
+  .sequence_waveforms (NOLOAD) : ALIGN(32) {
+        KEEP(*(.sequence_waveforms))
+  } >RAM_D1
+
   .sequence_templates (NOLOAD) : ALIGN(32) {
         KEEP(*(.sequence_templates))
   } >RAM_D1

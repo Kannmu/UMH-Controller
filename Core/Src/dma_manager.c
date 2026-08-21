@@ -51,6 +51,11 @@ DMA_WaveformBlock Waveform_Storage __attribute__((section(".storage_buffer")));
 __ALIGNED(32)
 static DMA_WaveformBlock Waveform_Staging __attribute__((section(".waveform_staging")));
 
+/* Audio sequence buffers are isolated from the legacy stimulation buffers. */
+__ALIGNED(32)
+static DMA_WaveformBlock Sequence_Waveform_Storage
+    __attribute__((section(".sequence_waveforms")));
+
 typedef uint16_t WaveformChannel[NUM_STIMULATION_SAMPLES][WAVEFORM_BUFFER_SIZE];
 
 extern TIM_HandleTypeDef htim1;
@@ -230,15 +235,16 @@ void Start_DMAs()
 
 DMA_WaveformBlock *DMA_Sequence_Get_Block(uint8_t block)
 {
-    return block == 0U ? &Waveform_Storage : &Waveform_Staging;
+    return block == 0U ? &Sequence_Waveform_Storage : &Waveform_Staging;
 }
 
 void DMA_Sequence_Clean_Block(uint8_t block)
 {
-    if (block == 1U)
+    if (block < 2U)
     {
-        SCB_CleanDCache_by_Addr((uint32_t *)&Waveform_Staging[0][0][0],
-                               (int32_t)sizeof(Waveform_Staging));
+        DMA_WaveformBlock *waveform = DMA_Sequence_Get_Block(block);
+        SCB_CleanDCache_by_Addr((uint32_t *)waveform,
+                               (int32_t)sizeof(*waveform));
     }
 }
 
@@ -264,7 +270,7 @@ int DMA_Sequence_Start(void)
     {
         if (HAL_DMAEx_MultiBufferStart(
                 DMA_Stream_Handles[p],
-                (uint32_t)&Waveform_Storage[p][0][0],
+                (uint32_t)&Sequence_Waveform_Storage[p][0][0],
                 (uint32_t)&Output_Ports[p]->ODR,
                 (uint32_t)&Waveform_Staging[p][0][0], total_length) != HAL_OK)
         {
@@ -274,7 +280,7 @@ int DMA_Sequence_Start(void)
     }
     if (HAL_DMAEx_MultiBufferStart_IT(
             DMA_Stream_Handles[0],
-            (uint32_t)&Waveform_Storage[0][0][0],
+            (uint32_t)&Sequence_Waveform_Storage[0][0][0],
             (uint32_t)&Output_Ports[0]->ODR,
             (uint32_t)&Waveform_Staging[0][0][0], total_length) != HAL_OK)
     {

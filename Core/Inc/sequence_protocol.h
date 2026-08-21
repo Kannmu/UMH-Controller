@@ -70,8 +70,13 @@ typedef struct __attribute__((packed))
     int32_t clock_correction_ppm;
     uint32_t current_render_us;
     uint32_t maximum_render_us;
+    /* Optional diagnostics appended after the original 36-byte status. */
+    uint32_t rendered_block_count;
+    uint32_t render_over_budget_count;
+    uint32_t dma_deadline_miss_count;
+    uint32_t render_mode;
 } SequenceStatus;
 
 _Static_assert(sizeof(SequenceCapabilities) == 16U, "sequence capabilities wire size");
 _Static_assert(sizeof(SequenceDescriptor) == 20U, "sequence descriptor wire size");
-_Static_assert(sizeof(SequenceStatus) == 36U, "sequence status wire size");
+_Static_assert(sizeof(SequenceStatus) == 52U, "sequence status wire size");
