@@ -341,11 +341,6 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                         }
                         case CMD_SET_STIMULATION:
                         {
-                            if (Audio_Is_Active())
-                            {
-                                Comm_Send_Response(RSP_ERROR_CODE, NULL, 0);
-                                break;
-                            }
                             if (rx_buffer.frame.data_length < 1U)
                             {
                                 Comm_Send_Response(RSP_ERROR_CODE, NULL, 0);
@@ -464,11 +459,6 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                         }
                         case CMD_SET_TRANSDUCERS:
                         {
-                            if (Audio_Is_Active())
-                            {
-                                Comm_Send_Response(RSP_ERROR_CODE, NULL, 0);
-                                break;
-                            }
                             if (rx_buffer.frame.data_length >= (NUM_TRANSDUCER - 1) * 3)
                             {
                                 uint8_t *pData = rx_buffer.frame.data; 
@@ -487,11 +477,6 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                         }
                         case CMD_SET_DEMO:
                         {
-                            if (Audio_Is_Active())
-                            {
-                                Comm_Send_Response(RSP_ERROR_CODE, NULL, 0);
-                                break;
-                            }
                             if (rx_buffer.frame.data_length >= 1)
                             {
                                 uint8_t index = rx_buffer.frame.data[0];
@@ -561,75 +546,6 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                             }
                             break;
                         }
-                        case AUDIO_GET_CAPS:
-                        {
-                            audio_caps caps = {
-                                AUDIO_SAMPLE_RATE, AUDIO_CHANNELS,
-                                AUDIO_BITS_PER_SAMPLE, 0U
-                            };
-                            Comm_Send_Response(RSP_ACK, (uint8_t *)&caps, sizeof(caps));
-                            break;
-                        }
-                        case AUDIO_ENTER:
-                            Comm_Send_Response(Audio_Enter() ? RSP_ACK : RSP_ERROR_CODE, NULL, 0U);
-                            break;
-                        case AUDIO_EXIT:
-                            Audio_Exit();
-                            Comm_Send_Response(RSP_ACK, NULL, 0U);
-                            break;
-                        case AUDIO_PCM:
-                            if ((rx_buffer.frame.data_length & 1U) == 0U && Audio_Is_Active())
-                            {
-                                Audio_Push_PCM(rx_buffer.frame.data, rx_buffer.frame.data_length);
-                            }
-                            else
-                            {
-                                Comm_Send_Response(RSP_ERROR_CODE, NULL, 0U);
-                            }
-                            break;
-                        case AUDIO_SET_FOCUS:
-                            if (rx_buffer.frame.data_length == 12U)
-                            {
-                                float position[3];
-                                memcpy(position, rx_buffer.frame.data, sizeof(position));
-                                Comm_Send_Response(Audio_Set_Focus(position) ? RSP_ACK : RSP_ERROR_CODE, NULL, 0U);
-                            }
-                            else
-                            {
-                                Comm_Send_Response(RSP_ERROR_CODE, NULL, 0U);
-                            }
-                            break;
-                        case AUDIO_SET_LEVEL:
-                            if (rx_buffer.frame.data_length == 4U)
-                            {
-                                float level;
-                                memcpy(&level, rx_buffer.frame.data, sizeof(level));
-                                Audio_Set_Level(level);
-                                Comm_Send_Response(RSP_ACK, NULL, 0U);
-                            }
-                            else
-                            {
-                                Comm_Send_Response(RSP_ERROR_CODE, NULL, 0U);
-                            }
-                            break;
-                        case AUDIO_GET_STATUS:
-                        {
-                            AudioStatus status;
-                            Audio_Get_Status(&status);
-                            Comm_Send_Response(RSP_RETURN_STATUS, (uint8_t *)&status, sizeof(status));
-                            break;
-                        }
-                        case AUDIO_MUTE:
-                            if (rx_buffer.frame.data_length >= 1U)
-                            {
-                                Audio_Set_Mute(rx_buffer.frame.data[0] != 0U);
-                                Comm_Send_Response(RSP_ACK, NULL, 0U);
-                            }
-                            else
-                            {
-                                Comm_Send_Response(RSP_ERROR_CODE, NULL, 0U);
-                            }
-                            break;
                         default:
                             // 未知命令，返回NACK
                             Comm_Send_Response(RSP_NACK, NULL, 0);

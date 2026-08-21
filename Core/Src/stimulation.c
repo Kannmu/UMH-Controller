@@ -6,7 +6,6 @@
 #include "custom_math.h"
 #include "dma_manager.h"
 #include "indexed_linear.h"
-#include "audio_playback.h"
 
 _Static_assert(NUM_STIMULATION_SAMPLES == INDEXED_LINEAR_SAMPLE_COUNT,
                "IndexedLinear protocol requires exactly 200 DMA samples");
@@ -264,7 +263,7 @@ const Stimulation *DemoStimulations[] = {
 
 void Switch_Demo_Mode()
 {
-    if (Get_Calibration_Mode() || Audio_Is_Active())
+    if (Get_Calibration_Mode())
         return;
 
     static GPIO_PinState debouncedState = GPIO_PIN_SET;
@@ -393,7 +392,7 @@ static void Set_Stimulation_Internal(const Stimulation *stimulation, int force_u
 
 void Set_Stimulation(const Stimulation *stimulation)
 {
-    if (stimulation == NULL || stimulation->type == IndexedLinear || Audio_Is_Active())
+    if (stimulation == NULL || stimulation->type == IndexedLinear)
     {
         return;
     }
@@ -406,8 +405,7 @@ int Set_Indexed_Linear_Stimulation(const Stimulation *stimulation,
                                    uint8_t control_flags)
 {
     if (stimulation == NULL || stimulation->type != IndexedLinear ||
-        !Indexed_Linear_Validate_Order(spatial_order, sample_count, control_flags) ||
-        Audio_Is_Active())
+        !Indexed_Linear_Validate_Order(spatial_order, sample_count, control_flags))
     {
         return 0;
     }
@@ -571,7 +569,6 @@ int Get_Stimulation_Enabled()
 
 void Stimulation_Enable()
 {
-    if (Audio_Is_Active()) return;
     if (is_stimulation_enabled) return;
     is_stimulation_enabled = 1;
     Update_Full_Waveform_Buffer();
@@ -579,7 +576,6 @@ void Stimulation_Enable()
 
 void Stimulation_Disable()
 {
-    if (Audio_Is_Active()) return;
     if (!is_stimulation_enabled) return;
     is_stimulation_enabled = 0;
     Update_Full_Waveform_Buffer();

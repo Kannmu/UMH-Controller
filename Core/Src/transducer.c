@@ -1,7 +1,6 @@
 # define _USE_MATH_DEFINES
 # include "transducer.h"
 # include "calibration.h"
-# include "audio_playback.h"
 # include "dma_manager.h"
 # include "custom_math.h"
 
@@ -149,7 +148,6 @@ void Set_Twin_Trap_Focus(float *position)
 // Set Phases and Duty Cycles to Transducers
 void Set_Transducers(uint8_t *data)
 {
-    if (Audio_Is_Active()) return;
     for (uint32_t i = 0; i < NUM_TRANSDUCER - 1U; i++)
     {
         uint16_t phase_raw = data[i * 3 + 0] | (data[i * 3 + 1] << 8);

@@ -30,7 +30,6 @@
 #include "custom_math.h"
 #include "utiles.h"
 #include "communication.h"
-#include "audio_playback.h"
 
 /* USER CODE END Includes */
 
@@ -246,7 +245,6 @@ int main(void)
   /* USER CODE BEGIN 2 */
   
   Comm_Init();
-  Audio_Init();
   Init_DWT();
   Transducer_Init();
   DMA_Init();
@@ -259,7 +257,6 @@ int main(void)
   while (1)
   {
     Comm_Task();
-    Audio_Task();
 
     // uint32_t loop_start_time = DWT_GetMicroseconds();
     loop_count++;

@@ -3,7 +3,6 @@
 #include "transducer.h"
 #include "dma_manager.h"
 #include "utiles.h"
-#include "audio_playback.h"
 
 int calibration_mode = 0;
 
@@ -59,7 +58,6 @@ float Transducer_Calibration_Array[] = {
 
 void Switch_Calibration_Mode()
 {
-    if (Audio_Is_Active()) return;
     static GPIO_PinState debouncedState = GPIO_PIN_SET;
     static GPIO_PinState lastRawState = GPIO_PIN_SET;
     static uint32_t lastDebounceTime = 0;
