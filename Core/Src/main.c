@@ -30,6 +30,7 @@
 #include "custom_math.h"
 #include "utiles.h"
 #include "communication.h"
+#include "sequence_player.h"
 
 /* USER CODE END Includes */
 
@@ -188,6 +189,9 @@ static void MX_DMA_Init(void)
     Error_Handler( );
   }
 
+  HAL_NVIC_SetPriority(DMA1_Stream0_IRQn, 1, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream0_IRQn);
+
 }
 
 /* USER CODE END 0 */
@@ -247,6 +251,7 @@ int main(void)
   Comm_Init();
   Init_DWT();
   Transducer_Init();
+  Sequence_Init();
   DMA_Init();
 
   /* USER CODE END 2 */
@@ -256,6 +261,7 @@ int main(void)
 
   while (1)
   {
+    Sequence_Task();
     Comm_Task();
 
     // uint32_t loop_start_time = DWT_GetMicroseconds();

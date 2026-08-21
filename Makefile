@@ -74,6 +74,8 @@ Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_ll_usb.c \
 Core/Src/system_stm32h7xx.c \
 Core/Src/sysmem.c \
 Core/Src/syscalls.c \
+Core/Src/sequence_math.c \
+Core/Src/sequence_player.c \
 USB_DEVICE/App/usb_device.c \
 USB_DEVICE/App/usbd_desc.c \
 USB_DEVICE/App/usbd_cdc_if.c \

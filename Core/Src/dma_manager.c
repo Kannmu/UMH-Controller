@@ -3,6 +3,7 @@
 #include "utiles.h"
 #include "calibration.h"
 #include "stimulation.h"
+#include "stm32h7xx_hal_dma_ex.h"
 
 const float GPIO_Group_Output_Offset[DMA_CHANNELS] = {0U, 0.06, 0.09, 0.16, 0.12};
 
@@ -45,10 +46,10 @@ uint16_t DMA_Convert_Strength_To_On_Ticks(float strength)
 DMA_HandleTypeDef *DMA_Stream_Handles[DMA_CHANNELS];
 
 __ALIGNED(32)
-uint16_t Waveform_Storage[DMA_CHANNELS][NUM_STIMULATION_SAMPLES][WAVEFORM_BUFFER_SIZE] __attribute__((section(".storage_buffer")));
+DMA_WaveformBlock Waveform_Storage __attribute__((section(".storage_buffer")));
 
 __ALIGNED(32)
-static uint16_t Waveform_Staging[DMA_CHANNELS][NUM_STIMULATION_SAMPLES][WAVEFORM_BUFFER_SIZE] __attribute__((section(".waveform_staging")));
+static DMA_WaveformBlock Waveform_Staging __attribute__((section(".waveform_staging")));
 
 typedef uint16_t WaveformChannel[NUM_STIMULATION_SAMPLES][WAVEFORM_BUFFER_SIZE];
 
@@ -61,10 +62,48 @@ static int TransducersByPortCount[DMA_CHANNELS];
 static uint16_t TransducerPinMaskByPort[DMA_CHANNELS];
 static WaveformChannel *Active_Waveform = Waveform_Storage;
 static uint8_t DMAs_Started;
+static volatile uint8_t Sequence_DMA_Active;
+static volatile uint8_t Sequence_Free_Mask;
+static volatile uint8_t Sequence_Rendering_Mask;
+static volatile uint32_t Sequence_Deadline_Misses;
 
 static GPIO_TypeDef * const Output_Ports[DMA_CHANNELS] = {
     GPIOA, GPIOB, GPIOC, GPIOD, GPIOE
 };
+
+static void Sequence_Block_Complete(uint8_t block)
+{
+    uint8_t mask = (uint8_t)(1U << block);
+    if ((Sequence_Rendering_Mask & mask) != 0U ||
+        (Sequence_Free_Mask & mask) != 0U)
+    {
+        Sequence_Deadline_Misses++;
+    }
+    Sequence_Free_Mask |= mask;
+}
+
+static void Sequence_Memory0_Complete(DMA_HandleTypeDef *handle)
+{
+    (void)handle;
+    Sequence_Block_Complete(0U);
+}
+
+static void Sequence_Memory1_Complete(DMA_HandleTypeDef *handle)
+{
+    (void)handle;
+    Sequence_Block_Complete(1U);
+}
+
+static int Sequence_Block_Is_Free(uint8_t block)
+{
+    uint32_t expected_ct = block == 0U ? DMA_SxCR_CT : 0U;
+    for (uint32_t p = 0U; p < DMA_CHANNELS; p++)
+    {
+        uint32_t ct = ((DMA_Stream_TypeDef *)DMA_Stream_Handles[p]->Instance)->CR & DMA_SxCR_CT;
+        if (ct != expected_ct) return 0;
+    }
+    return 1;
+}
 
 static void Activate_Waveform(WaveformChannel *waveform)
 {
@@ -141,7 +180,6 @@ void DMA_Init()
 
     Clean_DMABuffer();
     Update_Full_Waveform_Buffer();
-
     Start_DMAs();
 }
 
@@ -185,11 +223,144 @@ void Start_DMAs()
 
     // Start TIM1
     HAL_TIM_Base_Start(&htim1);
+    SET_BIT(htim1.Instance->CR1, TIM_CR1_CEN);
     DMAs_Started = 1U;
+    Sequence_DMA_Active = 0U;
+}
+
+DMA_WaveformBlock *DMA_Sequence_Get_Block(uint8_t block)
+{
+    return block == 0U ? &Waveform_Storage : &Waveform_Staging;
+}
+
+void DMA_Sequence_Clean_Block(uint8_t block)
+{
+    if (block == 1U)
+    {
+        SCB_CleanDCache_by_Addr((uint32_t *)&Waveform_Staging[0][0][0],
+                               (int32_t)sizeof(Waveform_Staging));
+    }
+}
+
+int DMA_Sequence_Start(void)
+{
+    uint32_t total_length = NUM_STIMULATION_SAMPLES * WAVEFORM_BUFFER_SIZE;
+
+    CLEAR_BIT(htim1.Instance->CR1, TIM_CR1_CEN);
+    for (uint32_t p = 0U; p < DMA_CHANNELS; p++)
+    {
+        (void)HAL_DMA_Abort(DMA_Stream_Handles[p]);
+        Output_Ports[p]->BSRR = (uint32_t)TransducerPinMaskByPort[p] << 16U;
+        DMA_Stream_Handles[p]->Init.Mode = DMA_CIRCULAR;
+        if (HAL_DMA_Init(DMA_Stream_Handles[p]) != HAL_OK) return 0;
+    }
+
+    DMA_Sequence_Clean_Block(0U);
+    DMA_Sequence_Clean_Block(1U);
+    DMA_Stream_Handles[0]->XferCpltCallback = Sequence_Memory0_Complete;
+    DMA_Stream_Handles[0]->XferM1CpltCallback = Sequence_Memory1_Complete;
+
+    for (uint32_t p = 1U; p < DMA_CHANNELS; p++)
+    {
+        if (HAL_DMAEx_MultiBufferStart(
+                DMA_Stream_Handles[p],
+                (uint32_t)&Waveform_Storage[p][0][0],
+                (uint32_t)&Output_Ports[p]->ODR,
+                (uint32_t)&Waveform_Staging[p][0][0], total_length) != HAL_OK)
+        {
+            DMA_Sequence_Stop();
+            return 0;
+        }
+    }
+    if (HAL_DMAEx_MultiBufferStart_IT(
+            DMA_Stream_Handles[0],
+            (uint32_t)&Waveform_Storage[0][0][0],
+            (uint32_t)&Output_Ports[0]->ODR,
+            (uint32_t)&Waveform_Staging[0][0][0], total_length) != HAL_OK)
+    {
+        DMA_Sequence_Stop();
+        return 0;
+    }
+
+    __HAL_TIM_ENABLE_DMA(&htim1, TIM_DMA_UPDATE);
+    __HAL_TIM_ENABLE_DMA(&htim1, TIM_DMA_CC1);
+    __HAL_TIM_ENABLE_DMA(&htim1, TIM_DMA_CC2);
+    __HAL_TIM_ENABLE_DMA(&htim1, TIM_DMA_CC3);
+    __HAL_TIM_ENABLE_DMA(&htim1, TIM_DMA_CC4);
+    Sequence_Free_Mask = 0U;
+    Sequence_Rendering_Mask = 0U;
+    Sequence_Deadline_Misses = 0U;
+    Sequence_DMA_Active = 1U;
+    DMAs_Started = 1U;
+    __HAL_TIM_SET_COUNTER(&htim1, 0U);
+    SET_BIT(htim1.Instance->CR1, TIM_CR1_CEN);
+    return 1;
+}
+
+void DMA_Sequence_Stop(void)
+{
+    if (!Sequence_DMA_Active && !DMAs_Started) return;
+
+    CLEAR_BIT(htim1.Instance->CR1, TIM_CR1_CEN);
+    for (uint32_t p = 0U; p < DMA_CHANNELS; p++)
+    {
+        (void)HAL_DMA_Abort(DMA_Stream_Handles[p]);
+        Output_Ports[p]->BSRR = (uint32_t)TransducerPinMaskByPort[p] << 16U;
+    }
+    DMA_Stream_Handles[0]->XferCpltCallback = NULL;
+    DMA_Stream_Handles[0]->XferM1CpltCallback = NULL;
+    Sequence_DMA_Active = 0U;
+    Sequence_Free_Mask = 0U;
+    Sequence_Rendering_Mask = 0U;
+    DMAs_Started = 0U;
+    Active_Waveform = Waveform_Storage;
+}
+
+int DMA_Sequence_Take_Free_Block(uint8_t *block)
+{
+    if (!Sequence_DMA_Active || block == NULL) return 0;
+
+    for (uint8_t candidate = 0U; candidate < 2U; candidate++)
+    {
+        uint8_t mask = (uint8_t)(1U << candidate);
+        if ((Sequence_Free_Mask & mask) != 0U && Sequence_Block_Is_Free(candidate))
+        {
+            uint32_t primask = __get_PRIMASK();
+            __disable_irq();
+            Sequence_Free_Mask &= (uint8_t)~mask;
+            Sequence_Rendering_Mask |= mask;
+            if (primask == 0U) __enable_irq();
+            *block = candidate;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+void DMA_Sequence_Release_Block(uint8_t block)
+{
+    uint8_t mask = (uint8_t)(1U << block);
+    DMA_Sequence_Clean_Block(block);
+    __DMB();
+    Sequence_Rendering_Mask &= (uint8_t)~mask;
+    if (!Sequence_Block_Is_Free(block)) Sequence_Deadline_Misses++;
+}
+
+uint32_t DMA_Sequence_Take_Deadline_Misses(void)
+{
+    uint32_t misses = Sequence_Deadline_Misses;
+    Sequence_Deadline_Misses = 0U;
+    return misses;
+}
+
+int DMA_Is_Sequence_Active(void)
+{
+    return Sequence_DMA_Active != 0U;
 }
 
 void Update_Full_Waveform_Buffer()
 {
+    if (DMA_Is_Sequence_Active()) DMA_Sequence_Stop();
     uint32_t start_cycles = DWT_GetCycles();
     WaveformChannel *waveform = DMAs_Started
         ? ((Active_Waveform == Waveform_Storage) ? Waveform_Staging : Waveform_Storage)
@@ -369,6 +540,7 @@ void Clean_DMABuffer()
 
 void DMA_Update_LED_State(uint16_t led_mask)
 {
+    if (DMA_Is_Sequence_Active()) return;
     // LED Pins on Port A (Channel 0)
     // LED0: PA10, LED1: PA9, LED2: PA8
     const uint16_t LED_MASK_BITS = LED0_Pin | LED1_Pin | LED2_Pin;

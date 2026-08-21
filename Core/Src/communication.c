@@ -4,6 +4,7 @@
 #include "communication.h"
 #include "indexed_linear.h"
 #include "utiles.h"
+#include "sequence_player.h"
 
 // 全局变量
 static rx_buffer_t rx_buffer;
@@ -46,6 +47,11 @@ void Comm_Queue_Received_Data(const uint8_t* data, uint32_t length)
 
     __DMB();
     comm_rx_head = head;
+}
+
+uint32_t Comm_Get_Rx_Dropped_Bytes(void)
+{
+    return comm_rx_dropped_bytes;
 }
 
 void Comm_Task(void)
@@ -275,6 +281,7 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                     switch (rx_buffer.frame.cmd_type) {
                         case CMD_ENABLE_DISABLE:
                         {
+                            Sequence_Abort();
                             if (rx_buffer.frame.data_length >= 1)
                             {
                                 uint8_t enable = rx_buffer.frame.data[0];
@@ -341,6 +348,7 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                         }
                         case CMD_SET_STIMULATION:
                         {
+                            Sequence_Abort();
                             if (rx_buffer.frame.data_length < 1U)
                             {
                                 Comm_Send_Response(RSP_ERROR_CODE, NULL, 0);
@@ -459,6 +467,7 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                         }
                         case CMD_SET_TRANSDUCERS:
                         {
+                            Sequence_Abort();
                             if (rx_buffer.frame.data_length >= (NUM_TRANSDUCER - 1) * 3)
                             {
                                 uint8_t *pData = rx_buffer.frame.data; 
@@ -477,6 +486,7 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                         }
                         case CMD_SET_DEMO:
                         {
+                            Sequence_Abort();
                             if (rx_buffer.frame.data_length >= 1)
                             {
                                 uint8_t index = rx_buffer.frame.data[0];
@@ -544,6 +554,81 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                             {
                                 Comm_Send_Response(RSP_ERROR_CODE, NULL, 0);
                             }
+                            break;
+                        }
+                        case SEQUENCE_GET_CAPS:
+                        {
+                            SequenceCapabilities capabilities;
+                            Sequence_Get_Capabilities(&capabilities);
+                            Comm_Send_Response(RSP_ACK, (uint8_t *)&capabilities,
+                                               (uint8_t)sizeof(capabilities));
+                            break;
+                        }
+                        case SEQUENCE_BEGIN:
+                        {
+                            if (rx_buffer.frame.data_length == sizeof(SequenceDescriptor))
+                            {
+                                SequenceDescriptor descriptor;
+                                memcpy(&descriptor, rx_buffer.frame.data, sizeof(descriptor));
+                                Comm_Send_Response(
+                                    Sequence_Begin_Configuration(&descriptor) ? RSP_ACK : RSP_ERROR_CODE,
+                                    NULL, 0U);
+                            }
+                            else
+                            {
+                                Comm_Send_Response(RSP_ERROR_CODE, NULL, 0U);
+                            }
+                            break;
+                        }
+                        case SEQUENCE_UPLOAD:
+                        {
+                            if (rx_buffer.frame.data_length >= 3U)
+                            {
+                                uint16_t first_state;
+                                uint8_t count = rx_buffer.frame.data[2];
+                                memcpy(&first_state, &rx_buffer.frame.data[0], sizeof(first_state));
+                                uint32_t expected = 3U + (uint32_t)count * SEQUENCE_OUTPUT_CHANNELS;
+                                int valid = count > 0U && count <= SEQUENCE_MAX_UPLOAD_STATES &&
+                                    expected == rx_buffer.frame.data_length;
+                                if (valid)
+                                {
+                                    valid = Sequence_Upload_States(
+                                        first_state, count, &rx_buffer.frame.data[3]);
+                                }
+                                Comm_Send_Response(valid ? RSP_ACK : RSP_ERROR_CODE, NULL, 0U);
+                            }
+                            else
+                            {
+                                Comm_Send_Response(RSP_ERROR_CODE, NULL, 0U);
+                            }
+                            break;
+                        }
+                        case SEQUENCE_COMMIT:
+                            Comm_Send_Response(Sequence_Commit() ? RSP_ACK : RSP_ERROR_CODE,
+                                               NULL, 0U);
+                            break;
+                        case SEQUENCE_DATA:
+                        {
+                            if (rx_buffer.frame.data_length == 4U + SEQUENCE_PACKET_SAMPLES * 2U)
+                            {
+                                uint32_t sequence;
+                                int16_t samples[SEQUENCE_PACKET_SAMPLES];
+                                memcpy(&sequence, &rx_buffer.frame.data[0], sizeof(sequence));
+                                memcpy(samples, &rx_buffer.frame.data[4], sizeof(samples));
+                                Sequence_Push_Data(sequence, samples, SEQUENCE_PACKET_SAMPLES);
+                            }
+                            else
+                            {
+                                Comm_Send_Response(RSP_ERROR_CODE, NULL, 0U);
+                            }
+                            break;
+                        }
+                        case SEQUENCE_GET_STATUS:
+                        {
+                            SequenceStatus status;
+                            Sequence_Get_Status(&status, Comm_Get_Rx_Dropped_Bytes());
+                            Comm_Send_Response(RSP_RETURN_STATUS, (uint8_t *)&status,
+                                               (uint8_t)sizeof(status));
                             break;
                         }
                         default:

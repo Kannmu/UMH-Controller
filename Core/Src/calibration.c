@@ -2,6 +2,7 @@
 #include "calibration.h"
 #include "transducer.h"
 #include "dma_manager.h"
+#include "sequence_player.h"
 #include "utiles.h"
 
 int calibration_mode = 0;
@@ -78,6 +79,7 @@ void Switch_Calibration_Mode()
             // Toggle Calibration Mode on Falling Edge
             if (debouncedState == GPIO_PIN_SET && currentRawState == GPIO_PIN_RESET)
             {
+                Sequence_Abort();
                 calibration_mode = 1 - calibration_mode;
 
                 if (calibration_mode == 1)

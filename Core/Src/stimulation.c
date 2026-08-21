@@ -6,6 +6,7 @@
 #include "custom_math.h"
 #include "dma_manager.h"
 #include "indexed_linear.h"
+#include "sequence_player.h"
 
 _Static_assert(NUM_STIMULATION_SAMPLES == INDEXED_LINEAR_SAMPLE_COUNT,
                "IndexedLinear protocol requires exactly 200 DMA samples");
@@ -285,6 +286,7 @@ void Switch_Demo_Mode()
         {
             if (debouncedState == GPIO_PIN_SET && currentRawState == GPIO_PIN_RESET)
             {
+                Sequence_Abort();
                 demo_mode = (demo_mode + 1) % (sizeof(DemoStimulations) / sizeof(DemoStimulations[0]));
                 Set_Stimulation(DemoStimulations[demo_mode]);
             }

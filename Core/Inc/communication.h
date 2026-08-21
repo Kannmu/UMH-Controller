@@ -6,6 +6,7 @@
 #include "calibration.h"
 #include "stimulation.h"
 #include "usbd_cdc_if.h"
+#include "sequence_protocol.h"
 
 // 协议定义
 #define FRAME_HEADER_1          0xAA
@@ -98,3 +99,4 @@ void Comm_Send_Response(uint8_t cmd_type, uint8_t* data, uint8_t data_length);
 uint8_t Comm_Calculate_Checksum(uint8_t cmd_type, uint8_t data_length, uint8_t* data);
 void Comm_Handle_Ping_Command(uint8_t* data, uint8_t data_length);
 void Comm_Reset_Rx_State(void);
+uint32_t Comm_Get_Rx_Dropped_Bytes(void);

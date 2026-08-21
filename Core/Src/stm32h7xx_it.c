@@ -61,6 +61,7 @@
 /* External variables --------------------------------------------------------*/
 extern PCD_HandleTypeDef hpcd_USB_OTG_FS;
 extern TIM_HandleTypeDef htim1;
+extern DMA_HandleTypeDef hdma_memtomem_dma1_stream0;
 /* USER CODE BEGIN EV */
 
 /* USER CODE END EV */
@@ -209,6 +210,11 @@ void SysTick_Handler(void)
 /* For the available peripheral interrupt handler names,                      */
 /* please refer to the startup file (startup_stm32h7xx.s).                    */
 /******************************************************************************/
+
+void DMA1_Stream0_IRQHandler(void)
+{
+  HAL_DMA_IRQHandler(&hdma_memtomem_dma1_stream0);
+}
 
 /**
   * @brief This function handles TIM1 update interrupt.

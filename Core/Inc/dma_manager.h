@@ -23,7 +23,9 @@ extern const float GPIO_Group_Output_Offset[DMA_CHANNELS];
 
 extern DMA_HandleTypeDef* DMA_Stream_Handles[DMA_CHANNELS];
 
-__ALIGNED(32) extern uint16_t Waveform_Storage[DMA_CHANNELS][NUM_STIMULATION_SAMPLES][WAVEFORM_BUFFER_SIZE] __attribute__((section(".storage_buffer")));
+typedef uint16_t DMA_WaveformBlock[DMA_CHANNELS][NUM_STIMULATION_SAMPLES][WAVEFORM_BUFFER_SIZE];
+
+__ALIGNED(32) extern DMA_WaveformBlock Waveform_Storage __attribute__((section(".storage_buffer")));
 
 extern const uint16_t BufferGapPerMicroseconds;
 
@@ -34,3 +36,12 @@ void Clean_DMABuffer();
 void DMA_Update_LED_State(uint16_t led_mask);
 float DMA_Clamp_Stimulation_Strength(float strength);
 uint16_t DMA_Convert_Strength_To_On_Ticks(float strength);
+
+DMA_WaveformBlock *DMA_Sequence_Get_Block(uint8_t block);
+void DMA_Sequence_Clean_Block(uint8_t block);
+int DMA_Sequence_Start(void);
+void DMA_Sequence_Stop(void);
+int DMA_Sequence_Take_Free_Block(uint8_t *block);
+void DMA_Sequence_Release_Block(uint8_t block);
+uint32_t DMA_Sequence_Take_Deadline_Misses(void);
+int DMA_Is_Sequence_Active(void);
