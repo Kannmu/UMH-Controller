@@ -58,11 +58,9 @@ void Comm_Task(void)
 {
     uint16_t tail = comm_rx_tail;
     uint16_t head = comm_rx_head;
-    // A sequence-data frame is 251 bytes and arrives continuously at roughly
-    // 100 kB/s. Processing only 64 bytes per main-loop pass lets the USB RX
-    // queue fill whenever rendering takes a few milliseconds, which drops
-    // complete audio packets. Drain enough data for several frames while the
-    // parser remains incremental.
+    // Stereo sequence-data frames remain 251 bytes on the wire, but now carry
+    // 60 complete samples (phase L/R plus independent 8-bit envelopes). Drain
+    // enough data for several frames while the parser remains incremental.
     uint32_t remaining_budget = 2048U;
 
     while (tail != head && remaining_budget > 0U)
@@ -614,10 +612,12 @@ void Comm_Process_Received_Data(uint8_t* data, uint32_t length)
                             break;
                         case SEQUENCE_DATA:
                         {
-                            if (rx_buffer.frame.data_length == 4U + SEQUENCE_PACKET_SAMPLES * 2U)
+                            const uint32_t expected_length = 4U +
+                                SEQUENCE_PACKET_SAMPLES * sizeof(uint32_t);
+                            if (rx_buffer.frame.data_length == expected_length)
                             {
                                 uint32_t sequence;
-                                int16_t samples[SEQUENCE_PACKET_SAMPLES];
+                                uint32_t samples[SEQUENCE_PACKET_SAMPLES];
                                 memcpy(&sequence, &rx_buffer.frame.data[0], sizeof(sequence));
                                 memcpy(samples, &rx_buffer.frame.data[4], sizeof(samples));
                                 Sequence_Push_Data(sequence, samples, SEQUENCE_PACKET_SAMPLES);

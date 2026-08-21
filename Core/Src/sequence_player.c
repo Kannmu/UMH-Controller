@@ -9,26 +9,18 @@
 #include "transducer.h"
 #include "utiles.h"
 
-typedef uint16_t SequenceCarrier[DMA_CHANNELS][WAVEFORM_BUFFER_SIZE];
-
-__ALIGNED(32)
-static SequenceCarrier sequence_templates[SEQUENCE_MAX_STATES]
-    __attribute__((section(".sequence_templates")));
-
 static uint8_t sequence_phase_offsets[SEQUENCE_MAX_STATES][SEQUENCE_OUTPUT_CHANNELS];
-static int16_t sequence_ring[SEQUENCE_RING_CAPACITY];
+/* Carrier pulse starts are tiny: 100 states x 60 transducers x one byte. */
+static uint8_t sequence_phase_starts[SEQUENCE_RENDER_STATES][SEQUENCE_OUTPUT_CHANNELS];
+static uint32_t sequence_ring[SEQUENCE_RING_CAPACITY];
 static uint16_t sequence_base_shift[SEQUENCE_OUTPUT_CHANNELS];
 static SequenceDescriptor sequence_descriptor;
 static SequenceState sequence_state;
 static uint16_t sequence_uploaded_states;
 static uint16_t sequence_ring_head;
 static uint16_t sequence_ring_tail;
-static uint32_t sequence_input_phase_q16;
-static uint32_t sequence_resampler_step_q16;
-static uint32_t sequence_coordinate_q16;
-static int16_t sequence_previous_sample;
-static int16_t sequence_last_control;
-static uint8_t sequence_previous_valid;
+static uint8_t sequence_last_left_state;
+static uint8_t sequence_last_right_state;
 static uint8_t sequence_packet_valid;
 static uint32_t sequence_expected_packet;
 static uint32_t sequence_underrun_count;
@@ -50,7 +42,7 @@ static uint16_t Sequence_Ring_Free(void)
     return (uint16_t)((SEQUENCE_RING_CAPACITY - 1U) - Sequence_Ring_Fill());
 }
 
-static int16_t Sequence_Ring_Peek(uint16_t offset)
+static uint32_t Sequence_Ring_Peek(uint16_t offset)
 {
     return sequence_ring[(sequence_ring_tail + offset) &
                          (SEQUENCE_RING_CAPACITY - 1U)];
@@ -60,8 +52,6 @@ static void Sequence_Ring_Consume(uint16_t count)
 {
     while (count-- > 0U)
     {
-        sequence_previous_sample = sequence_ring[sequence_ring_tail];
-        sequence_previous_valid = 1U;
         sequence_ring_tail = (uint16_t)((sequence_ring_tail + 1U) &
                                         (SEQUENCE_RING_CAPACITY - 1U));
     }
@@ -71,12 +61,8 @@ static void Sequence_Reset_Stream(void)
 {
     sequence_ring_head = 0U;
     sequence_ring_tail = 0U;
-    sequence_input_phase_q16 = 0U;
-    sequence_resampler_step_q16 = Sequence_Resampler_Step_Q16(0);
-    sequence_coordinate_q16 = (uint32_t)sequence_descriptor.neutral_state << 16U;
-    sequence_previous_sample = 0;
-    sequence_last_control = 0;
-    sequence_previous_valid = 0U;
+    sequence_last_left_state = sequence_descriptor.neutral_state;
+    sequence_last_right_state = sequence_descriptor.neutral_state;
     sequence_packet_valid = 0U;
     sequence_expected_packet = 0U;
     sequence_clock_correction_ppm = 0;
@@ -85,7 +71,7 @@ static void Sequence_Reset_Stream(void)
 static int Sequence_Descriptor_Is_Valid(const SequenceDescriptor *descriptor)
 {
     if (descriptor == NULL || descriptor->state_count == 0U ||
-        descriptor->state_count > SEQUENCE_MAX_STATES ||
+        descriptor->state_count > SEQUENCE_RENDER_STATES ||
         descriptor->neutral_state >= descriptor->state_count ||
         descriptor->control_scale_q16 < 0 ||
         descriptor->mapping > SEQUENCE_MAPPING_CYCLIC_INCREMENT)
@@ -99,11 +85,34 @@ static int Sequence_Descriptor_Is_Valid(const SequenceDescriptor *descriptor)
     return 1;
 }
 
-static void Sequence_Render_Template(uint16_t state_index)
+static void Sequence_Build_Render_Cache(void)
 {
+    for (uint32_t index = 0U; index < SEQUENCE_OUTPUT_CHANNELS; index++)
+    {
+        const Transducer *transducer = &TransducerArray[index];
+        if (transducer->port_num >= DMA_CHANNELS) continue;
+        for (uint16_t state = 0U; state < sequence_descriptor.state_count; state++)
+        {
+            uint32_t phase = (uint32_t)transducer->calib + sequence_base_shift[index] +
+                sequence_phase_offsets[state][index] +
+                (uint32_t)(GPIO_Group_Output_Offset[transducer->port_num] *
+                           BufferGapPerMicroseconds);
+            phase %= WAVEFORM_BUFFER_SIZE;
+            sequence_phase_starts[state][index] =
+                (uint8_t)((WAVEFORM_BUFFER_SIZE - phase) % WAVEFORM_BUFFER_SIZE);
+        }
+    }
+}
+
+static void Sequence_Render_Sample(DMA_WaveformBlock *waveform, uint32_t sample,
+                                   uint16_t left_state, uint16_t right_state,
+                                   uint8_t left_envelope, uint8_t right_envelope)
+{
+    uint16_t led_mask = Get_Current_LED_Mask();
+    uint32_t left_duty = ((uint32_t)left_envelope * (WAVEFORM_BUFFER_SIZE / 2U) + 127U) / 255U;
+    uint32_t right_duty = ((uint32_t)right_envelope * (WAVEFORM_BUFFER_SIZE / 2U) + 127U) / 255U;
     uint16_t turn_on[WAVEFORM_BUFFER_SIZE];
     uint16_t turn_off[WAVEFORM_BUFFER_SIZE];
-    uint16_t led_mask = Get_Current_LED_Mask();
 
     for (uint32_t port = 0U; port < DMA_CHANNELS; port++)
     {
@@ -111,108 +120,69 @@ static void Sequence_Render_Template(uint16_t state_index)
         memset(turn_off, 0, sizeof(turn_off));
         uint16_t running_state = 0U;
 
+        /* Build only pulse-boundary events. The expensive tick loop below is
+         * per GPIO port, not per transducer, so the full envelope remains
+         * phase-aware without multiplying the DMA deadline cost by 60. */
         for (uint32_t index = 0U; index < SEQUENCE_OUTPUT_CHANNELS; index++)
         {
             const Transducer *transducer = &TransducerArray[index];
             if (transducer->port_num != port) continue;
 
-            uint32_t phase = (uint32_t)transducer->calib +
-                             sequence_base_shift[index] +
-                             sequence_phase_offsets[state_index][index] +
-                             (uint32_t)(GPIO_Group_Output_Offset[port] *
-                                        BufferGapPerMicroseconds);
-            phase %= WAVEFORM_BUFFER_SIZE;
-            uint32_t start = (WAVEFORM_BUFFER_SIZE - phase) % WAVEFORM_BUFFER_SIZE;
-            uint32_t end = (start + (WAVEFORM_BUFFER_SIZE / 2U)) % WAVEFORM_BUFFER_SIZE;
+            uint32_t duty = transducer->position3D[0] < 0.0f
+                ? left_duty : right_duty;
+            if (duty == 0U) continue;
+            uint16_t state = transducer->position3D[0] < 0.0f
+                ? left_state : right_state;
+            uint32_t start = sequence_phase_starts[state][index];
+            uint32_t end = (start + duty) % WAVEFORM_BUFFER_SIZE;
             turn_on[start] |= transducer->pin;
             turn_off[end] |= transducer->pin;
             if (start >= end) running_state |= transducer->pin;
         }
 
-        uint16_t port_mask = port == 0U ? led_mask : 0U;
         for (uint32_t tick = 0U; tick < WAVEFORM_BUFFER_SIZE; tick++)
         {
             running_state |= turn_on[tick];
             running_state &= (uint16_t)~turn_off[tick];
-            sequence_templates[state_index][port][tick] = running_state | port_mask;
+            (*waveform)[port][sample][tick] = running_state |
+                (port == 0U ? led_mask : 0U);
         }
-    }
-}
-
-static int16_t Sequence_Next_Control(void)
-{
-    int16_t current = Sequence_Ring_Peek(0U);
-    int16_t next = Sequence_Ring_Peek(1U);
-    int16_t following = Sequence_Ring_Peek(2U);
-    int16_t previous = sequence_previous_valid ? sequence_previous_sample : current;
-    int16_t output = Sequence_Cubic_Interpolate(
-        previous, current, next, following, (uint16_t)sequence_input_phase_q16);
-
-    sequence_input_phase_q16 += sequence_resampler_step_q16;
-    uint16_t consumed = (uint16_t)(sequence_input_phase_q16 >> 16U);
-    sequence_input_phase_q16 &= 0xffffU;
-    Sequence_Ring_Consume(consumed);
-    return output;
-}
-
-static uint16_t Sequence_Map_Control(int16_t control)
-{
-    sequence_last_control = control;
-    if (sequence_descriptor.mapping == SEQUENCE_MAPPING_CYCLIC_INCREMENT)
-    {
-        sequence_coordinate_q16 = Sequence_Map_Cyclic_Q16(
-            sequence_coordinate_q16, control, sequence_descriptor.control_scale_q16,
-            sequence_descriptor.state_count);
-        return (uint16_t)(sequence_coordinate_q16 >> 16U);
-    }
-    return Sequence_Map_Absolute(control, sequence_descriptor.control_scale_q16,
-                                 sequence_descriptor.neutral_state,
-                                 sequence_descriptor.state_count);
-}
-
-static void Sequence_Copy_State(DMA_WaveformBlock *waveform, uint32_t sample,
-                                uint16_t state_index)
-{
-    for (uint32_t port = 0U; port < DMA_CHANNELS; port++)
-    {
-        memcpy(&(*waveform)[port][sample][0],
-               &sequence_templates[state_index][port][0],
-               WAVEFORM_BUFFER_SIZE * sizeof(uint16_t));
     }
 }
 
 static void Sequence_Render_Data_Block(uint8_t block)
 {
     DMA_WaveformBlock *waveform = DMA_Sequence_Get_Block(block);
-    sequence_clock_correction_ppm = Sequence_Clock_Correction_Ppm(
-        Sequence_Ring_Fill(), SEQUENCE_PREBUFFER_SAMPLES);
-    sequence_resampler_step_q16 = Sequence_Resampler_Step_Q16(sequence_clock_correction_ppm);
+    sequence_clock_correction_ppm = 0;
     for (uint32_t sample = 0U; sample < SEQUENCE_BLOCK_SAMPLES; sample++)
     {
-        uint16_t state_index = Sequence_Map_Control(Sequence_Next_Control());
-        Sequence_Copy_State(waveform, sample, state_index);
+        uint32_t packed = Sequence_Ring_Peek(0U);
+        Sequence_Ring_Consume(1U);
+        uint8_t left_state = (uint8_t)(packed & 0x7FU);
+        uint8_t right_state = (uint8_t)((packed >> 7U) & 0x7FU);
+        uint8_t left_envelope = (uint8_t)((packed >> 14U) & 0xffU);
+        uint8_t right_envelope = (uint8_t)((packed >> 22U) & 0xffU);
+        sequence_last_left_state = left_state;
+        sequence_last_right_state = right_state;
+        Sequence_Render_Sample(waveform, sample, left_state, right_state,
+                               left_envelope, right_envelope);
     }
 }
 
 static void Sequence_Render_Hold_Block(uint8_t block, int ramp)
 {
     DMA_WaveformBlock *waveform = DMA_Sequence_Get_Block(block);
-    int32_t initial = ramp ? sequence_last_control : 0;
     for (uint32_t sample = 0U; sample < SEQUENCE_BLOCK_SAMPLES; sample++)
     {
-        int16_t control = ramp
-            ? (int16_t)((initial * (int32_t)(SEQUENCE_BLOCK_SAMPLES - 1U - sample)) /
-                        (int32_t)(SEQUENCE_BLOCK_SAMPLES - 1U))
-            : 0;
-        uint16_t state_index = Sequence_Map_Control(control);
-        Sequence_Copy_State(waveform, sample, state_index);
+        (void)ramp;
+        Sequence_Render_Sample(waveform, sample, sequence_last_left_state,
+                               sequence_last_right_state, 0U, 0U);
     }
-    sequence_last_control = 0;
 }
 
 static int Sequence_Has_Render_Input(void)
 {
-    return Sequence_Ring_Fill() >= 244U;
+    return Sequence_Ring_Fill() >= SEQUENCE_BLOCK_SAMPLES;
 }
 
 static void Sequence_Record_Render_Time(uint32_t started_at)
@@ -289,13 +259,12 @@ int Sequence_Commit(void)
         return 0;
     }
 
-    for (uint16_t state = 0U; state < sequence_descriptor.state_count; state++)
-        Sequence_Render_Template(state);
+    Sequence_Build_Render_Cache();
     sequence_state = SEQUENCE_STATE_BUFFERING;
     return 1;
 }
 
-void Sequence_Push_Data(uint32_t packet_sequence, const int16_t *samples,
+void Sequence_Push_Data(uint32_t packet_sequence, const uint32_t *samples,
                         uint16_t sample_count)
 {
     if (samples == NULL || sample_count != SEQUENCE_PACKET_SAMPLES ||
