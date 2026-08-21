@@ -44,6 +44,25 @@ uint32_t Sequence_Map_Cyclic_Q16(uint32_t coordinate_q16, int16_t control,
 {
     if (state_count == 0U) return 0U;
 
+    // Audio modulation uses an integer number of phase states. This form
+    // removes the 64-bit divide and modulo from the 40 kHz render loop. The
+    // positive-side reciprocal correction differs from exact division by at
+    // most one Q16 unit; the negative side is exact because its denominator
+    // is 32768. Restricting the step to the table size also makes one wrap
+    // sufficient.
+    if ((scale_q16 & 0xffff) == 0 &&
+        (uint32_t)(scale_q16 >> 16U) <= state_count)
+    {
+        int32_t states = scale_q16 >> 16U;
+        int32_t delta = (int32_t)control * states * 2;
+        if (control > 0) delta += delta >> 15U;
+        int32_t modulus = (int32_t)state_count << 16U;
+        int32_t next = (int32_t)coordinate_q16 + delta;
+        if (next >= modulus) next -= modulus;
+        else if (next < 0) next += modulus;
+        return (uint32_t)next;
+    }
+
     int64_t denominator = control < 0 ? 32768LL : 32767LL;
     int64_t delta = ((int64_t)control * scale_q16) / denominator;
     int64_t modulus = (int64_t)state_count << 16U;

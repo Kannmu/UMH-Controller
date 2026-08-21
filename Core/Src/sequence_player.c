@@ -24,6 +24,7 @@ static uint16_t sequence_uploaded_states;
 static uint16_t sequence_ring_head;
 static uint16_t sequence_ring_tail;
 static uint32_t sequence_input_phase_q16;
+static uint32_t sequence_resampler_step_q16;
 static uint32_t sequence_coordinate_q16;
 static int16_t sequence_previous_sample;
 static int16_t sequence_last_control;
@@ -71,6 +72,7 @@ static void Sequence_Reset_Stream(void)
     sequence_ring_head = 0U;
     sequence_ring_tail = 0U;
     sequence_input_phase_q16 = 0U;
+    sequence_resampler_step_q16 = Sequence_Resampler_Step_Q16(0);
     sequence_coordinate_q16 = (uint32_t)sequence_descriptor.neutral_state << 16U;
     sequence_previous_sample = 0;
     sequence_last_control = 0;
@@ -146,7 +148,7 @@ static int16_t Sequence_Next_Control(void)
     int16_t output = Sequence_Cubic_Interpolate(
         previous, current, next, following, (uint16_t)sequence_input_phase_q16);
 
-    sequence_input_phase_q16 += Sequence_Resampler_Step_Q16(sequence_clock_correction_ppm);
+    sequence_input_phase_q16 += sequence_resampler_step_q16;
     uint16_t consumed = (uint16_t)(sequence_input_phase_q16 >> 16U);
     sequence_input_phase_q16 &= 0xffffU;
     Sequence_Ring_Consume(consumed);
@@ -184,6 +186,7 @@ static void Sequence_Render_Data_Block(uint8_t block)
     DMA_WaveformBlock *waveform = DMA_Sequence_Get_Block(block);
     sequence_clock_correction_ppm = Sequence_Clock_Correction_Ppm(
         Sequence_Ring_Fill(), SEQUENCE_PREBUFFER_SAMPLES);
+    sequence_resampler_step_q16 = Sequence_Resampler_Step_Q16(sequence_clock_correction_ppm);
     for (uint32_t sample = 0U; sample < SEQUENCE_BLOCK_SAMPLES; sample++)
     {
         uint16_t state_index = Sequence_Map_Control(Sequence_Next_Control());

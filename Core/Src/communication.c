@@ -9,7 +9,7 @@
 // 全局变量
 static rx_buffer_t rx_buffer;
 
-#define COMM_RX_QUEUE_SIZE 4096U
+#define COMM_RX_QUEUE_SIZE 16384U
 #define COMM_RX_QUEUE_MASK (COMM_RX_QUEUE_SIZE - 1U)
 
 static uint8_t comm_rx_queue[COMM_RX_QUEUE_SIZE];
@@ -58,7 +58,12 @@ void Comm_Task(void)
 {
     uint16_t tail = comm_rx_tail;
     uint16_t head = comm_rx_head;
-    uint32_t remaining_budget = 64U;
+    // A sequence-data frame is 251 bytes and arrives continuously at roughly
+    // 100 kB/s. Processing only 64 bytes per main-loop pass lets the USB RX
+    // queue fill whenever rendering takes a few milliseconds, which drops
+    // complete audio packets. Drain enough data for several frames while the
+    // parser remains incremental.
+    uint32_t remaining_budget = 2048U;
 
     while (tail != head && remaining_budget > 0U)
     {
