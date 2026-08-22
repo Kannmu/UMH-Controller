@@ -25,6 +25,8 @@ typedef enum
 {
     SEQUENCE_MAPPING_ABSOLUTE_CLAMPED = 0,
     SEQUENCE_MAPPING_CYCLIC_INCREMENT = 1,
+    /* Fixed calibrated carrier phase with no geometric focus delay. */
+    SEQUENCE_MAPPING_PLANE_WAVE = 0x82,
 } SequenceMapping;
 
 typedef enum

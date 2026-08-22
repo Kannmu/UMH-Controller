@@ -89,6 +89,7 @@ static void Sequence_Reset_Stream(void)
     sequence_expected_packet = 0U;
     sequence_clock_correction_ppm = 0;
     sequence_source_phase_q16 = 0U;
+    Sequence_Clock_Correction_Reset();
 }
 
 static int Sequence_Descriptor_Is_Valid(const SequenceDescriptor *descriptor)
@@ -97,7 +98,9 @@ static int Sequence_Descriptor_Is_Valid(const SequenceDescriptor *descriptor)
         descriptor->state_count > SEQUENCE_RENDER_STATES ||
         descriptor->neutral_state >= descriptor->state_count ||
         descriptor->control_scale_q16 < 0 ||
-        descriptor->mapping > SEQUENCE_MAPPING_CYCLIC_INCREMENT)
+        (descriptor->mapping != SEQUENCE_MAPPING_ABSOLUTE_CLAMPED &&
+         descriptor->mapping != SEQUENCE_MAPPING_CYCLIC_INCREMENT &&
+         descriptor->mapping != SEQUENCE_MAPPING_PLANE_WAVE))
     {
         return 0;
     }
@@ -362,15 +365,24 @@ int Sequence_Begin_Configuration(const SequenceDescriptor *descriptor)
     sequence_dma_deadline_miss_count = 0U;
     Sequence_Reset_Stream();
 
-    Stimulation base = CurrentStimulation;
-    base.type = Point;
-    memcpy(base.position, descriptor->focus, sizeof(base.position));
-    base.strength = 100.0f;
-    base.frequency = 200.0f;
-    Set_Stimulation(&base);
-    Set_Point_Focus(base.position);
-    for (uint32_t index = 0U; index < SEQUENCE_OUTPUT_CHANNELS; index++)
-        sequence_base_shift[index] = TransducerArray[index].shift_buffer_bits;
+    if (descriptor->mapping == SEQUENCE_MAPPING_PLANE_WAVE)
+    {
+        /* Retain per-transducer calibration in the DMA cache, but remove the
+         * point-focus delay that would otherwise impose a near-field focus. */
+        memset(sequence_base_shift, 0, sizeof(sequence_base_shift));
+    }
+    else
+    {
+        Stimulation base = CurrentStimulation;
+        base.type = Point;
+        memcpy(base.position, descriptor->focus, sizeof(base.position));
+        base.strength = 100.0f;
+        base.frequency = 200.0f;
+        Set_Stimulation(&base);
+        Set_Point_Focus(base.position);
+        for (uint32_t index = 0U; index < SEQUENCE_OUTPUT_CHANNELS; index++)
+            sequence_base_shift[index] = TransducerArray[index].shift_buffer_bits;
+    }
 
     sequence_state = SEQUENCE_STATE_CONFIGURING;
     return 1;

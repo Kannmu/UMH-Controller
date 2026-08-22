@@ -2,6 +2,9 @@
 
 #define Q16_ONE 65536LL
 
+static int32_t clock_integral;
+static int32_t clock_output;
+
 static int16_t Clamp_Int16(int64_t value)
 {
     if (value > 32767LL) return 32767;
@@ -24,12 +27,28 @@ int16_t Sequence_Cubic_Interpolate(int16_t previous, int16_t current,
     return Clamp_Int16(rounded / (2LL * Q16_ONE));
 }
 
+void Sequence_Clock_Correction_Reset(void)
+{
+    clock_integral = 0;
+    clock_output = 0;
+}
+
 int32_t Sequence_Clock_Correction_Ppm(uint16_t ring_fill, uint16_t target_fill)
 {
-    int32_t correction = ((int32_t)ring_fill - (int32_t)target_fill) * 4;
-    if (correction > 1000) return 1000;
-    if (correction < -1000) return -1000;
-    return correction;
+    int32_t error = (int32_t)ring_fill - (int32_t)target_fill;
+    clock_integral += error;
+    if (clock_integral > 32768) clock_integral = 32768;
+    if (clock_integral < -32768) clock_integral = -32768;
+
+    int32_t requested = error * 2 + clock_integral / 256;
+    if (requested > 1000) requested = 1000;
+    if (requested < -1000) requested = -1000;
+
+    int32_t delta = requested - clock_output;
+    if (delta > 4) clock_output += 4;
+    else if (delta < -4) clock_output -= 4;
+    else clock_output = requested;
+    return clock_output;
 }
 
 uint32_t Sequence_Resampler_Step_Q16(int32_t correction_ppm)
