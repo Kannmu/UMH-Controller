@@ -191,6 +191,14 @@ static void MX_DMA_Init(void)
 
   HAL_NVIC_SetPriority(DMA1_Stream0_IRQn, 1, 0);
   HAL_NVIC_EnableIRQ(DMA1_Stream0_IRQn);
+  HAL_NVIC_SetPriority(DMA1_Stream1_IRQn, 1, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream1_IRQn);
+  HAL_NVIC_SetPriority(DMA1_Stream2_IRQn, 1, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream2_IRQn);
+  HAL_NVIC_SetPriority(DMA2_Stream0_IRQn, 1, 0);
+  HAL_NVIC_EnableIRQ(DMA2_Stream0_IRQn);
+  HAL_NVIC_SetPriority(DMA2_Stream1_IRQn, 1, 0);
+  HAL_NVIC_EnableIRQ(DMA2_Stream1_IRQn);
 
 }
 
@@ -304,28 +312,15 @@ void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
-  /* Rev.Y is limited to 400 MHz; only the validated Rev.V path uses VOS0. */
-  uint32_t use_480mhz = (HAL_GetREVID() == REV_ID_V);
-
   /** Supply configuration update enable
   */
   HAL_PWREx_ConfigSupply(PWR_LDO_SUPPLY);
 
   /** Configure the main internal regulator output voltage
   */
-  if (use_480mhz)
-  {
-    __HAL_RCC_SYSCFG_CLK_ENABLE();
-    if (HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE0) != HAL_OK)
-    {
-      Error_Handler();
-    }
-  }
-  else
-  {
-    __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
-    while(!__HAL_PWR_GET_FLAG(PWR_FLAG_VOSRDY)) {}
-  }
+  /* The firmware target is 400 MHz on every supported silicon revision. */
+  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
+  while(!__HAL_PWR_GET_FLAG(PWR_FLAG_VOSRDY)) {}
 
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
@@ -338,12 +333,12 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.HSI48State = RCC_HSI48_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-  RCC_OscInitStruct.PLL.PLLM = use_480mhz ? 5 : 2;
-  RCC_OscInitStruct.PLL.PLLN = use_480mhz ? 192 : 64;
+  RCC_OscInitStruct.PLL.PLLM = 2;
+  RCC_OscInitStruct.PLL.PLLN = 64;
   RCC_OscInitStruct.PLL.PLLP = 2;
-  RCC_OscInitStruct.PLL.PLLQ = use_480mhz ? 20 : 13;
+  RCC_OscInitStruct.PLL.PLLQ = 13;
   RCC_OscInitStruct.PLL.PLLR = 2;
-  RCC_OscInitStruct.PLL.PLLRGE = use_480mhz ? RCC_PLL1VCIRANGE_2 : RCC_PLL1VCIRANGE_3;
+  RCC_OscInitStruct.PLL.PLLRGE = RCC_PLL1VCIRANGE_3;
   RCC_OscInitStruct.PLL.PLLVCOSEL = RCC_PLL1VCOWIDE;
   RCC_OscInitStruct.PLL.PLLFRACN = 0;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
@@ -364,8 +359,7 @@ void SystemClock_Config(void)
   RCC_ClkInitStruct.APB2CLKDivider = RCC_APB2_DIV2;
   RCC_ClkInitStruct.APB4CLKDivider = RCC_APB4_DIV2;
 
-  uint32_t flash_latency = use_480mhz ? FLASH_LATENCY_4 : FLASH_LATENCY_2;
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, flash_latency) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
   {
     Error_Handler();
   }
@@ -549,7 +543,7 @@ static void MX_I2C2_Init(void)
 
   /* USER CODE END I2C2_Init 1 */
   hi2c2.Instance = I2C2;
-  /* Keep I2C near 100 kHz when the Rev.V APB clock rises to 120 MHz. */
+  /* Keep I2C near 100 kHz for the 100 MHz APB1 clock at 400 MHz SYSCLK. */
   hi2c2.Init.Timing = (HAL_RCC_GetPCLK1Freq() > 100000000U)
                     ? 0x2090BDCCU
                     : 0x10C0ECFFU;

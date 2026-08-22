@@ -216,6 +216,26 @@ void DMA1_Stream0_IRQHandler(void)
   HAL_DMA_IRQHandler(&hdma_memtomem_dma1_stream0);
 }
 
+void DMA1_Stream1_IRQHandler(void)
+{
+  HAL_DMA_IRQHandler(&hdma_memtomem_dma1_stream1);
+}
+
+void DMA1_Stream2_IRQHandler(void)
+{
+  HAL_DMA_IRQHandler(&hdma_memtomem_dma1_stream2);
+}
+
+void DMA2_Stream0_IRQHandler(void)
+{
+  HAL_DMA_IRQHandler(&hdma_memtomem_dma2_stream0);
+}
+
+void DMA2_Stream1_IRQHandler(void)
+{
+  HAL_DMA_IRQHandler(&hdma_memtomem_dma2_stream1);
+}
+
 /**
   * @brief This function handles TIM1 update interrupt.
   */

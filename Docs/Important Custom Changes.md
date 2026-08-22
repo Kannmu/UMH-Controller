@@ -25,10 +25,10 @@ Insert the code above after the `.ARM` section in the linker script (.ld file), 
 
 5. Preserve `SCB_EnableICache()` and `SCB_EnableDCache()` after `MPU_Config()`.
 
-6. Preserve the revision-aware system clock in `SystemClock_Config()`:
-   STM32H750 Rev.V uses VOS0 at 480 MHz; older or unknown revisions fall back
-   to VOS1 at 400 MHz. TIM1 derives its period from `DMA_SAMPLING_FREQ`, so the
-   ultrasound output remains at 4 MHz sampling and 40 kHz carrier in both modes.
+6. Preserve the fixed 400 MHz system clock in `SystemClock_Config()`:
+   all supported STM32H750 revisions use VOS1, with the PLL configured from the
+   25 MHz HSE. TIM1 derives its period from `DMA_SAMPLING_FREQ`, so the
+   ultrasound output remains at 4 MHz sampling and 40 kHz carrier.
 
 7. Release builds use `-O3 -fno-math-errno`. Do not enable LTO with the bundled
    GCC 10.3 toolchain; its handling of STM32 HAL weak symbols causes link errors.

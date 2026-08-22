@@ -70,44 +70,52 @@ static uint8_t DMAs_Started;
 static volatile uint8_t Sequence_DMA_Active;
 static volatile uint8_t Sequence_Free_Mask;
 static volatile uint8_t Sequence_Rendering_Mask;
+static volatile uint8_t Sequence_Complete_Masks[2];
 static volatile uint32_t Sequence_Deadline_Misses;
 
 static GPIO_TypeDef * const Output_Ports[DMA_CHANNELS] = {
     GPIOA, GPIOB, GPIOC, GPIOD, GPIOE
 };
 
-static void Sequence_Block_Complete(uint8_t block)
+static uint8_t Sequence_Stream_Index(const DMA_HandleTypeDef *handle)
 {
-    uint8_t mask = (uint8_t)(1U << block);
-    if ((Sequence_Rendering_Mask & mask) != 0U ||
-        (Sequence_Free_Mask & mask) != 0U)
+    for (uint8_t stream = 0U; stream < DMA_CHANNELS; stream++)
+    {
+        if (DMA_Stream_Handles[stream] == handle) return stream;
+    }
+    return 0xffU;
+}
+
+static void Sequence_Block_Complete(uint8_t block, const DMA_HandleTypeDef *handle)
+{
+    uint8_t stream = Sequence_Stream_Index(handle);
+    if (stream >= DMA_CHANNELS || block >= 2U) return;
+
+    /* A block is writable only after every GPIO port DMA has switched banks. */
+    uint8_t stream_mask = (uint8_t)(1U << stream);
+    Sequence_Complete_Masks[block] |= stream_mask;
+    if (Sequence_Complete_Masks[block] != (uint8_t)((1U << DMA_CHANNELS) - 1U)) return;
+
+    uint8_t block_mask = (uint8_t)(1U << block);
+    if ((Sequence_Rendering_Mask & block_mask) != 0U ||
+        (Sequence_Free_Mask & block_mask) != 0U)
     {
         Sequence_Deadline_Misses++;
     }
-    Sequence_Free_Mask |= mask;
+    Sequence_Free_Mask |= block_mask;
+    Sequence_Complete_Masks[block] = 0U;
 }
 
 static void Sequence_Memory0_Complete(DMA_HandleTypeDef *handle)
 {
     (void)handle;
-    Sequence_Block_Complete(0U);
+    Sequence_Block_Complete(0U, handle);
 }
 
 static void Sequence_Memory1_Complete(DMA_HandleTypeDef *handle)
 {
     (void)handle;
-    Sequence_Block_Complete(1U);
-}
-
-static int Sequence_Block_Is_Free(uint8_t block)
-{
-    uint32_t expected_ct = block == 0U ? DMA_SxCR_CT : 0U;
-    for (uint32_t p = 0U; p < DMA_CHANNELS; p++)
-    {
-        uint32_t ct = ((DMA_Stream_TypeDef *)DMA_Stream_Handles[p]->Instance)->CR & DMA_SxCR_CT;
-        if (ct != expected_ct) return 0;
-    }
-    return 1;
+    Sequence_Block_Complete(1U, handle);
 }
 
 static void Activate_Waveform(WaveformChannel *waveform)
@@ -265,10 +273,15 @@ int DMA_Sequence_Start(void)
     DMA_Sequence_Clean_Block(1U);
     DMA_Stream_Handles[0]->XferCpltCallback = Sequence_Memory0_Complete;
     DMA_Stream_Handles[0]->XferM1CpltCallback = Sequence_Memory1_Complete;
+    for (uint32_t p = 1U; p < DMA_CHANNELS; p++)
+    {
+        DMA_Stream_Handles[p]->XferCpltCallback = Sequence_Memory0_Complete;
+        DMA_Stream_Handles[p]->XferM1CpltCallback = Sequence_Memory1_Complete;
+    }
 
     for (uint32_t p = 1U; p < DMA_CHANNELS; p++)
     {
-        if (HAL_DMAEx_MultiBufferStart(
+        if (HAL_DMAEx_MultiBufferStart_IT(
                 DMA_Stream_Handles[p],
                 (uint32_t)&Sequence_Waveform_Storage[p][0][0],
                 (uint32_t)&Output_Ports[p]->ODR,
@@ -295,6 +308,8 @@ int DMA_Sequence_Start(void)
     __HAL_TIM_ENABLE_DMA(&htim1, TIM_DMA_CC4);
     Sequence_Free_Mask = 0U;
     Sequence_Rendering_Mask = 0U;
+    Sequence_Complete_Masks[0] = 0U;
+    Sequence_Complete_Masks[1] = 0U;
     Sequence_Deadline_Misses = 0U;
     Sequence_DMA_Active = 1U;
     DMAs_Started = 1U;
@@ -315,9 +330,16 @@ void DMA_Sequence_Stop(void)
     }
     DMA_Stream_Handles[0]->XferCpltCallback = NULL;
     DMA_Stream_Handles[0]->XferM1CpltCallback = NULL;
+    for (uint32_t p = 1U; p < DMA_CHANNELS; p++)
+    {
+        DMA_Stream_Handles[p]->XferCpltCallback = NULL;
+        DMA_Stream_Handles[p]->XferM1CpltCallback = NULL;
+    }
     Sequence_DMA_Active = 0U;
     Sequence_Free_Mask = 0U;
     Sequence_Rendering_Mask = 0U;
+    Sequence_Complete_Masks[0] = 0U;
+    Sequence_Complete_Masks[1] = 0U;
     DMAs_Started = 0U;
     Active_Waveform = Waveform_Storage;
 }
@@ -329,7 +351,7 @@ int DMA_Sequence_Take_Free_Block(uint8_t *block)
     for (uint8_t candidate = 0U; candidate < 2U; candidate++)
     {
         uint8_t mask = (uint8_t)(1U << candidate);
-        if ((Sequence_Free_Mask & mask) != 0U && Sequence_Block_Is_Free(candidate))
+        if ((Sequence_Free_Mask & mask) != 0U)
         {
             uint32_t primask = __get_PRIMASK();
             __disable_irq();
@@ -349,7 +371,6 @@ void DMA_Sequence_Release_Block(uint8_t block)
     DMA_Sequence_Clean_Block(block);
     __DMB();
     Sequence_Rendering_Mask &= (uint8_t)~mask;
-    if (!Sequence_Block_Is_Free(block)) Sequence_Deadline_Misses++;
 }
 
 uint32_t DMA_Sequence_Take_Deadline_Misses(void)
