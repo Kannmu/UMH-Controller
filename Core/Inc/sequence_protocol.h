@@ -14,19 +14,20 @@
 #define SEQUENCE_BLOCK_SAMPLES          200U
 #define SEQUENCE_PREBUFFER_SAMPLES      2400U
 #define SEQUENCE_RING_CAPACITY          4096U
-#define SEQUENCE_MAX_STATES             100U
+#define SEQUENCE_MAX_STATES             1U
 #define SEQUENCE_RENDER_STATES          SEQUENCE_MAX_STATES
 #define SEQUENCE_PHASE_TICKS            100U
 #define SEQUENCE_OUTPUT_CHANNELS        60U
 #define SEQUENCE_PACKET_SAMPLES         120U
-#define SEQUENCE_MAX_UPLOAD_STATES      4U
+#define SEQUENCE_MAX_UPLOAD_STATES      1U
+/* A 200-sample block spans 5 ms at the 40 kHz output rate. Keep a small
+ * scheduling reserve before reporting a render timeout; DMA deadline misses
+ * remain reported independently. */
+#define SEQUENCE_RENDER_BUDGET_US       4800U
 
 typedef enum
 {
     SEQUENCE_MAPPING_ABSOLUTE_CLAMPED = 0,
-    SEQUENCE_MAPPING_CYCLIC_INCREMENT = 1,
-    /* Fixed calibrated carrier phase with no geometric focus delay. */
-    SEQUENCE_MAPPING_PLANE_WAVE = 0x82,
 } SequenceMapping;
 
 typedef enum

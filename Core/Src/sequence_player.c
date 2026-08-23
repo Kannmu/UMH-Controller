@@ -9,28 +9,27 @@
 #include "transducer.h"
 #include "utiles.h"
 
-static uint8_t sequence_phase_offsets[SEQUENCE_MAX_STATES][SEQUENCE_OUTPUT_CHANNELS];
 #define SEQUENCE_DUTY_LEVELS ((WAVEFORM_BUFFER_SIZE / 2U) + 1U)
 
-/* The generic event cache supports arbitrary per-transducer phase tables.
- * For the common shared-phase table, the same storage is reused for complete
- * mono waveforms at every duty level, which removes the hot event scan. */
-typedef union
-{
-    uint16_t start_masks[DMA_CHANNELS][SEQUENCE_RENDER_STATES]
-                        [WAVEFORM_BUFFER_SIZE];
-    uint16_t uniform_waveforms[DMA_CHANNELS][SEQUENCE_DUTY_LEVELS]
-                              [WAVEFORM_BUFFER_SIZE];
-} SequenceRenderCache;
-
-static SequenceRenderCache sequence_render_cache
+/* Parametric AM uses one fixed carrier state. Keep one waveform per port and
+ * duty level; the resulting table is much smaller than the old multi-state
+ * event cache and is only read by the CPU during block rendering. */
+static uint16_t sequence_uniform_waveforms[DMA_CHANNELS][SEQUENCE_DUTY_LEVELS]
+                                          [WAVEFORM_BUFFER_SIZE]
     __attribute__((section(".sequence_templates")));
 static uint16_t sequence_port_masks[DMA_CHANNELS];
 static uint8_t sequence_duty_ticks[256];
-static uint8_t sequence_state_tick_indices[SEQUENCE_RENDER_STATES]
-                                         [WAVEFORM_BUFFER_SIZE];
-static uint8_t sequence_uniform_phase;
-static uint16_t sequence_ring[SEQUENCE_RING_CAPACITY];
+typedef union
+{
+    uint8_t phase_offsets[SEQUENCE_MAX_STATES][SEQUENCE_OUTPUT_CHANNELS];
+    uint16_t ring[SEQUENCE_RING_CAPACITY];
+} SequenceStreamStorage;
+
+/* Phase offsets are only needed until commit; the ring is only used after
+ * commit, so the configuration table and playback queue share this storage. */
+static SequenceStreamStorage sequence_stream_storage;
+#define sequence_phase_offsets (sequence_stream_storage.phase_offsets)
+#define sequence_ring (sequence_stream_storage.ring)
 static uint16_t sequence_base_shift[SEQUENCE_OUTPUT_CHANNELS];
 static SequenceDescriptor sequence_descriptor;
 static SequenceState sequence_state;
@@ -98,9 +97,7 @@ static int Sequence_Descriptor_Is_Valid(const SequenceDescriptor *descriptor)
         descriptor->state_count > SEQUENCE_RENDER_STATES ||
         descriptor->neutral_state >= descriptor->state_count ||
         descriptor->control_scale_q16 < 0 ||
-        (descriptor->mapping != SEQUENCE_MAPPING_ABSOLUTE_CLAMPED &&
-         descriptor->mapping != SEQUENCE_MAPPING_CYCLIC_INCREMENT &&
-         descriptor->mapping != SEQUENCE_MAPPING_PLANE_WAVE))
+        descriptor->mapping != SEQUENCE_MAPPING_ABSOLUTE_CLAMPED)
     {
         return 0;
     }
@@ -111,29 +108,18 @@ static int Sequence_Descriptor_Is_Valid(const SequenceDescriptor *descriptor)
     return 1;
 }
 
+static void Sequence_Build_Duty_Table(void)
+{
+    for (uint32_t envelope = 0U; envelope < 256U; envelope++)
+    {
+        sequence_duty_ticks[envelope] = (uint8_t)
+            (((envelope * (WAVEFORM_BUFFER_SIZE / 2U)) + 127U) / 255U);
+    }
+}
+
 static void Sequence_Build_Render_Cache(void)
 {
     memset(sequence_port_masks, 0, sizeof(sequence_port_masks));
-    sequence_uniform_phase = 1U;
-    for (uint16_t state = 0U; state < sequence_descriptor.state_count; state++)
-    {
-        for (uint32_t index = 1U; index < SEQUENCE_OUTPUT_CHANNELS; index++)
-        {
-            if (sequence_phase_offsets[state][index] != sequence_phase_offsets[state][0])
-            {
-                sequence_uniform_phase = 0U;
-                break;
-            }
-        }
-        if (sequence_uniform_phase == 0U) break;
-    }
-
-    if (sequence_uniform_phase == 0U)
-    {
-        memset(sequence_render_cache.start_masks, 0,
-               sizeof(sequence_render_cache.start_masks));
-    }
-
     uint8_t base_starts[SEQUENCE_OUTPUT_CHANNELS];
     for (uint32_t index = 0U; index < SEQUENCE_OUTPUT_CHANNELS; index++)
     {
@@ -149,68 +135,34 @@ static void Sequence_Build_Render_Cache(void)
         phase %= WAVEFORM_BUFFER_SIZE;
         base_starts[index] = (uint8_t)((WAVEFORM_BUFFER_SIZE - phase) % WAVEFORM_BUFFER_SIZE);
 
-        if (sequence_uniform_phase == 0U)
-        {
-            for (uint16_t state = 0U; state < sequence_descriptor.state_count; state++)
-            {
-                phase = (uint32_t)transducer->calib + sequence_base_shift[index] +
-                    sequence_phase_offsets[state][index] +
-                    (uint32_t)(GPIO_Group_Output_Offset[port] * BufferGapPerMicroseconds);
-                phase %= WAVEFORM_BUFFER_SIZE;
-                uint8_t start = (uint8_t)((WAVEFORM_BUFFER_SIZE - phase) % WAVEFORM_BUFFER_SIZE);
-                sequence_render_cache.start_masks[port][state][start] |= transducer->pin;
-            }
-        }
     }
 
-    if (sequence_uniform_phase != 0U)
+    for (uint32_t port = 0U; port < DMA_CHANNELS; port++)
     {
-        uint8_t phase0 = sequence_phase_offsets[0][0];
-        for (uint16_t state = 0U; state < sequence_descriptor.state_count; state++)
+        for (uint32_t duty = 0U; duty < SEQUENCE_DUTY_LEVELS; duty++)
         {
-            uint8_t shift = (uint8_t)((sequence_phase_offsets[state][0] +
-                                       WAVEFORM_BUFFER_SIZE - phase0) % WAVEFORM_BUFFER_SIZE);
+            uint16_t turn_on[WAVEFORM_BUFFER_SIZE] = {0};
+            uint16_t turn_off[WAVEFORM_BUFFER_SIZE] = {0};
+            uint16_t running_state = 0U;
+            for (uint32_t index = 0U; index < SEQUENCE_OUTPUT_CHANNELS; index++)
+            {
+                const Transducer *transducer = &TransducerArray[index];
+                if (transducer->port_num != port) continue;
+                uint32_t start = base_starts[index];
+                uint32_t end = start + duty;
+                if (end >= WAVEFORM_BUFFER_SIZE) end -= WAVEFORM_BUFFER_SIZE;
+                turn_on[start] |= transducer->pin;
+                turn_off[end] |= transducer->pin;
+                if (start >= end) running_state |= transducer->pin;
+            }
             for (uint32_t tick = 0U; tick < WAVEFORM_BUFFER_SIZE; tick++)
             {
-                uint32_t index = tick + shift;
-                if (index >= WAVEFORM_BUFFER_SIZE) index -= WAVEFORM_BUFFER_SIZE;
-                sequence_state_tick_indices[state][tick] = (uint8_t)index;
+                running_state |= turn_on[tick];
+                running_state &= (uint16_t)~turn_off[tick];
+                sequence_uniform_waveforms[port][duty][tick] =
+                    running_state & sequence_port_masks[port];
             }
         }
-
-        for (uint32_t port = 0U; port < DMA_CHANNELS; port++)
-        {
-            for (uint32_t duty = 0U; duty < SEQUENCE_DUTY_LEVELS; duty++)
-            {
-                uint16_t turn_on[WAVEFORM_BUFFER_SIZE] = {0};
-                uint16_t turn_off[WAVEFORM_BUFFER_SIZE] = {0};
-                uint16_t running_state = 0U;
-                for (uint32_t index = 0U; index < SEQUENCE_OUTPUT_CHANNELS; index++)
-                {
-                    const Transducer *transducer = &TransducerArray[index];
-                    if (transducer->port_num != port) continue;
-                    uint32_t start = base_starts[index];
-                    uint32_t end = start + duty;
-                    if (end >= WAVEFORM_BUFFER_SIZE) end -= WAVEFORM_BUFFER_SIZE;
-                    turn_on[start] |= transducer->pin;
-                    turn_off[end] |= transducer->pin;
-                    if (start >= end) running_state |= transducer->pin;
-                }
-                for (uint32_t tick = 0U; tick < WAVEFORM_BUFFER_SIZE; tick++)
-                {
-                    running_state |= turn_on[tick];
-                    running_state &= (uint16_t)~turn_off[tick];
-                    sequence_render_cache.uniform_waveforms[port][duty][tick] =
-                        running_state & sequence_port_masks[port];
-                }
-            }
-        }
-    }
-
-    for (uint32_t envelope = 0U; envelope < 256U; envelope++)
-    {
-        sequence_duty_ticks[envelope] = (uint8_t)
-            (((envelope * (WAVEFORM_BUFFER_SIZE / 2U)) + 127U) / 255U);
     }
 }
 
@@ -218,67 +170,16 @@ static void Sequence_Render_Sample(DMA_WaveformBlock *waveform, uint32_t sample,
                                    uint16_t state, uint8_t envelope,
                                    uint16_t led_mask)
 {
-    if (state >= sequence_descriptor.state_count)
-        state = sequence_descriptor.neutral_state;
+    (void)state;
     uint32_t duty = sequence_duty_ticks[envelope];
-
-    if (sequence_uniform_phase != 0U)
-    {
-        const uint8_t *indices = sequence_state_tick_indices[state];
-        const uint32_t shift = indices[0];
-        for (uint32_t port = 0U; port < DMA_CHANNELS; port++)
-        {
-            const uint16_t *source = sequence_render_cache.uniform_waveforms[port][duty];
-            uint16_t *destination = (*waveform)[port][sample];
-            uint16_t port_mask = port == 0U ? led_mask : 0U;
-            if (port != 0U || port_mask == 0U)
-            {
-                if (shift == 0U)
-                {
-                    memcpy(destination, source,
-                           WAVEFORM_BUFFER_SIZE * sizeof(uint16_t));
-                }
-                else
-                {
-                    const uint32_t first = WAVEFORM_BUFFER_SIZE - shift;
-                    memcpy(destination, &source[shift], first * sizeof(uint16_t));
-                    memcpy(&destination[first], source, shift * sizeof(uint16_t));
-                }
-            }
-            else
-            {
-                for (uint32_t tick = 0U; tick < WAVEFORM_BUFFER_SIZE; tick++)
-                    destination[tick] = source[indices[tick]] | port_mask;
-            }
-        }
-        return;
-    }
-
     for (uint32_t port = 0U; port < DMA_CHANNELS; port++)
     {
-        const uint16_t *starts = sequence_render_cache.start_masks[port][state];
-        const uint16_t port_mask = sequence_port_masks[port];
-        uint16_t running_state = 0U;
-
-        /* Restore pulses that cross tick zero. The loop is bounded by the
-         * 50-tick maximum duty and replaces the old per-channel setup. */
-        for (uint32_t offset = 0U; offset < duty; offset++)
-        {
-            uint32_t tick = WAVEFORM_BUFFER_SIZE - duty + offset;
-            running_state |= starts[tick] & port_mask;
-        }
-
-        for (uint32_t tick = 0U; tick < WAVEFORM_BUFFER_SIZE; tick++)
-        {
-            uint32_t end = tick + WAVEFORM_BUFFER_SIZE - duty;
-            if (end >= WAVEFORM_BUFFER_SIZE) end -= WAVEFORM_BUFFER_SIZE;
-            uint16_t turn_on = starts[tick] & port_mask;
-            uint16_t turn_off = starts[end] & port_mask;
-            running_state |= turn_on;
-            running_state &= (uint16_t)~turn_off;
-            (*waveform)[port][sample][tick] = running_state |
-                (port == 0U ? led_mask : 0U);
-        }
+        const uint16_t *source = sequence_uniform_waveforms[port][duty];
+        uint16_t *destination = (*waveform)[port][sample];
+        memcpy(destination, source, WAVEFORM_BUFFER_SIZE * sizeof(uint16_t));
+        if (port == 0U && led_mask != 0U)
+            for (uint32_t tick = 0U; tick < WAVEFORM_BUFFER_SIZE; tick++)
+                destination[tick] |= led_mask;
     }
 }
 
@@ -323,7 +224,7 @@ static int Sequence_Has_Render_Input(void)
     return Sequence_Ring_Fill() >= SEQUENCE_BLOCK_SAMPLES + 1U;
 }
 
-static void Sequence_Record_Render_Time(uint32_t started_cycles)
+static void Sequence_Record_Render_Time(uint32_t started_cycles, uint32_t block_count)
 {
     sequence_rendered_block_count++;
     uint32_t elapsed_cycles = DWT_GetCycles() - started_cycles;
@@ -332,7 +233,7 @@ static void Sequence_Record_Render_Time(uint32_t started_cycles)
         ? 0U : elapsed_cycles / cycles_per_microsecond;
     if (sequence_current_render_us > sequence_maximum_render_us)
         sequence_maximum_render_us = sequence_current_render_us;
-    if (sequence_current_render_us >= 4000U)
+    if (sequence_current_render_us >= SEQUENCE_RENDER_BUDGET_US * block_count)
     {
         sequence_render_timeout_count++;
         sequence_render_over_budget_count++;
@@ -365,24 +266,15 @@ int Sequence_Begin_Configuration(const SequenceDescriptor *descriptor)
     sequence_dma_deadline_miss_count = 0U;
     Sequence_Reset_Stream();
 
-    if (descriptor->mapping == SEQUENCE_MAPPING_PLANE_WAVE)
-    {
-        /* Retain per-transducer calibration in the DMA cache, but remove the
-         * point-focus delay that would otherwise impose a near-field focus. */
-        memset(sequence_base_shift, 0, sizeof(sequence_base_shift));
-    }
-    else
-    {
-        Stimulation base = CurrentStimulation;
-        base.type = Point;
-        memcpy(base.position, descriptor->focus, sizeof(base.position));
-        base.strength = 100.0f;
-        base.frequency = 200.0f;
-        Set_Stimulation(&base);
-        Set_Point_Focus(base.position);
-        for (uint32_t index = 0U; index < SEQUENCE_OUTPUT_CHANNELS; index++)
-            sequence_base_shift[index] = TransducerArray[index].shift_buffer_bits;
-    }
+    Stimulation base = CurrentStimulation;
+    base.type = Point;
+    memcpy(base.position, descriptor->focus, sizeof(base.position));
+    base.strength = 100.0f;
+    base.frequency = 200.0f;
+    Set_Stimulation(&base);
+    Set_Point_Focus(base.position);
+    for (uint32_t index = 0U; index < SEQUENCE_OUTPUT_CHANNELS; index++)
+        sequence_base_shift[index] = TransducerArray[index].shift_buffer_bits;
 
     sequence_state = SEQUENCE_STATE_CONFIGURING;
     return 1;
@@ -402,7 +294,7 @@ int Sequence_Upload_States(uint16_t first_state, uint8_t count,
     uint32_t value_count = (uint32_t)count * SEQUENCE_OUTPUT_CHANNELS;
     for (uint32_t index = 0U; index < value_count; index++)
     {
-        if (phase_offsets[index] >= SEQUENCE_PHASE_TICKS) return 0;
+        if (phase_offsets[index] != 0U) return 0;
     }
     memcpy(&sequence_phase_offsets[first_state][0], phase_offsets, value_count);
     sequence_uploaded_states = (uint16_t)(sequence_uploaded_states + count);
@@ -417,6 +309,7 @@ int Sequence_Commit(void)
         return 0;
     }
 
+    Sequence_Build_Duty_Table();
     Sequence_Build_Render_Cache();
     sequence_state = SEQUENCE_STATE_BUFFERING;
     return 1;
@@ -464,12 +357,13 @@ void Sequence_Task(void)
     if (sequence_state == SEQUENCE_STATE_BUFFERING &&
         Sequence_Ring_Fill() >= SEQUENCE_PREBUFFER_SAMPLES)
     {
+        /* Block zero is shared with ordinary stimulation. Stop its DMA
+         * before rendering either sequence block to avoid a read/write race. */
+        DMA_Sequence_Stop();
         uint32_t started_at = DWT_GetCycles();
         Sequence_Render_Data_Block(0U);
         Sequence_Render_Data_Block(1U);
-        DMA_Sequence_Clean_Block(0U);
-        DMA_Sequence_Clean_Block(1U);
-        Sequence_Record_Render_Time(started_at);
+        Sequence_Record_Render_Time(started_at, 2U);
         if (!DMA_Sequence_Start())
         {
             sequence_state = SEQUENCE_STATE_FAULT;
@@ -505,7 +399,7 @@ void Sequence_Task(void)
         sequence_state = SEQUENCE_STATE_RUNNING;
     }
 
-    Sequence_Record_Render_Time(started_at);
+    Sequence_Record_Render_Time(started_at, 1U);
     DMA_Sequence_Release_Block(block);
 }
 
@@ -555,5 +449,5 @@ void Sequence_Get_Status(SequenceStatus *status, uint32_t comm_rx_dropped_bytes)
     status->rendered_block_count = sequence_rendered_block_count;
     status->render_over_budget_count = sequence_render_over_budget_count;
     status->dma_deadline_miss_count = sequence_dma_deadline_miss_count;
-    status->render_mode = sequence_uniform_phase != 0U ? 1U : 0U;
+    status->render_mode = 1U;
 }

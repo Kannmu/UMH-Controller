@@ -218,8 +218,8 @@ int main(void)
   /* MPU Configuration--------------------------------------------------------*/
   MPU_Config();
 
-  /* Keep the DMA waveform region non-cacheable via MPU while allowing the M7
-     core to run code and ordinary data at full cache bandwidth. */
+  /* Keep D2 SRAM non-cacheable for peripherals that use it. Waveform blocks
+     live in cacheable D1 SRAM and are cleaned before DMA activation. */
   SCB_EnableICache();
   SCB_EnableDCache();
 

@@ -25,6 +25,7 @@ extern DMA_HandleTypeDef* DMA_Stream_Handles[DMA_CHANNELS];
 
 typedef uint16_t DMA_WaveformBlock[DMA_CHANNELS][NUM_STIMULATION_SAMPLES][WAVEFORM_BUFFER_SIZE];
 
+/* Shared output block used by ordinary stimulation and sequence playback. */
 __ALIGNED(32) extern DMA_WaveformBlock Waveform_Storage __attribute__((section(".storage_buffer")));
 
 extern const uint16_t BufferGapPerMicroseconds;

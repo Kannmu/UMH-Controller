@@ -95,9 +95,10 @@ UMH Controller 是 **UMH (Ultrasound Mid-Air Haptics)** 项目的核心固件，
 
 本项目的技术核心。由于需要同时控制 60+ 路 IO 的相位，纯软件翻转 IO 无法满足精度要求。
 
-* **实现原理**: 在内存中开辟一段缓冲区 (`Waveform_Storage`)，存放对应 PWM 周期的 GPIO 状态。DMA 控制器在定时器更新事件触发下，自动将数据搬运至 GPIO ODR 寄存器。
-* **缓冲区结构**: `Waveform_Storage[DMA_CHANNELS][NUM_STIMULATION_SAMPLES][WAVEFORM_BUFFER_SIZE]`。
-* **特殊配置**: 需修改 Linker Script (`.ld` 文件) 将缓冲区放置在 D2 域 SRAM 中 (`.storage_buffer` section)，以优化总线访问性能。
+* **实现原理**: `Waveform_Storage` 与 `Waveform_Staging` 组成一对 DMA 波形块，存放对应 PWM 周期的 GPIO 状态。普通刺激更新时，DMA 读取一个块、CPU 在另一个块生成新波形；sequence 播放时复用同一对块进行双缓冲。
+* **缓冲区结构**: `DMA_WaveformBlock[DMA_CHANNELS][NUM_STIMULATION_SAMPLES][WAVEFORM_BUFFER_SIZE]`，其中 `Waveform_Storage` 与 `Waveform_Staging` 均位于 D1 SRAM，并在交给 DMA 前统一清理 D-Cache。
+* **互斥复用**: 普通刺激和 sequence 不同时运行，因此不再分配 sequence 专用波形块；切换模式时先停止当前 DMA，再覆盖共享块。
+* **特殊配置**: 需保留 Linker Script (`.ld` 文件) 中的 `.storage_buffer` 和 `.waveform_staging` sections，以确保 DMA 访问性能和缓存一致性。
 
 #### 3.1.5 校准模块 (`calibration.c/h`)
 

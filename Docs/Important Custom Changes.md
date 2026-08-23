@@ -4,24 +4,28 @@
 
 2. Set all `DMA_FIFOMODE` to `DMA_FIFOMODE_DISABLE`
 
-3. Modify `STM32H750VBTx_FLASH.ld` with both waveform sections:
+3. Modify `STM32H750VBTx_FLASH.ld` with the shared waveform sections:
 
 ```c
   .storage_buffer (NOLOAD) : ALIGN(32) {
         KEEP(*(.storage_buffer))
-  } >RAM_D2
+  } >RAM_D1
 
   .waveform_staging (NOLOAD) : ALIGN(32) {
         KEEP(*(.waveform_staging))
   } >RAM_D1
 ```
 
-Insert the code above after the `.ARM` section in the linker script (.ld file), below the image location.
+`Waveform_Storage` and `Waveform_Staging` are shared by ordinary stimulation
+and sequence playback. Keep both sections after the `.ARM` section in the
+linker script (.ld file), below the image location. Do not add a separate
+`.sequence_waveforms` section.
 
 ![alt text](image.png)
 
-4. Preserve the MPU region at `0x30000000` as non-cacheable. D1 SRAM remains
-   cacheable; `dma_manager.c` cleans its staging buffer before DMA activation.
+4. Preserve the MPU region at `0x30000000` as non-cacheable. Both waveform
+   blocks are in cacheable D1 SRAM; `dma_manager.c` cleans the active block
+   before DMA activation.
 
 5. Preserve `SCB_EnableICache()` and `SCB_EnableDCache()` after `MPU_Config()`.
 
