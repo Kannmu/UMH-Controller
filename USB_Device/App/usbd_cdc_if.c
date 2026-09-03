@@ -20,6 +20,13 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "usbd_cdc_if.h"
+#include "umh_protocol.h"
+#include "system_status.h"
+#include "cmsis_os.h"
+#include "task.h"
+#include <string.h>
+
+extern osThreadId_t umh_protocol_task_handle;
 
 /* USER CODE BEGIN INCLUDE */
 
@@ -95,6 +102,16 @@ uint8_t UserTxBufferFS[APP_TX_DATA_SIZE];
 
 /* USER CODE BEGIN PRIVATE_VARIABLES */
 
+extern umh_rx_ring_t umh_usb_rx_ring;
+
+#define UMH_USB_TX_SLOTS 2u
+#define UMH_USB_TX_SLOT_SIZE (UMH_PROTOCOL_HEADER_SIZE + UMH_PROTOCOL_MAX_PAYLOAD)
+static uint8_t umh_usb_tx_pool[UMH_USB_TX_SLOTS][UMH_USB_TX_SLOT_SIZE];
+static volatile uint8_t umh_usb_tx_read;
+static volatile uint8_t umh_usb_tx_write;
+static volatile uint8_t umh_usb_tx_count;
+static volatile uint8_t umh_usb_tx_active;
+
 /* USER CODE END PRIVATE_VARIABLES */
 
 /**
@@ -155,6 +172,8 @@ static int8_t CDC_Init_FS(void)
   /* Set Application Buffers */
   USBD_CDC_SetTxBuffer(&hUsbDeviceFS, UserTxBufferFS, 0);
   USBD_CDC_SetRxBuffer(&hUsbDeviceFS, UserRxBufferFS);
+  umh_rx_ring_init(&umh_usb_rx_ring);
+  umh_usb_tx_init();
   return (USBD_OK);
   /* USER CODE END 3 */
 }
@@ -261,8 +280,21 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
 static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
 {
   /* USER CODE BEGIN 6 */
+  BaseType_t higher_priority_task_woken = pdFALSE;
+  uint32_t accepted = 0u;
+  if (Buf != NULL && Len != NULL && *Len != 0u) {
+    accepted = umh_rx_ring_write(&umh_usb_rx_ring, Buf, *Len);
+    if (accepted != *Len) {
+      system_status_get()->usb_dropped += *Len - accepted;
+    }
+    if (umh_protocol_task_handle != NULL) {
+      vTaskNotifyGiveFromISR((TaskHandle_t)umh_protocol_task_handle,
+                             &higher_priority_task_woken);
+    }
+  }
   USBD_CDC_SetRxBuffer(&hUsbDeviceFS, &Buf[0]);
   USBD_CDC_ReceivePacket(&hUsbDeviceFS);
+  portYIELD_FROM_ISR(higher_priority_task_woken);
   return (USBD_OK);
   /* USER CODE END 6 */
 }
@@ -292,6 +324,49 @@ uint8_t CDC_Transmit_FS(uint8_t* Buf, uint16_t Len)
   return result;
 }
 
+void umh_usb_tx_init(void)
+{
+  taskENTER_CRITICAL();
+  umh_usb_tx_read = 0u;
+  umh_usb_tx_write = 0u;
+  umh_usb_tx_count = 0u;
+  umh_usb_tx_active = 0u;
+  taskEXIT_CRITICAL();
+}
+
+uint8_t umh_usb_tx_enqueue(const uint8_t *data, uint16_t length)
+{
+  uint8_t slot;
+  if (data == NULL || length == 0u || length > UMH_USB_TX_SLOT_SIZE) return 0u;
+  taskENTER_CRITICAL();
+  if (umh_usb_tx_count >= UMH_USB_TX_SLOTS) {
+    taskEXIT_CRITICAL();
+    return 0u;
+  }
+  slot = umh_usb_tx_write;
+  memcpy(umh_usb_tx_pool[slot], data, length);
+  umh_usb_tx_write = (uint8_t)((slot + 1u) % UMH_USB_TX_SLOTS);
+  ++umh_usb_tx_count;
+  taskEXIT_CRITICAL();
+  return 1u;
+}
+
+void umh_usb_tx_service(void)
+{
+  uint8_t slot;
+  uint16_t length;
+  USBD_CDC_HandleTypeDef *hcdc;
+  if (umh_usb_tx_active != 0u || umh_usb_tx_count == 0u) return;
+  hcdc = (USBD_CDC_HandleTypeDef *)hUsbDeviceFS.pClassData;
+  if (hcdc == NULL || hcdc->TxState != 0u) return;
+  slot = umh_usb_tx_read;
+  length = (uint16_t)(UMH_PROTOCOL_HEADER_SIZE +
+                      ((uint16_t)umh_usb_tx_pool[slot][6] |
+                       ((uint16_t)umh_usb_tx_pool[slot][7] << 8)));
+  umh_usb_tx_active = 1u;
+  if (CDC_Transmit_FS(umh_usb_tx_pool[slot], length) != USBD_OK) umh_usb_tx_active = 0u;
+}
+
 /**
   * @brief  CDC_TransmitCplt_FS
   *         Data transmitted callback
@@ -307,10 +382,25 @@ uint8_t CDC_Transmit_FS(uint8_t* Buf, uint16_t Len)
 static int8_t CDC_TransmitCplt_FS(uint8_t *Buf, uint32_t *Len, uint8_t epnum)
 {
   uint8_t result = USBD_OK;
+  UBaseType_t saved_interrupt_status;
   /* USER CODE BEGIN 13 */
   UNUSED(Buf);
   UNUSED(Len);
   UNUSED(epnum);
+  (void)Buf;
+  (void)Len;
+  saved_interrupt_status = taskENTER_CRITICAL_FROM_ISR();
+  if (umh_usb_tx_active != 0u) {
+    umh_usb_tx_read = (uint8_t)((umh_usb_tx_read + 1u) % UMH_USB_TX_SLOTS);
+    if (umh_usb_tx_count != 0u) --umh_usb_tx_count;
+    umh_usb_tx_active = 0u;
+  }
+  taskEXIT_CRITICAL_FROM_ISR(saved_interrupt_status);
+  if (umh_protocol_task_handle != NULL) {
+    BaseType_t woken = pdFALSE;
+    vTaskNotifyGiveFromISR((TaskHandle_t)umh_protocol_task_handle, &woken);
+    portYIELD_FROM_ISR(woken);
+  }
   /* USER CODE END 13 */
   return result;
 }

@@ -174,7 +174,8 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-  HAL_RCC_MCOConfig(RCC_MCO1, RCC_MCO1SOURCE_HSI, RCC_MCODIV_1);
+  /* PA8 is the FPGA reference clock: 170 MHz SYSCLK divided by four. */
+  HAL_RCC_MCOConfig(RCC_MCO1, RCC_MCO1SOURCE_SYSCLK, RCC_MCODIV_4);
 
   /** Enable the SYSCFG APB clock
   */

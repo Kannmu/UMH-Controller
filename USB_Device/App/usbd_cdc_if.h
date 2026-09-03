@@ -107,6 +107,9 @@ extern USBD_CDC_ItfTypeDef USBD_Interface_fops_FS;
   */
 
 uint8_t CDC_Transmit_FS(uint8_t* Buf, uint16_t Len);
+void umh_usb_tx_init(void);
+uint8_t umh_usb_tx_enqueue(const uint8_t *data, uint16_t length);
+void umh_usb_tx_service(void);
 
 /* USER CODE BEGIN EXPORTED_FUNCTIONS */
 
