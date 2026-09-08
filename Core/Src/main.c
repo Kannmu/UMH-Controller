@@ -27,6 +27,7 @@
 #include "spi.h"
 #include "usb_device.h"
 #include "gpio.h"
+#include "system_status.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -226,7 +227,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return state */
+  /* Preserve the failure reason in the device status snapshot. */
+  system_status_fault(UMH_FAULT_HAL_INIT, HAL_GetTick(), UMH_FAULT_CRITICAL);
   __disable_irq();
   while (1)
   {

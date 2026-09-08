@@ -16,7 +16,7 @@ AT24C16 的 2 KiB 分为两个 1 KiB 副本区。记录包括魔数、结构版�
 
 ## OLED 和按键
 
-SSD1315 兼容 OLED 为 128x64，保留 1 KiB framebuffer 和 shadow buffer。驱动采用页寻址、脏页跟踪和 I2C DMA，只发送发生变化的页；OLED 与 AT24C16 共用 I2C1 互斥锁，DMA 缓冲为对象内部静态缓冲。显示内容限于连接、播放、FPGA、存储、校准、错误计数和资源额度等设备状态。
+SSD1315 兼容 OLED 为 128x64，保留 1 KiB framebuffer 和 shadow buffer。驱动采用页寻址、脏页跟踪和 I2C DMA，只发送发生变化的页；OLED 与 AT24C16 共用 I2C1 互斥锁，DMA 缓冲为对象内部静态缓冲。Debug 视图还显示最后严重故障的短原因、参数和发生时刻，以及协议/解析/FPGA/欠载/USB/帧环计数、FPGA FIFO 状态、运行时和设备识别信息。
 
 KEY0 至 KEY3 统一采样、三次稳定判定和约 30 ms 去抖，定义依次为 Return、Confirm、Down、UP。事件队列提供按下、释放、长按和组合事件；按键动作由设备 UI 状态机映射，不携带应用专用语义。
 

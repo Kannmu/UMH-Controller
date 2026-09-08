@@ -414,12 +414,14 @@ void block_parser_init(umh_block_parser_t *parser,
 int block_parser_begin(umh_block_parser_t *parser, const uint8_t *payload, uint16_t length)
 {
   uint16_t i;
+  int block_result;
   if (parser == NULL) return -1;
   block_parser_cancel(parser);
   /* rgb_source/rgb_level hold the uncalibrated logical state.  Keep them
    * across block boundaries: current_state.rgb already contains calibration
    * and brightness composition and feeding it back would apply both twice. */
-  if (spatiotemporal_block_begin(&parser->block, payload, length) != 0) return -1;
+  block_result = spatiotemporal_block_begin(&parser->block, payload, length);
+  if (block_result != 0) return block_result;
   /* Reject spatial data before accepting stream bytes when geometry is not
    * available in the active device profile. */
   if (parser->renderer == NULL || parser->renderer->profile == NULL) {

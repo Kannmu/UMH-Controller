@@ -7,7 +7,7 @@
 **  Author		: STM32CubeMX
 **
 **  Abstract    : Linker script for STM32G491KCUx series
-**                256Kbytes FLASH and 112Kbytes RAM
+**                256Kbytes FLASH and 128Kbytes RAM
 **
 **                Set heap size, stack size and stack location according
 **                to application requirements.
@@ -62,7 +62,7 @@ _Min_Stack_Size = 0x400; /* required amount of stack */
 /* Specify the memory areas */
 MEMORY
 {
-RAM (xrw)      : ORIGIN = 0x20000000, LENGTH = 112K
+RAM (xrw)      : ORIGIN = 0x20000000, LENGTH = 128K
 FLASH (rx)      : ORIGIN = 0x8000000, LENGTH = 256K
 }
 
@@ -103,14 +103,14 @@ SECTIONS
     . = ALIGN(4);
   } >FLASH
 
-  .ARM.extab (READONLY) : /* The "READONLY" keyword is only supported in GCC11 and later, remove it if using GCC10 or earlier. */
+  .ARM.extab : /* Keep this output section writable-syntax compatible with GCC 10. */
   {
     . = ALIGN(4);
     *(.ARM.extab* .gnu.linkonce.armextab.*)
     . = ALIGN(4);
   } >FLASH
 
-  .ARM (READONLY) : /* The "READONLY" keyword is only supported in GCC11 and later, remove it if using GCC10 or earlier. */
+  .ARM : /* Keep this output section writable-syntax compatible with GCC 10. */
   {
     . = ALIGN(4);
     __exidx_start = .;
@@ -119,7 +119,7 @@ SECTIONS
     . = ALIGN(4);
   } >FLASH
 
-  .preinit_array (READONLY) : /* The "READONLY" keyword is only supported in GCC11 and later, remove it if using GCC10 or earlier. */
+  .preinit_array : /* Keep this output section writable-syntax compatible with GCC 10. */
   {
     . = ALIGN(4);
     PROVIDE_HIDDEN (__preinit_array_start = .);
@@ -128,7 +128,7 @@ SECTIONS
     . = ALIGN(4);
   } >FLASH
 
-  .init_array (READONLY) : /* The "READONLY" keyword is only supported in GCC11 and later, remove it if using GCC10 or earlier. */
+  .init_array : /* Keep this output section writable-syntax compatible with GCC 10. */
   {
     . = ALIGN(4);
     PROVIDE_HIDDEN (__init_array_start = .);
@@ -138,7 +138,7 @@ SECTIONS
     . = ALIGN(4);
   } >FLASH
 
-  .fini_array (READONLY) : /* The "READONLY" keyword is only supported in GCC11 and later, remove it if using GCC10 or earlier. */
+  .fini_array : /* Keep this output section writable-syntax compatible with GCC 10. */
   {
     . = ALIGN(4);
     PROVIDE_HIDDEN (__fini_array_start = .);

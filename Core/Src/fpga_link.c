@@ -48,6 +48,7 @@ static int exchange(fpga_link_t *link, uint16_t length)
   if (HAL_SPI_TransmitReceive_DMA(link->spi, link->tx, link->rx, length) != HAL_OK) {
     cs_high();
     mark_link_fault(link);
+    system_status_fault(UMH_FAULT_FPGA_SPI_START, HAL_SPI_GetError(link->spi), UMH_FAULT_CRITICAL);
     return -2;
   }
   start = HAL_GetTick();
@@ -56,6 +57,7 @@ static int exchange(fpga_link_t *link, uint16_t length)
       (void)HAL_SPI_Abort(link->spi);
       cs_high();
       mark_link_fault(link);
+      system_status_fault(UMH_FAULT_FPGA_SPI_TIMEOUT, 100u, UMH_FAULT_CRITICAL);
       return -3;
     }
     osDelay(1u);
@@ -63,6 +65,7 @@ static int exchange(fpga_link_t *link, uint16_t length)
   cs_high();
   if (link->dma_error != 0u) {
     mark_link_fault(link);
+    system_status_fault(UMH_FAULT_FPGA_SPI_DMA, HAL_SPI_GetError(link->spi), UMH_FAULT_CRITICAL);
     return -4;
   }
   return 0;
@@ -127,6 +130,7 @@ static int unpack_status(fpga_link_t *link)
     link->running = 0u;
     system_status_clear(UMH_SYSTEM_FPGA_READY);
     system_status_set(UMH_SYSTEM_ERROR);
+    system_status_fault(UMH_FAULT_FPGA_PROTOCOL, link->status.protocol_version, UMH_FAULT_CRITICAL);
     return -2;
   }
   system_status_set(UMH_SYSTEM_FPGA_READY);

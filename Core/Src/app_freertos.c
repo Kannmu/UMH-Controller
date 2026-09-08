@@ -56,6 +56,24 @@ static uint8_t eeprom_pending_valid;
 static uint8_t block_stream_active;
 static uint32_t block_stream_expected_sequence;
 
+static umh_fault_code_t fault_code_for_status(umh_status_t status, uint8_t message_type)
+{
+  if (status == UMH_STATUS_IO) {
+    if (message_type == UMH_MSG_EEPROM_COMMIT || message_type == UMH_MSG_EEPROM_WRITE)
+      return UMH_FAULT_EEPROM_IO;
+    if (message_type >= UMH_MSG_FLASH_LIST && message_type <= UMH_MSG_FLASH_DELETE)
+      return UMH_FAULT_FLASH_IO;
+    return UMH_FAULT_FPGA_OUTPUT;
+  }
+  if (message_type == UMH_MSG_SET_PLAN || message_type == UMH_MSG_START_PLAN ||
+      message_type == UMH_MSG_STOP_PLAN || message_type == UMH_MSG_CLEAR_PLAN)
+    return UMH_FAULT_PLAN_START;
+  if (message_type == UMH_MSG_BLOCK_BEGIN || message_type == UMH_MSG_BLOCK_DATA ||
+      message_type == UMH_MSG_BLOCK_END || message_type == UMH_MSG_BLOCK_CANCEL)
+    return UMH_FAULT_BLOCK_PARSE;
+  return UMH_FAULT_PROTOCOL_NACK;
+}
+
 static StaticTask_t protocol_task_cb, render_task_cb, storage_task_cb, ui_task_cb, health_task_cb;
 static StackType_t protocol_task_stack[1024], render_task_stack[512], storage_task_stack[512], ui_task_stack[384], health_task_stack[256];
 static const osThreadAttr_t protocol_task_attributes = {
@@ -86,6 +104,7 @@ static const osThreadAttr_t health_task_attributes = {
 
 static void send_response(const umh_protocol_frame_t *request, uint8_t type,
                           const void *payload, uint16_t length);
+static void application_init(void);
 
 static uint32_t read_u32(const uint8_t *p)
 {
@@ -98,13 +117,13 @@ static int gui_start(void *context)
   (void)context;
   if (playback_plan.configured == 0u || frame_ring_count(&frame_ring) == 0u ||
       playback_plan.wire.block_id != block_parser.block.header.block_id) {
-    system_status_error(1u);
+    system_status_fault(UMH_FAULT_PLAN_START, 1u, UMH_FAULT_CRITICAL);
     return -1;
   }
   if (playback_plan_start(&playback_plan, system_time_us(),
                           frame_ring_count(&frame_ring),
                           block_parser.block.header.start_time) != 0)
-  { system_status_error(1u); return -1; }
+  { system_status_fault(UMH_FAULT_PLAN_START, 2u, UMH_FAULT_CRITICAL); return -1; }
   return 0;
 }
 
@@ -151,7 +170,13 @@ static void send_result(const umh_protocol_frame_t *request, umh_status_t status
     send_response(request, status == UMH_STATUS_OK ? UMH_MSG_ACK : UMH_MSG_NACK,
                   status_payload, sizeof(status_payload));
   }
-  if (status != UMH_STATUS_OK) system_status_error(1u);
+  if (status != UMH_STATUS_OK) {
+    system_status_get()->protocol_errors++;
+    system_status_fault(fault_code_for_status(status,
+                                               request != NULL ? request->header.message_type : 0u),
+                         status,
+                         status == UMH_STATUS_IO ? UMH_FAULT_CRITICAL : UMH_FAULT_WARNING);
+  }
 }
 
 static void send_response(const umh_protocol_frame_t *request, uint8_t type,
@@ -165,8 +190,10 @@ static void send_response(const umh_protocol_frame_t *request, uint8_t type,
                                  request != NULL ? request->header.transaction_id : 0u,
                                  request != NULL ? request->header.stream_sequence : 0u,
                                   (const uint8_t *)payload, length, output, sizeof(output));
-  if (encoded == 0u || umh_usb_tx_enqueue(output, encoded) == 0u)
+  if (encoded == 0u || umh_usb_tx_enqueue(output, encoded) == 0u) {
     system_status_get()->usb_dropped++;
+    system_status_fault(UMH_FAULT_USB_TX_DROP, system_status_get()->usb_dropped, UMH_FAULT_WARNING);
+  }
 }
 
 static int queue_storage_request(const umh_protocol_frame_t *frame)
@@ -378,12 +405,33 @@ static void protocol_task(void *argument)
 {
   uint8_t data[256];
   uint32_t count;
+  uint32_t previous_parser_errors = 0u;
+  uint32_t previous_rx_dropped = 0u;
+  uint32_t previous_frame_dropped = 0u;
   (void)argument;
+  /* Peripheral startup uses mutexes, DMA interrupts and the HAL tick. */
+  application_init();
+  MX_USB_Device_Init();
+  system_status_set(UMH_SYSTEM_CONNECTED);
   for (;;) {
     count = umh_rx_ring_read(&umh_usb_rx_ring, data, sizeof(data));
     if (count != 0u) umh_protocol_parser_feed(&protocol_parser, data, count);
     else (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10u));
     system_status_get()->parser_errors = umh_protocol_parser_error_count(&protocol_parser);
+    system_status_get()->rx_dropped = umh_usb_rx_ring.dropped_bytes;
+    system_status_get()->frame_dropped = frame_ring.dropped;
+    if (system_status_get()->frame_dropped != previous_frame_dropped) {
+      previous_frame_dropped = system_status_get()->frame_dropped;
+      system_status_fault(UMH_FAULT_FRAME_RING, previous_frame_dropped, UMH_FAULT_CRITICAL);
+    }
+    if (system_status_get()->rx_dropped != previous_rx_dropped) {
+      previous_rx_dropped = system_status_get()->rx_dropped;
+      system_status_fault(UMH_FAULT_USB_RX_DROP, previous_rx_dropped, UMH_FAULT_WARNING);
+    }
+    if (system_status_get()->parser_errors != previous_parser_errors) {
+      previous_parser_errors = system_status_get()->parser_errors;
+      system_status_fault(UMH_FAULT_PROTOCOL_PARSE, previous_parser_errors, UMH_FAULT_WARNING);
+    }
     umh_usb_tx_service();
   }
 }
@@ -394,6 +442,7 @@ static void render_task(void *argument)
   uint64_t last_time_us = system_time_us();
   uint64_t now_us;
   uint64_t elapsed_us;
+  uint16_t previous_fpga_flags = 0u;
   (void)argument;
   for (;;) {
     now_us = system_time_us();
@@ -404,13 +453,15 @@ static void render_task(void *argument)
     last_time_us = now_us;
     frame = frame_ring_peek_read(&frame_ring);
     if (frame != NULL && playback_plan_frame_due(&playback_plan, frame->deadline, now_us) != 0u &&
-        fpga_link_submit(&fpga_link, frame) == 0) {
-      (void)frame_ring_release_read(&frame_ring);
-      playback_plan_frame_submitted(&playback_plan);
-      system_status_get()->frame_count = frame_ring_count(&frame_ring);
-      system_status_get()->frame_free = frame_ring_free(&frame_ring);
-      if (frame_ring_count(&frame_ring) == 0u) {
-        int loop_result = playback_plan_prepare_loop(&playback_plan, &frame_ring, now_us);
+        fpga_link_status(&fpga_link)->fifo_credit != 0u) {
+      int submit_result = fpga_link_submit(&fpga_link, frame);
+      if (submit_result == 0) {
+        (void)frame_ring_release_read(&frame_ring);
+        playback_plan_frame_submitted(&playback_plan);
+        system_status_get()->frame_count = frame_ring_count(&frame_ring);
+        system_status_get()->frame_free = frame_ring_free(&frame_ring);
+        if (frame_ring_count(&frame_ring) == 0u) {
+          int loop_result = playback_plan_prepare_loop(&playback_plan, &frame_ring, now_us);
           if (loop_result == 0 && playback_plan.running != 0u &&
               playback_plan.wire.repeat_mode != UMH_PLAN_LOOP_STREAM) {
             playback_plan_stop(&playback_plan);
@@ -419,6 +470,11 @@ static void render_task(void *argument)
             if (playback_plan.wire.repeat_mode == UMH_PLAN_STOP)
               (void)fpga_link_safe_stop(&fpga_link);
           }
+        }
+      } else {
+        ++system_status_get()->fpga_errors;
+        system_status_fault(UMH_FAULT_FPGA_OUTPUT, (uint32_t)(-submit_result), UMH_FAULT_CRITICAL);
+        osDelay(1u);
       }
     } else {
       (void)fpga_link_poll_status(&fpga_link);
@@ -429,14 +485,29 @@ static void render_task(void *argument)
     if (playback_plan.underrun_reported != 0u) {
       system_status_set(UMH_SYSTEM_UNDERRUN);
       system_status_get()->underruns++;
+      system_status_fault(UMH_FAULT_FPGA_UNDERRUN, system_status_get()->underruns, UMH_FAULT_WARNING);
       playback_plan.underrun_reported = 0u;
       if (playback_plan.running == 0u && playback_plan.wire.underrun_policy == UMH_UNDERRUN_DISABLE)
         (void)fpga_link_safe_stop(&fpga_link);
     }
-    if (fpga_link_status(&fpga_link)->status_flags != 0u) system_status_set(UMH_SYSTEM_ERROR);
+    {
+      uint16_t fpga_flags = fpga_link_status(&fpga_link)->status_flags;
+      if (fpga_flags != 0u) system_status_set(UMH_SYSTEM_ERROR);
+      if (fpga_flags != 0u && fpga_flags != previous_fpga_flags) {
+        umh_fault_code_t code = (fpga_flags & FPGA_STATUS_OUTPUT_FAULT) != 0u ? UMH_FAULT_FPGA_OUTPUT :
+                                 (fpga_flags & FPGA_STATUS_INVALID_FRAME) != 0u ? UMH_FAULT_FPGA_INVALID_FRAME :
+                                 (fpga_flags & FPGA_STATUS_OVERFLOW) != 0u ? UMH_FAULT_FPGA_OVERFLOW :
+                                 UMH_FAULT_FPGA_UNDERRUN;
+        system_status_fault(code, fpga_flags, UMH_FAULT_CRITICAL);
+      }
+      previous_fpga_flags = fpga_flags;
+    }
     system_status_get()->fpga_credit = fpga_link_status(&fpga_link)->fifo_credit;
     system_status_get()->fpga_depth = fpga_link_status(&fpga_link)->fifo_depth;
+    system_status_get()->frame_count = frame_ring_count(&frame_ring);
+    system_status_get()->frame_free = frame_ring_free(&frame_ring);
     system_status_get()->device_time = (uint32_t)now_us;
+    system_status_get()->frame_dropped = frame_ring.dropped;
   }
 }
 
@@ -469,11 +540,17 @@ static void health_task(void *argument)
   for (;;) {
     HAL_GPIO_TogglePin(HEART_GPIO_Port, HEART_Pin);
     system_status_get()->heartbeat ^= 1u;
+    system_status_get()->uptime_ms = HAL_GetTick();
     osDelay(250u);
   }
 }
 
 void MX_FREERTOS_Init(void)
+{
+  umh_protocol_task_handle = osThreadNew(protocol_task, NULL, &protocol_task_attributes);
+}
+
+static void application_init(void)
 {
   umh_rx_ring_init(&umh_usb_rx_ring);
   device_profile_init(&device_profile);
@@ -491,6 +568,8 @@ void MX_FREERTOS_Init(void)
     if (flash_nor_read_jedec(flash_id) == FLASH_NOR_OK &&
         flash_nor_is_present() != 0u && flash_store_mount(&flash_store) == 0)
       system_status_set(UMH_SYSTEM_FLASH_READY);
+    else
+      system_status_fault(UMH_FAULT_FLASH_IO, 1u, UMH_FAULT_WARNING);
   }
   eeprom_profile_init(&eeprom_profile, &hi2c1);
   if (eeprom_profile_load(&eeprom_profile) == 0) {
@@ -508,8 +587,9 @@ void MX_FREERTOS_Init(void)
                                               record->version,
                                               record->generation);
     system_status_set(UMH_SYSTEM_CALIBRATION_VALID);
-  }
+  } else system_status_fault(UMH_FAULT_EEPROM_IO, 1u, UMH_FAULT_WARNING);
   oled_ssd1315_init(&oled, &hi2c1);
+  if (oled.initialized == 0u) system_status_fault(UMH_FAULT_HAL_INIT, 1u, UMH_FAULT_CRITICAL);
   input_events_init();
   device_gui_init(&device_gui, &oled, &device_profile, system_status_get(),
                   &playback_plan, &fpga_link, &flash_store, &eeprom_profile,
@@ -522,7 +602,6 @@ void MX_FREERTOS_Init(void)
     storage_queue = osMessageQueueNew(2u, sizeof(storage_request_t), &storage_queue_attributes);
   }
   umh_protocol_parser_init(&protocol_parser, protocol_frame_received, NULL);
-  umh_protocol_task_handle = osThreadNew(protocol_task, NULL, &protocol_task_attributes);
   (void)osThreadNew(render_task, NULL, &render_task_attributes);
   (void)osThreadNew(storage_task, NULL, &storage_task_attributes);
   (void)osThreadNew(ui_task, NULL, &ui_task_attributes);
@@ -539,14 +618,6 @@ void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi)
   if (hspi == fpga_link.spi) {
     fpga_link_spi_error(&fpga_link);
     system_status_get()->fpga_errors++;
-    system_status_set(UMH_SYSTEM_ERROR);
+    system_status_fault(UMH_FAULT_FPGA_SPI_DMA, HAL_SPI_GetError(hspi), UMH_FAULT_CRITICAL);
   }
-}
-
-void StartDefaultTask(void *argument)
-{
-  (void)argument;
-  MX_USB_Device_Init();
-  system_status_set(UMH_SYSTEM_CONNECTED);
-  for (;;) osDelay(1000u);
 }

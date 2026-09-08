@@ -45,8 +45,12 @@ int spatiotemporal_block_begin(umh_block_context_t *block,
       block->header.track_count == 0u || block->header.track_count > UMH_BLOCK_MAX_TRACKS ||
       block->header.record_count > UMH_BLOCK_MAX_RECORDS ||
       block->header.start_time > UINT64_MAX - block->header.duration) return -2;
+  if (block->header.output_period != 0u) return -12;
   descriptor_bytes = (uint16_t)(block->header.track_count * sizeof(umh_track_wire_descriptor_t));
-  if (length < sizeof(umh_block_wire_header_t) + descriptor_bytes) return -3;
+  /* BLOCK_BEGIN is a complete descriptor transaction.  Accepting trailing
+   * bytes would make a malformed host packet look valid and desynchronise the
+   * block contract. */
+  if (length != sizeof(umh_block_wire_header_t) + descriptor_bytes) return -3;
   memcpy(block->tracks, payload + sizeof(umh_block_wire_header_t), descriptor_bytes);
   for (i = 0u; i < block->header.track_count; ++i) {
     const umh_track_wire_descriptor_t *track = &block->tracks[i];
@@ -55,6 +59,9 @@ int spatiotemporal_block_begin(umh_block_context_t *block,
     if (track->track_id >= UMH_BLOCK_MAX_TRACKS || track->target_mode > UMH_TARGET_SPARSE ||
         track->encoding < UMH_ENCODING_CONSTANT || track->encoding > UMH_ENCODING_VARIABLE ||
         track->interpolation > UMH_INTERPOLATE_LINEAR) return -4;
+    /* The current compiler emits frames only at source record timestamps.  Do
+     * not silently accept a request for interpolation or periodic synthesis. */
+    if (track->interpolation != UMH_INTERPOLATE_HOLD) return -11;
     for (j = 0u; j < i; ++j)
       if (block->tracks[j].track_id == track->track_id) return -5;
     if (track->payload_type == UMH_PAYLOAD_COLOR_RGB8 ||

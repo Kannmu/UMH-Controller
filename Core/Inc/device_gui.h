@@ -39,6 +39,7 @@ typedef struct {
   void *action_context;
   device_gui_page_t page;
   uint8_t row;
+  uint8_t debug_view;
   uint8_t action_message;
   uint32_t message_until;
 } device_gui_t;
