@@ -9,7 +9,7 @@
 #define UMH_PROTOCOL_SYNC1               0xAAu
 #define UMH_PROTOCOL_HEADER_SIZE         16u
 #define UMH_PROTOCOL_MAX_PAYLOAD         2048u
-#define UMH_PROTOCOL_RX_RING_SIZE        (16u * 1024u)
+#define UMH_PROTOCOL_RX_RING_SIZE        (8u * 1024u)
 #define UMH_PROTOCOL_TX_POOL_SIZE        (4u * 1024u)
 
 typedef enum {

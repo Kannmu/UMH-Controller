@@ -53,7 +53,7 @@ BUILD_DIRECTORY ?= build
 # make -f STM32Make.make -j 16  OPTIMIZATION=Os
 
 # variable which determines if it is a debug build
-DEBUG ?= 0
+DEBUG ?= 1
 
 # debug flags when debug is defined
 OPTIMIZATION ?= -Og
@@ -201,14 +201,11 @@ ifeq ($(OS),Windows_NT)
   mkdir_function = cmd /e:on /c if not exist $(call convert_to_windows_path,$(1)) md $(call convert_to_windows_path,$(1))
 endif
 
-# PowerShell sessions launched by STM32 for VSCode do not always export OS.
-# Detect Windows from ComSpec as a fallback so generated directories work.
-ifeq ($(OS),)
+# The VSCode extension can launch make from PowerShell without OS=Windows_NT.
 ifneq ($(ComSpec),)
   convert_to_windows_path = $(strip $(subst /,\,$(patsubst %/,%,$(1))))
   REMOVE_DIRECTORY_COMMAND = cmd /c rd /s /q
   mkdir_function = if not exist "$(call convert_to_windows_path,$(1))" md "$(call convert_to_windows_path,$(1))"
-endif
 endif
 
 
