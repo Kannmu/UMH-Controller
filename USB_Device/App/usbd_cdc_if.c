@@ -326,12 +326,11 @@ uint8_t CDC_Transmit_FS(uint8_t* Buf, uint16_t Len)
 
 void umh_usb_tx_init(void)
 {
-  taskENTER_CRITICAL();
+  /* CDC_Init_FS() runs from the USB SET_CONFIGURATION ISR. */
   umh_usb_tx_read = 0u;
   umh_usb_tx_write = 0u;
   umh_usb_tx_count = 0u;
   umh_usb_tx_active = 0u;
-  taskEXIT_CRITICAL();
 }
 
 uint8_t umh_usb_tx_enqueue(const uint8_t *data, uint16_t length)

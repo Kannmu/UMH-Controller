@@ -6,6 +6,15 @@
         <Source name="UMH_7.lpf" type="Logic Preference" type_short="LPF">
             <Options/>
         </Source>
+        <Source name="src/umh_fpga_top.v" type="Verilog HDL" type_short="VERILOG">
+            <Options top="umh_fpga_top"/>
+        </Source>
+        <Source name="src/ws2812_stream.v" type="Verilog HDL" type_short="VERILOG">
+            <Options/>
+        </Source>
+        <Source name="src/spi_mic_stream.v" type="Verilog HDL" type_short="VERILOG">
+            <Options/>
+        </Source>
     </Implementation>
     <Strategy name="Strategy1" file="UMH_71.sty"/>
 </BaliProject>
