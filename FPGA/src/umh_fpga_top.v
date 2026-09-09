@@ -3,7 +3,7 @@
 // UMH v7 MachXO2 output controller.
 // SPI1 uses mode 0 and returns the status that was current at CS assertion.
 module umh_fpga_top (
-    input  wire        fpga_clk,
+    input  wire        fpga_clk_8m,
     input  wire        fpga_cs_n,
     input  wire        spi1_sck,
     input  wire        spi1_mosi,
@@ -18,8 +18,15 @@ module umh_fpga_top (
     output wire        spi_mic_miso
 );
 
-localparam [31:0] CARRIER_STEP = 32'd4042322;   // 40 kHz from 42.5 MHz
+wire pll_clk;
+wire pll_locked;
+wire pll_feedback;
+wire fpga_clk;
+
 localparam [15:0] HEADER_BYTES = 16'd36;
+// 128 MHz / 40 kHz phase increment. The 32-bit accumulator gives sub-degree
+// frequency and phase resolution while keeping the 84-channel output logic small.
+localparam [31:0] CARRIER_STEP = 32'd1342177;
 
 // These are deliberately registers rather than inferred distributed RAM.  The
 // selected device has only 2112 LUT4s; retaining the complete byte values here
@@ -27,9 +34,9 @@ localparam [15:0] HEADER_BYTES = 16'd36;
 // datapath uses one phase bit and a two-bit level envelope, so retain only
 // those implemented precision bits in the active bank.  The EBR still keeps
 // the incoming byte so the SPI frame format remains unchanged.
-(* syn_ramstyle = "registers" *) reg       phase_active[0:83];
+(* syn_ramstyle = "registers" *) reg [15:0] phase_active[0:83];
 // Zero is the disabled code; 1..3 are the implemented two-bit amplitudes.
-(* syn_ramstyle = "registers" *) reg [1:0] level_active[0:83];
+(* syn_ramstyle = "registers" *) reg [7:0] level_active[0:83];
 reg [95:0]  rgb_values;
 
 reg [7:0] spi_rx_shift;
@@ -44,11 +51,17 @@ reg [31:0] spi_expected_length;
 reg [6:0] spi_channel_index;
 reg [1:0] spi_channel_field;
 reg [7:0] spi_level_pending;
+reg [7:0] spi_phase_low_pending;
+reg [15:0] phase_staging[0:83];
+reg [8:0] level_staging[0:83];
 reg [31:0] accepted_sequence_spi;
 reg        frame_toggle_spi;
 reg        stop_toggle_spi;
 reg        invalid_frame_spi;
 reg [6:0] status_bit_index;
+reg [127:0] status_snapshot_spi;
+reg [127:0] status_sync1_spi;
+reg [127:0] status_sync2_spi;
 
 reg frame_toggle_meta;
 reg frame_toggle_sync;
@@ -136,19 +149,34 @@ level_mem_i (
     .DOB8(level_mem_dout[8]), .DOB7(level_mem_dout[7]), .DOB6(level_mem_dout[6]), .DOB5(level_mem_dout[5]),
     .DOB4(level_mem_dout[4]), .DOB3(level_mem_dout[3]), .DOB2(level_mem_dout[2]), .DOB1(level_mem_dout[1]), .DOB0(level_mem_dout[0]));
 
+assign fpga_clk = pll_clk;
+
+EHXPLLJ #(
+    .PLLRST_ENA("DISABLED"), .INTFB_WAKE("DISABLED"),
+    .STDBY_ENABLE("DISABLED"), .DPHASE_SOURCE("DISABLED"),
+    .CLKOP_FPHASE(0), .CLKOP_CPHASE(2), .OUTDIVIDER_MUXA2("DIVA"),
+    .CLKOP_ENABLE("ENABLED"), .CLKOP_DIV(4), .CLKFB_DIV(64),
+    .CLKI_DIV(1), .FEEDBK_PATH("INT_OP")
+) fpga_pll_i (
+    .CLKI(fpga_clk_8m), .CLKFB(pll_feedback), .RST(1'b0),
+    .PHASESEL0(1'b0), .PHASESEL1(1'b0), .PHASEDIR(1'b0),
+    .PHASESTEP(1'b0), .LOADREG(1'b0), .STDBY(1'b0),
+    .PLLWAKESYNC(1'b0), .ENCLKOP(1'b0),
+    .CLKOP(pll_clk), .LOCK(pll_locked), .CLKINTFB(pll_feedback)
+);
 wire [31:0] phase_acc_next = phase_acc + CARRIER_STEP;
 wire carrier_wrap = phase_acc_next < phase_acc;
+// (phase_acc[31:16] + channel_phase) overflows exactly when the channel
+// phase reaches the two's-complement inverse threshold. Share this adder
+// across all 84 channels instead of building 84 independent carry chains.
+wire [15:0] phase_threshold = (~phase_acc[31:16]) + 16'd1;
 
 genvar channel;
 generate
     for (channel = 0; channel < 84; channel = channel + 1) begin : CHANNEL_OUTPUTS
-        // The small device cannot afford 84 full-width phase adders.  The
-        // stored phase MSB provides a 180-degree per-channel phase choice;
-        // amplitude keeps its upper nibble for a 16-step envelope.
-        wire carrier_bit = phase_acc[31] ^ phase_active[channel];
-        // A zero level is already rejected by the greater-than comparison.
-        assign us_tx[channel] = running &&
-                                (level_active[channel] > amplitude_phase[7:6]) &&
+        wire carrier_bit = phase_active[channel] >= phase_threshold;
+        wire duty_gate = phase_acc[31:24] < level_active[channel];
+        assign us_tx[channel] = running && pll_locked && duty_gate &&
                                 carrier_bit;
     end
 endgenerate
@@ -168,7 +196,7 @@ wire [127:0] status_word = {8'h01, 8'h00,
                              accepted_sequence[23:16], accepted_sequence[31:24]};
 
 // CPOL=0, CPHA=0: present the MSB before the first rising edge and advance on falling edges.
-assign spi1_miso = fpga_cs_n ? 1'b0 : status_word[127 - status_bit_index];
+assign spi1_miso = fpga_cs_n ? 1'b0 : status_snapshot_spi[127 - status_bit_index];
 
 always @(negedge spi1_sck or posedge fpga_cs_n) begin
     if (fpga_cs_n)
@@ -182,6 +210,10 @@ end
 // be mistaken for a complete output frame.
 always @(posedge spi1_sck or negedge fpga_cs_n) begin
     if (!fpga_cs_n) begin
+        status_sync1_spi <= status_word;
+        status_sync2_spi <= status_sync1_spi;
+        if (spi_byte_count == 16'd0 && spi_bit_count == 3'd0)
+            status_snapshot_spi <= status_sync2_spi;
         if (spi_bit_count == 3'd7) begin
             spi_bit_count <= 3'd0;
             spi_rx_shift <= {spi_rx_shift[6:0], spi1_mosi};
@@ -210,9 +242,13 @@ always @(posedge spi1_sck or negedge fpga_cs_n) begin
                         // level and enable.  Updating the active bank directly
                         // keeps this implementation within the 2k LUT/FF device.
                         case (spi_channel_field)
-                            2'd1: begin end // phase_mem_i writes this byte
+                            2'd0: spi_phase_low_pending <= {spi_rx_shift[6:0], spi1_mosi};
+                            2'd1: phase_staging[spi_channel_index] <=
+                                {{spi_rx_shift[6:0], spi1_mosi}, spi_phase_low_pending};
                             2'd2: spi_level_pending <= {spi_rx_shift[6:0], spi1_mosi};
                             2'd3: begin
+                                level_staging[spi_channel_index] <=
+                                    {{spi_rx_shift[6:0], spi1_mosi} != 8'd0, spi_level_pending};
                                 if (spi_channel_index != 7'd83)
                                     spi_channel_index <= spi_channel_index + 1'b1;
                             end
@@ -232,6 +268,18 @@ always @(posedge spi1_sck or negedge fpga_cs_n) begin
                 end
             endcase
             spi_byte_count <= spi_byte_count + 1'b1;
+            if ((spi_byte_count + 1'b1) == spi_expected_length) begin
+                if (spi_command == 8'h10 && spi_version == 8'h01 && spi_extension_length <= 16'd32) begin
+                    frame_toggle_spi <= ~frame_toggle_spi;
+                    accepted_sequence_spi <= spi_frame_sequence;
+                    invalid_frame_spi <= 1'b0;
+                end else if (spi_command == 8'h11 || spi_command == 8'h12) begin
+                    stop_toggle_spi <= ~stop_toggle_spi;
+                    invalid_frame_spi <= 1'b0;
+                end else if (spi_command != 8'h01) begin
+                    invalid_frame_spi <= 1'b1;
+                end
+            end
         end else begin
             spi_rx_shift <= {spi_rx_shift[6:0], spi1_mosi};
             spi_bit_count <= spi_bit_count + 1'b1;
@@ -249,24 +297,6 @@ always @(posedge spi1_sck or negedge fpga_cs_n) begin
         spi_channel_index <= 7'd0;
         spi_channel_field <= 2'd0;
         spi_level_pending <= 8'd0;
-    end
-end
-
-always @(posedge fpga_cs_n) begin
-    if (spi_byte_count == spi_expected_length) begin
-        if (spi_command == 8'h10 && spi_version == 8'h01 &&
-            spi_extension_length <= 16'd32) begin
-            frame_toggle_spi <= ~frame_toggle_spi;
-            accepted_sequence_spi <= spi_frame_sequence;
-            invalid_frame_spi <= 1'b0;
-        end else if (spi_command == 8'h11 || spi_command == 8'h12) begin
-            stop_toggle_spi <= ~stop_toggle_spi;
-            invalid_frame_spi <= 1'b0;
-        end else if (spi_command != 8'h01) begin
-            invalid_frame_spi <= 1'b1;
-        end
-    end else if (spi_command != 8'h00) begin
-        invalid_frame_spi <= 1'b1;
     end
 end
 
@@ -302,8 +332,8 @@ always @(posedge fpga_clk) begin
     end
 
     if (load_active) begin
-        phase_active[load_index] <= phase_mem_dout[7];
-        level_active[load_index] <= level_mem_dout[8] ? level_mem_dout[7:6] : 2'd0;
+        phase_active[load_index] <= phase_staging[load_index];
+        level_active[load_index] <= level_staging[load_index][8] ? level_staging[load_index][7:0] : 8'd0;
         if (load_index == 7'd83)
             load_active <= 1'b0;
         else
@@ -368,6 +398,9 @@ initial begin
     stop_toggle_spi = 1'b0;
     invalid_frame_spi = 1'b0;
     status_bit_index = 7'd0;
+    status_snapshot_spi = 128'd0;
+    status_sync1_spi = 128'd0;
+    status_sync2_spi = 128'd0;
     frame_toggle_meta = 1'b0;
     frame_toggle_sync = 1'b0;
     frame_toggle_seen = 1'b0;
@@ -378,6 +411,7 @@ initial begin
     running = 1'b0;
     accepted_sequence = 32'd0;
     phase_acc = 32'd0;
+    spi_phase_low_pending = 8'd0;
     fpga_time = 32'd0;
     time_divider = 6'd0;
     time_half = 1'b0;
@@ -392,8 +426,10 @@ initial begin
     load_index = 7'd0;
     load_active = 1'b0;
     for (i = 0; i < 84; i = i + 1) begin
-        phase_active[i] = 1'b0;
-        level_active[i] = 2'd0;
+        phase_active[i] = 16'd0;
+        level_active[i] = 8'd0;
+        phase_staging[i] = 16'd0;
+        level_staging[i] = 9'd0;
     end
 end
 

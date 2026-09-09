@@ -1,5 +1,0 @@
-#Start recording tcl command: 9/8/2026 13:49:44
-#Project Location: D:/Data/OneDrive/Projects/UMH/Software/UMH Controller/FPGA; Project name: UMH_7
-prj_project new -name "UMH_7" -impl "UMH_7_1" -dev LCMXO2-2000HC-4MG132C -synthesis "lse"
-prj_project save
-#Stop recording: 9/8/2026 13:50:39

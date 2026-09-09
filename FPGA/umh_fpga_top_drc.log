@@ -1,3 +1,0 @@
-Results of NGD DRC are available in umh_fpga_top_drc.log.
-WARNING - synthesis: DRC checking was skipped because the -ngo option was used.
-Writing NGD file build/umh_fpga12.ngo.

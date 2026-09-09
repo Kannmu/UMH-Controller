@@ -1,8 +1,10 @@
 # UMH v7 FPGA SPI1 接口
 
-STM32 通过 SPI1 以 8 bit、CPOL=0、CPHA=0、软件片选方式连接 LCMXO2-2000HC-4MG132C。目标时钟约 42.5 MHz，PA8 提供 FPGA 参考时钟，PA4 为软件 CS。CS 上电默认高电平，关闭 NSS 脉冲。SPI DMA 缓冲按字节组织。
+STM32 通过 SPI1 以 8 bit、CPOL=0、CPHA=0、软件片选方式连接 LCMXO2-2000HC-4MG132C。控制链路时钟为 42.5 MHz，由 STM32G4 的 170 MHz PCLK2 通过 `/4` 分频得到，SPI DMA 保证整帧连续传输。PA8 输出 8 MHz HSE MCO，驱动 FPGA 内部 PLL 生成 128 MHz 主时钟。PA4 为软件 CS。完整 384 字节帧的线缆传输时间约为 72 us。
 
 FPGA 负责 84 路超声驱动状态、输出帧定时、载波生成、4 路 PDM 麦克风采样和四颗 WS2812C-2020-V6 的串行 GRB 输出。STM32 只提交通道状态和同步字段，不在实时 SPI 事务中生成载波或复制麦克风数据。
+
+FPGA 使用 32 位 DDS 生成载波，每一路直接使用 SPI 传入的完整 16 位 phase 和 8 位 level 字段，不在 FPGA 边界进行精度压缩。level 通过载波周期内的 8 位占空比阈值实现，`us_tx` 始终是 0/1 数字信号，对应外部 0 V/3.3 V 方波。`DeviceProfile` 应报告 16 位相位和 8 位强度实现能力。
 
 ## STM32 到 FPGA 帧
 
@@ -53,4 +55,3 @@ FPGA 应在明确的参考时钟域内锁存 SPI 接收数据，在输出帧边�
 ## 硬件资料一致性
 
 BOM 指定 FPGA 为 `LCMXO2-2000HC-4MG132C`，现有网表封装字符串却为 `LCMXO640C-4MN132I`。出厂前必须在原理图、网表、PCB 封装和生产资料中统一料号与引脚；固件只依据原理图网络名和 BOM 料号。PA9 为 `TRIGGER` 推挽数字输出。84 个发射单元由 `GU1008C-40TR + DRV8220DSGR + 2.2 mH` 构成。
-

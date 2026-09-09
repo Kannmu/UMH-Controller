@@ -1,7 +1,7 @@
 `timescale 1ns/1ps
 
 module tb_umh_fpga_top;
-reg fpga_clk = 1'b0;
+reg fpga_clk_8m = 1'b0;
 reg fpga_cs_n = 1'b1;
 reg spi1_sck = 1'b0;
 reg spi1_mosi = 1'b0;
@@ -19,7 +19,7 @@ integer failures = 0;
 integer k;
 
 umh_fpga_top dut (.*);
-always #11.7647 fpga_clk = ~fpga_clk;
+always #62.5 fpga_clk_8m = ~fpga_clk_8m;
 always #163 mic_data_0 = ~mic_data_0;
 always #239 mic_data_1 = ~mic_data_1;
 
@@ -107,7 +107,7 @@ initial begin
         $display("FAIL: accepted sequence was %02x%02x", reply[13], reply[12]);
         failures = failures + 1;
     end
-    if (dut.running !== 1'b1 || dut.level_active[0] !== 2'b11 || dut.phase_active[0] !== 1'b0) begin
+    if (dut.running !== 1'b1 || dut.level_active[0] !== 8'hff || dut.phase_active[0] !== 16'h0040) begin
         $display("FAIL: frame did not commit at a carrier boundary");
         failures = failures + 1;
     end
