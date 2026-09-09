@@ -35,6 +35,9 @@ typedef struct {
   uint8_t active_copy;
   uint8_t valid;
   uint8_t initialized;
+  uint8_t present;
+  uint8_t io_errors;
+  uint16_t last_error;
 } eeprom_profile_t;
 
 void eeprom_profile_init(eeprom_profile_t *profile, I2C_HandleTypeDef *i2c);

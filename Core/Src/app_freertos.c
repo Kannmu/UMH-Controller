@@ -128,20 +128,19 @@ static int gui_start(void *context)
     system_status_fault(UMH_FAULT_PLAN_START, 1u, UMH_FAULT_CRITICAL);
     return -1;
   }
-  if (playback_plan_start(&playback_plan, system_time_us(),
-                          frame_ring_count(&frame_ring),
-                          block_parser.block.header.start_time) != 0)
-  { system_status_fault(UMH_FAULT_PLAN_START, 2u, UMH_FAULT_CRITICAL); return -1; }
+  if (playback_plan_start(&playback_plan, system_time_us(), frame_ring_count(&frame_ring),
+                          block_parser.block.header.start_time) != 0) {
+    system_status_fault(UMH_FAULT_PLAN_START, 2u, UMH_FAULT_CRITICAL);
+    return -1;
+  }
   return 0;
 }
 
 static int gui_stop(void *context)
 {
-  int result;
   (void)context;
   playback_plan_stop(&playback_plan);
-  result = fpga_link_safe_stop(&fpga_link);
-  return result;
+  return fpga_link_safe_stop(&fpga_link);
 }
 
 static int gui_clear(void *context)

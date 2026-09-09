@@ -1,6 +1,8 @@
 #include "device_gui.h"
 #include "main.h"
 #include "demo_engine.h"
+#include "FreeRTOS.h"
+#include "task.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -12,10 +14,13 @@
 #define GUI_TRANSITION_MS 180u
 #define GUI_CURSOR_STEP 3u
 
+static void line(device_gui_t *gui, uint8_t row, const char *label, const char *value);
+static void number(char *out, size_t size, uint32_t value);
+
 static const char *page_title(device_gui_page_t page)
 {
   static const char *const titles[DEVICE_GUI_PAGE_COUNT] = {
-    "STATUS", "PLAYBACK", "DEVICE", "CALIB", "STORAGE", "DEBUG", "DEMOS", "OUTPUT"
+    "STATUS", "PLAYBACK", "DEVICE", "CALIB", "STORAGE", "DEBUG", "SYSTEM", "DEMOS", "CONTROL"
   };
   return page < DEVICE_GUI_PAGE_COUNT ? titles[page] : "UMH-84";
 }
@@ -28,10 +33,32 @@ static uint8_t page_item_count(const device_gui_t *gui)
     case DEVICE_GUI_DEVICE: return 7u;
     case DEVICE_GUI_CALIBRATION: return 6u;
     case DEVICE_GUI_STORAGE: return 6u;
-    case DEVICE_GUI_DIAGNOSTICS: return 30u;
+    case DEVICE_GUI_DIAGNOSTICS: return 32u;
+    case DEVICE_GUI_SYSTEM: return (uint8_t)(4u + uxTaskGetNumberOfTasks());
     case DEVICE_GUI_DEMOS: return (uint8_t)(gui->demo_count + 1u);
     case DEVICE_GUI_CONTROL: return 4u;
     default: return 0u;
+  }
+}
+
+static TaskStatus_t gui_task_snapshot[16];
+
+static void render_system(device_gui_t *gui)
+{
+  UBaseType_t count, i;
+  uint32_t total = 0u;
+  char value[16];
+  count = uxTaskGetSystemState(gui_task_snapshot, 16u, &total);
+  if (count > 16u) count = 16u;
+  line(gui, 0u, "CPU", "MONITOR");
+  number(value, sizeof(value), xPortGetFreeHeapSize()); line(gui, 1u, "HEAP", value);
+  number(value, sizeof(value), count); line(gui, 2u, "TASKS", value);
+  (void)snprintf(value, sizeof(value), "%lus", (unsigned long)(HAL_GetTick() / 1000u));
+  line(gui, 3u, "TICK", value);
+  for (i = 0u; i < count; ++i) {
+    uint32_t percent = total != 0u ? (uint32_t)(((uint64_t)gui_task_snapshot[i].ulRunTimeCounter * 100u) / total) : 0u;
+    (void)snprintf(value, sizeof(value), "%lu%%", (unsigned long)percent);
+    line(gui, (uint8_t)(4u + i), gui_task_snapshot[i].pcTaskName, value);
   }
 }
 
@@ -82,6 +109,8 @@ static void page_header(device_gui_t *gui)
   oled_ssd1315_draw_text(gui->oled, 0u, GUI_TITLE_Y, title,
                          (uint8_t)(gui->content_focused == 0u));
   separator(gui);
+  /* A compact key legend makes the four-button workflow discoverable. */
+  oled_ssd1315_draw_text(gui->oled, 92u, 0u, gui->content_focused != 0u ? "OK" : "SEL", 0u);
 }
 
 static void draw_cursor(device_gui_t *gui)
@@ -130,7 +159,8 @@ static void render_home(device_gui_t *gui)
        ((s->flags & UMH_SYSTEM_PLAYING) != 0u ? "RUN" : "HOLD") : "IDLE");
   number(value, sizeof(value), s->frame_count); line(gui, 3u, "FRAMES", value);
   number(value, sizeof(value), s->fpga_credit); line(gui, 4u, "CREDIT", value);
-  number(value, sizeof(value), s->fault_count); line(gui, 5u, "ERRORS", value);
+  (void)snprintf(value, sizeof(value), "%lus", (unsigned long)(s->uptime_ms / 1000u));
+  line(gui, 5u, "UPTIME", value);
 }
 
 static void render_playback(device_gui_t *gui)
@@ -173,7 +203,8 @@ static void render_calibration(device_gui_t *gui)
     for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i)
       if ((record->enabled[i / 8u] & (uint8_t)(1u << (i % 8u))) != 0u) ++enabled;
   }
-  line(gui, 0u, "STATE", gui->status != NULL && (gui->status->flags & UMH_SYSTEM_CALIBRATION_VALID) != 0u ? "VALID" : "DEFAULT");
+  line(gui, 0u, "STATE", gui->eeprom != NULL && gui->eeprom->present != 0u ?
+       (gui->eeprom->valid != 0u ? "VALID" : "DEFAULT") : "OFFLINE");
   number(value, sizeof(value), record != NULL ? record->version : 0u); line(gui, 1u, "VERSION", value);
   number(value, sizeof(value), record != NULL ? record->generation : 0u); line(gui, 2u, "GEN", value);
   number(value, sizeof(value), enabled); line(gui, 3u, "ENABLED", value);
@@ -187,10 +218,11 @@ static void render_storage(device_gui_t *gui)
   const umh_system_status_t *s = gui->status;
   number(value, sizeof(value), gui->flash != NULL ? gui->flash->count : 0u); line(gui, 0u, "OBJECTS", value);
   line(gui, 1u, "FLASH", flag_word(s->flags, UMH_SYSTEM_FLASH_READY, "READY", "WAIT"));
-  line(gui, 2u, "EEPROM", gui->eeprom != NULL && gui->eeprom->valid != 0u ? "VALID" : "DEFAULT");
+  line(gui, 2u, "EEPROM", gui->eeprom != NULL && gui->eeprom->present != 0u ?
+       (gui->eeprom->valid != 0u ? "VALID" : "DEFAULT") : "OFFLINE");
   if (gui->eeprom != NULL) { number(value, sizeof(value), gui->eeprom->record.generation); line(gui, 3u, "GEN", value); }
   number(value, sizeof(value), s->usb_dropped); line(gui, 4u, "USB DROP", value);
-  line(gui, 5u, "DATA", "LOCAL");
+  number(value, sizeof(value), gui->eeprom != NULL ? gui->eeprom->io_errors : 0u); line(gui, 5u, "EEP ERR", value);
 }
 
 static void render_diagnostic_item(device_gui_t *gui, uint8_t item)
@@ -255,7 +287,9 @@ static void render_diagnostic_item(device_gui_t *gui, uint8_t item)
     case 26u: line(gui, 26u, "PROTOCOL", profile != NULL ? profile->protocol : "-"); break;
     case 27u: number(value, sizeof(value), profile != NULL ? profile->ram_bytes / 1024u : 0u); line(gui, 27u, "RAM KB", value); break;
     case 28u: number(value, sizeof(value), profile != NULL ? profile->max_frame_rate : 0u); line(gui, 28u, "MAX FPS", value); break;
-    default: number(value, sizeof(value), profile != NULL ? profile->calibration_generation : 0u); line(gui, 29u, "CAL GEN", value); break;
+    case 29u: number(value, sizeof(value), profile != NULL ? profile->calibration_generation : 0u); line(gui, 29u, "CAL GEN", value); break;
+    case 30u: number(value, sizeof(value), gui->eeprom != NULL ? gui->eeprom->io_errors : 0u); line(gui, 30u, "EEP ERR", value); break;
+    default: line(gui, 31u, "HEART", s->heartbeat != 0u ? "ON" : "OFF"); break;
   }
 }
 
@@ -263,14 +297,6 @@ static void render_diagnostics(device_gui_t *gui)
 {
   uint8_t item;
   for (item = 0u; item < page_item_count(gui); ++item) render_diagnostic_item(gui, item);
-}
-
-static void render_control(device_gui_t *gui)
-{
-  line(gui, 0u, "START", "PLAN");
-  line(gui, 1u, "STOP", "OUTPUT");
-  line(gui, 2u, "CLEAR", "PLAN");
-  line(gui, 3u, "TRIGGER", "WAIT");
 }
 
 static void render_demos(device_gui_t *gui)
@@ -281,6 +307,14 @@ static void render_demos(device_gui_t *gui)
     line(gui, i, demo != NULL ? demo->name : "-", i == gui->selected_demo ? "SELECT" : "READY");
   }
   line(gui, gui->demo_count, "MODE", gui->content_focused != 0u ? "SELECT" : "READY");
+}
+
+static void render_control(device_gui_t *gui)
+{
+  line(gui, 0u, "START", "PLAN");
+  line(gui, 1u, "STOP", "OUTPUT");
+  line(gui, 2u, "CLEAR", "PLAN");
+  line(gui, 3u, "TRIGGER", "WAIT");
 }
 
 void device_gui_init(device_gui_t *gui, oled_ssd1315_t *oled,
@@ -399,6 +433,7 @@ void device_gui_render(device_gui_t *gui, uint32_t now_ms)
     case DEVICE_GUI_CALIBRATION: render_calibration(gui); break;
     case DEVICE_GUI_STORAGE: render_storage(gui); break;
     case DEVICE_GUI_DIAGNOSTICS: render_diagnostics(gui); break;
+    case DEVICE_GUI_SYSTEM: render_system(gui); break;
     case DEVICE_GUI_DEMOS: render_demos(gui); break;
     case DEVICE_GUI_CONTROL: render_control(gui); break;
     default: break;

@@ -5,6 +5,15 @@
 #include <string.h>
 
 #define EEPROM_COMMIT_VALUE 0x00000000u
+#define EEPROM_READY_TIMEOUT 20u
+#define EEPROM_IO_RETRIES 3u
+
+static void eeprom_note_error(eeprom_profile_t *profile, uint16_t error)
+{
+  if (profile == NULL) return;
+  profile->last_error = error;
+  if (profile->io_errors != UINT8_MAX) ++profile->io_errors;
+}
 
 static uint16_t eeprom_address(uint16_t address)
 {
@@ -20,8 +29,13 @@ static int eeprom_read(I2C_HandleTypeDef *i2c, uint16_t address, void *data, uin
     block_remaining = (uint16_t)(256u - (address & 0xFFu));
     chunk = length < block_remaining ? length : block_remaining;
     if (chunk > 255u) chunk = 255u;
-    if (HAL_I2C_Mem_Read(i2c, (uint16_t)(eeprom_address(address) << 1), address & 0xFFu,
-                         I2C_MEMADD_SIZE_8BIT, dst, chunk, 100u) != HAL_OK) return -1;
+    uint8_t attempt;
+    for (attempt = 0u; attempt < EEPROM_IO_RETRIES; ++attempt) {
+      if (HAL_I2C_Mem_Read(i2c, (uint16_t)(eeprom_address(address) << 1), address & 0xFFu,
+                           I2C_MEMADD_SIZE_8BIT, dst, chunk, 100u) == HAL_OK) break;
+      HAL_Delay(1u);
+    }
+    if (attempt == EEPROM_IO_RETRIES) return -1;
     address += chunk;
     dst += chunk;
     length = (uint16_t)(length - chunk);
@@ -40,9 +54,15 @@ static int eeprom_write(I2C_HandleTypeDef *i2c, uint16_t address, const void *da
     chunk = length < page_remaining ? length : page_remaining;
     block_remaining = (uint16_t)(256u - (address & 0xFFu));
     if (chunk > block_remaining) chunk = block_remaining;
-    if (HAL_I2C_Mem_Write(i2c, (uint16_t)(eeprom_address(address) << 1), address & 0xFFu,
-                          I2C_MEMADD_SIZE_8BIT, (uint8_t *)src, chunk, 100u) != HAL_OK) return -1;
-    HAL_Delay(5u);
+    uint8_t attempt;
+    for (attempt = 0u; attempt < EEPROM_IO_RETRIES; ++attempt) {
+      if (HAL_I2C_Mem_Write(i2c, (uint16_t)(eeprom_address(address) << 1), address & 0xFFu,
+                            I2C_MEMADD_SIZE_8BIT, (uint8_t *)src, chunk, 100u) == HAL_OK) break;
+      HAL_Delay(1u);
+    }
+    if (attempt == EEPROM_IO_RETRIES) return -1;
+    if (HAL_I2C_IsDeviceReady(i2c, (uint16_t)(eeprom_address(address) << 1),
+                              EEPROM_IO_RETRIES, EEPROM_READY_TIMEOUT) != HAL_OK) return -1;
     address += chunk;
     src += chunk;
     length = (uint16_t)(length - chunk);
@@ -92,9 +112,24 @@ int eeprom_profile_load(eeprom_profile_t *profile)
   int first_valid;
   int second_valid;
   if (profile == NULL || profile->i2c == NULL) return -1;
-  if (i2c_bus_lock(osWaitForever) != 0) return -2;
-  first_valid = eeprom_read(profile->i2c, 0u, &first, sizeof(first)) == 0 && record_valid(&first);
-  second_valid = eeprom_read(profile->i2c, EEPROM_PROFILE_COPY_SIZE, &second, sizeof(second)) == 0 && record_valid(&second);
+  profile->present = 0u;
+  if (i2c_bus_lock(osWaitForever) != 0) {
+    eeprom_note_error(profile, 0xFFFFu);
+    return -2;
+  }
+  if (HAL_I2C_IsDeviceReady(profile->i2c, (uint16_t)(EEPROM_PROFILE_I2C_ADDRESS << 1),
+                            EEPROM_IO_RETRIES, EEPROM_READY_TIMEOUT) != HAL_OK) {
+    eeprom_note_error(profile, (uint16_t)HAL_I2C_GetError(profile->i2c));
+    i2c_bus_unlock();
+    return -1;
+  }
+  profile->present = 1u;
+  first_valid = eeprom_read(profile->i2c, 0u, &first, sizeof(first)) == 0;
+  if (!first_valid) eeprom_note_error(profile, (uint16_t)HAL_I2C_GetError(profile->i2c));
+  else first_valid = record_valid(&first);
+  second_valid = eeprom_read(profile->i2c, EEPROM_PROFILE_COPY_SIZE, &second, sizeof(second)) == 0;
+  if (!second_valid) eeprom_note_error(profile, (uint16_t)HAL_I2C_GetError(profile->i2c));
+  else second_valid = record_valid(&second);
   i2c_bus_unlock();
   if (!first_valid && !second_valid) {
     eeprom_profile_defaults(&profile->record);
@@ -119,6 +154,7 @@ int eeprom_profile_commit(eeprom_profile_t *profile, const eeprom_profile_record
   uint16_t base;
   uint32_t commit = EEPROM_COMMIT_VALUE;
   if (profile == NULL || profile->i2c == NULL || record == NULL) return -1;
+  if (profile->present == 0u) return -2;
   staged = *record;
   staged.magic = EEPROM_PROFILE_MAGIC;
   staged.payload_length = (uint16_t)offsetof(eeprom_profile_record_t, crc32);
@@ -129,10 +165,16 @@ int eeprom_profile_commit(eeprom_profile_t *profile, const eeprom_profile_record
   if (i2c_bus_lock(osWaitForever) != 0) return -2;
   if (eeprom_write(profile->i2c, base, &staged, sizeof(staged)) != 0 ||
       eeprom_write(profile->i2c, (uint16_t)(base + offsetof(eeprom_profile_record_t, commit)), &commit, sizeof(commit)) != 0) {
+    eeprom_note_error(profile, (uint16_t)HAL_I2C_GetError(profile->i2c));
     i2c_bus_unlock();
     return -3;
   }
-  if (eeprom_read(profile->i2c, base, &staged, sizeof(staged)) != 0 || !record_valid(&staged)) {
+  if (eeprom_read(profile->i2c, base, &staged, sizeof(staged)) != 0) {
+    eeprom_note_error(profile, (uint16_t)HAL_I2C_GetError(profile->i2c));
+    i2c_bus_unlock();
+    return -4;
+  }
+  if (!record_valid(&staged)) {
     i2c_bus_unlock();
     return -4;
   }
@@ -140,6 +182,7 @@ int eeprom_profile_commit(eeprom_profile_t *profile, const eeprom_profile_record
   profile->record = staged;
   profile->active_copy = (uint8_t)(base == 0u ? 0u : 1u);
   profile->valid = 1u;
+  profile->present = 1u;
   return 0;
 }
 
