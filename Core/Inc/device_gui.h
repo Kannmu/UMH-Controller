@@ -18,6 +18,7 @@ typedef enum {
   DEVICE_GUI_CALIBRATION,
   DEVICE_GUI_STORAGE,
   DEVICE_GUI_DIAGNOSTICS,
+  DEVICE_GUI_DEMOS,
   DEVICE_GUI_CONTROL,
   DEVICE_GUI_PAGE_COUNT
 } device_gui_page_t;
@@ -36,6 +37,9 @@ typedef struct {
   device_gui_action_t stop;
   device_gui_action_t clear;
   device_gui_action_t trigger;
+  device_gui_action_t demo;
+  uint8_t demo_count;
+  uint8_t selected_demo;
   void *action_context;
   device_gui_page_t page;
   uint8_t row;
@@ -55,6 +59,8 @@ void device_gui_init(device_gui_t *gui, oled_ssd1315_t *oled,
                      device_gui_action_t stop,
                      device_gui_action_t clear,
                      device_gui_action_t trigger,
+                     device_gui_action_t demo,
+                     uint8_t demo_count,
                      void *action_context);
 void device_gui_handle_event(device_gui_t *gui, const input_event_t *event);
 void device_gui_render(device_gui_t *gui, uint32_t now_ms);

@@ -1,0 +1,805 @@
+Copyright (c) 1991-1994 by NeoCAD Inc. All rights reserved.
+Copyright (c) 1995 AT&T Corp.   All rights reserved.
+Copyright (c) 1995-2001 Lucent Technologies Inc.  All rights reserved.
+Copyright (c) 2001 Agere Systems   All rights reserved.
+Copyright (c) 2002-2015 Lattice Semiconductor Corporation,  All rights reserved.
+Tue Sep 08 18:58:48 2026
+
+
+Command Line:  D:\Software\Lattice Diamond\diamond\3.13\ispfpga\bin\nt64\synthesis.exe -a MachXO2 -d LCMXO2-2000HC -t CSBGA132 -s 4 -top umh_fpga_top -ver src\umh_fpga_top.v src\ws2812_stream.v src\spi_mic_stream.v -ngo build\umh_fpga12.ngo -lpf UMH_7.lpf 
+
+Synthesis options:
+The -a option is MachXO2.
+The -s option is 4.
+The -t option is CSBGA132.
+The -d option is LCMXO2-2000HC.
+Using package CSBGA132.
+Using performance grade 4.
+                                                          
+
+##########################################################
+
+### Lattice Family : MachXO2
+
+### Device  : LCMXO2-2000HC
+
+### Package : CSBGA132
+
+### Speed   : 4
+
+##########################################################
+
+                                                          
+
+INFO - synthesis: User-Selected Strategy Settings
+Optimization goal = Area
+Top-level module name = umh_fpga_top.
+Target frequency = 1.000000 MHz.
+Maximum fanout = 1000.
+Timing path count = 3 (default)
+BRAM Utilization = 100 % (default)
+DSP usage = true (default)
+DSP utilization = 100 % (default)
+fsm_encoding_style = auto
+resolve_mixed_drivers = 0
+fix_gated_clocks = 1
+
+Mux style = auto (Default)
+Use Carry Chain = true (default)
+Use IO Insertion = TRUE (default)
+Resource Sharing = TRUE (default)
+Propagate Constants = TRUE (default)
+Remove Duplicate Registers = TRUE (default)
+force_gsr = auto (default)
+ROM style = auto (default)
+RAM style = auto (default)
+The -comp option is FALSE.
+The -syn option is FALSE.
+Verilog design file = src\umh_fpga_top.v
+Verilog design file = src\ws2812_stream.v
+Verilog design file = src\spi_mic_stream.v
+NGO file = build\umh_fpga12.ngo
+WARNING - synthesis: Option -force_gsr will be set to false when option -output_edif/-ngo are set
+-sdc option: SDC file input not used.
+Hardtimer checking is enabled (default). The -dt option is not used.
+The -r option is OFF. [ Remove LOC Properties is OFF. ]
+Technology check ok...
+
+Analyzing Verilog file D:/Software/Lattice Diamond/diamond/3.13/ispfpga/userware/NT/SYNTHESIS_HEADERS/machxo2.v. VERI-1482
+Compile design.
+Compile Design Begin
+Analyzing Verilog file src/umh_fpga_top.v. VERI-1482
+Analyzing Verilog file src/ws2812_stream.v. VERI-1482
+Analyzing Verilog file src/spi_mic_stream.v. VERI-1482
+Analyzing Verilog file D:/Software/Lattice Diamond/diamond/3.13/ispfpga/userware/NT/SYNTHESIS_HEADERS/machxo2.v. VERI-1482
+Top module name (Verilog): umh_fpga_top
+INFO - synthesis: src/umh_fpga_top.v(5): compiling module umh_fpga_top. VERI-1018
+INFO - synthesis: D:/Software/Lattice Diamond/diamond/3.13/ispfpga/userware/NT/SYNTHESIS_HEADERS/machxo2.v(1291): compiling module DP8KC. VERI-1018
+INFO - synthesis: src/ws2812_stream.v(3): compiling module ws2812_stream. VERI-1018
+INFO - synthesis: src/spi_mic_stream.v(5): compiling module spi_mic_stream. VERI-1018
+Loading NGL library 'D:/Software/Lattice Diamond/diamond/3.13/ispfpga/xo2c00a/data/xo2alib.ngl'...
+Loading NGL library 'D:/Software/Lattice Diamond/diamond/3.13/ispfpga/xo2c00/data/xo2clib.ngl'...
+Loading NGL library 'D:/Software/Lattice Diamond/diamond/3.13/ispfpga/mg5g00/data/mg5glib.ngl'...
+Loading NGL library 'D:/Software/Lattice Diamond/diamond/3.13/ispfpga/or5g00/data/orc5glib.ngl'...
+Loading device for application map from file 'xo2c2000.nph' in environment: D:/Software/Lattice Diamond/diamond/3.13/ispfpga.
+Package Status:                     Final          Version 1.44.
+Top-level module name = umh_fpga_top.
+WARNING - synthesis: src/umh_fpga_top.v(116): Removing unused instance _2260. VDB-5034
+WARNING - synthesis: src/umh_fpga_top.v(137): Removing unused instance . VDB-5034
+
+
+
+WARNING - synthesis: src/umh_fpga_top.v(335): Register phase_acc_i0 is stuck at Zero. VDB-5013
+WARNING - synthesis: src/spi_mic_stream.v(31): Register \mic_stream_i/shift_register_i0 is stuck at Zero. VDB-5013
+######## GSR will not be inferred in an NGO flow, unless force_gsr=yes.
+WARNING - synthesis: Initial value found on instance spi_frame_sequence_i12_5349_5350_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i19_5913_5914_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_frame_sequence_i27_5409_5410_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i20_5909_5910_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_expected_length_i12_5137_5138_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_expected_length_i7_5117_5118_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i21_5905_5906_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i22_5901_5902_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i23_5897_5898_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i24_5893_5894_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i25_5889_5890_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i26_5885_5886_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i27_5881_5882_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i28_5877_5878_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i29_5873_5874_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i30_5869_5870_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i31_5865_5866_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i32_5861_5862_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i33_5857_5858_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i34_5853_5854_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i35_5849_5850_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i36_5845_5846_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i37_5841_5842_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i38_5837_5838_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i39_5833_5834_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i40_5829_5830_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i41_5825_5826_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i42_5821_5822_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i43_5817_5818_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i44_5813_5814_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i45_5809_5810_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i46_5805_5806_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i47_5801_5802_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i48_5797_5798_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i49_5793_5794_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i50_5789_5790_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i51_5785_5786_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i52_5781_5782_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i53_5777_5778_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i54_5773_5774_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i55_5769_5770_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i56_5765_5766_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i57_5761_5762_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i58_5757_5758_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i59_5753_5754_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i60_5749_5750_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i61_5745_5746_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i62_5741_5742_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i63_5737_5738_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i64_5733_5734_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i65_5729_5730_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i66_5725_5726_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i67_5721_5722_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i68_5717_5718_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i69_5713_5714_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i70_5709_5710_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i71_5705_5706_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i72_5701_5702_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i73_5697_5698_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i74_5693_5694_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i75_5689_5690_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i76_5685_5686_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i77_5681_5682_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i78_5677_5678_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_expected_length_i6_5113_5114_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_expected_length_i5_5109_5110_reset will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i79_5673_5674_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_expected_length_i4_5105_5106_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i80_5669_5670_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i81_5665_5666_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_frame_sequence_i11_5345_5346_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_expected_length_i3_5101_5102_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_expected_length_i2_5097_5098_reset will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i82_5661_5662_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_expected_length_i1_5093_5094_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_expected_length_i30_5209_5210_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_frame_sequence_i26_5405_5406_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_frame_sequence_i9_5337_5338_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_frame_sequence_i8_5333_5334_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_frame_sequence_i7_5329_5330_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_frame_sequence_i6_5325_5326_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_frame_sequence_i5_5321_5322_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_frame_sequence_i4_5317_5318_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_frame_sequence_i3_5313_5314_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_frame_sequence_i2_5309_5310_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_frame_sequence_i1_5305_5306_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_version_i7_5301_5302_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_version_i6_5297_5298_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_version_i5_5293_5294_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_version_i4_5289_5290_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_version_i3_5285_5286_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_version_i2_5281_5282_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_version_i1_5277_5278_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_command_i7_5273_5274_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_command_i6_5269_5270_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_command_i5_5265_5266_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_command_i4_5261_5262_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_command_i3_5257_5258_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_command_i2_5253_5254_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_command_i1_5249_5250_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_rx_shift_i7_5245_5246_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_rx_shift_i6_5241_5242_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_rx_shift_i5_5237_5238_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_rx_shift_i4_5233_5234_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_rx_shift_i3_5229_5230_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_bit_count_i2_5221_5222_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_expected_length_i0_5089_5090_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_expected_length_i28_5201_5202_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_bit_count_i1_5217_5218_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_byte_count_i0_5085_5086_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i83_5657_5658_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_expected_length_i27_5197_5198_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_channel_field_i0_5081_5082_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_expected_length_i31_5213_5214_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_level_pending_i0_5077_5078_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_rx_shift_i2_5225_5226_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_frame_sequence_i10_5341_5342_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_channel_index_i0_5073_5074_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_expected_length_i29_5205_5206_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_extension_length_i0_5069_5070_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i84_5653_5654_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i85_5649_5650_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i86_5645_5646_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i87_5641_5642_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i88_5637_5638_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i89_5633_5634_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i90_5629_5630_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i91_5625_5626_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i92_5621_5622_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i93_5617_5618_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i94_5613_5614_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_frame_sequence_i25_5401_5402_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i95_5609_5610_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_byte_count_i15_5605_5606_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_byte_count_i14_5601_5602_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_byte_count_i13_5597_5598_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_byte_count_i12_5593_5594_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_byte_count_i11_5589_5590_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_byte_count_i10_5585_5586_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_byte_count_i9_5581_5582_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_byte_count_i8_5577_5578_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_byte_count_i7_5573_5574_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_byte_count_i6_5569_5570_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_byte_count_i5_5565_5566_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_byte_count_i4_5561_5562_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_byte_count_i3_5557_5558_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_byte_count_i2_5553_5554_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_byte_count_i1_5549_5550_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_channel_field_i1_5545_5546_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_level_pending_i7_5541_5542_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_level_pending_i6_5537_5538_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_level_pending_i5_5533_5534_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_level_pending_i4_5529_5530_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_level_pending_i3_5525_5526_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_level_pending_i2_5521_5522_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_level_pending_i1_5517_5518_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_update_flags_i0_5065_5066_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_frame_sequence_i0_5061_5062_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_channel_index_i6_5513_5514_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_channel_index_i5_5509_5510_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_channel_index_i4_5505_5506_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_channel_index_i3_5501_5502_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_channel_index_i2_5497_5498_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_channel_index_i1_5493_5494_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_extension_length_i15_5489_5490_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_expected_length_i26_5193_5194_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_expected_length_i25_5189_5190_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_version_i0_5057_5058_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_expected_length_i9_5125_5126_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_extension_length_i14_5485_5486_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_expected_length_i24_5185_5186_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_extension_length_i13_5481_5482_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_extension_length_i12_5477_5478_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_extension_length_i11_5473_5474_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_extension_length_i10_5469_5470_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_extension_length_i9_5465_5466_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_extension_length_i8_5461_5462_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_expected_length_i8_5121_5122_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_expected_length_i23_5181_5182_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_command_i0_5053_5054_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_expected_length_i11_5133_5134_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_expected_length_i10_5129_5130_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_expected_length_i22_5177_5178_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_expected_length_i21_5173_5174_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_expected_length_i20_5169_5170_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_expected_length_i19_5165_5166_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_expected_length_i18_5161_5162_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_expected_length_i17_5157_5158_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_expected_length_i16_5153_5154_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_expected_length_i15_5149_5150_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_expected_length_i14_5145_5146_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_expected_length_i13_5141_5142_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i1_5985_5986_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i2_5981_5982_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i3_5977_5978_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i4_5973_5974_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i5_5969_5970_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i6_5965_5966_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i7_5961_5962_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i8_5957_5958_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i9_5953_5954_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i10_5949_5950_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i11_5945_5946_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i12_5941_5942_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i13_5937_5938_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i14_5933_5934_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i15_5929_5930_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i16_5925_5926_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i17_5921_5922_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_frame_sequence_i24_5397_5398_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_extension_length_i7_5457_5458_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_frame_sequence_i23_5393_5394_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_extension_length_i6_5453_5454_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_frame_sequence_i22_5389_5390_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_extension_length_i5_5449_5450_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_frame_sequence_i21_5385_5386_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_extension_length_i4_5445_5446_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_frame_sequence_i20_5381_5382_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_extension_length_i3_5441_5442_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_frame_sequence_i19_5377_5378_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_extension_length_i2_5437_5438_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_frame_sequence_i18_5373_5374_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_extension_length_i1_5433_5434_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_frame_sequence_i17_5369_5370_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_update_flags_i1_5429_5430_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_frame_sequence_i16_5365_5366_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_frame_sequence_i31_5425_5426_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_frame_sequence_i15_5361_5362_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_frame_sequence_i30_5421_5422_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_frame_sequence_i14_5357_5358_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_frame_sequence_i13_5353_5354_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_frame_sequence_i29_5417_5418_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_rx_shift_i1_5049_5050_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_bit_count_i0_5045_5046_set will be ignored.
+WARNING - synthesis: Initial value found on instance spi_frame_sequence_i28_5413_5414_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i0_5041_5042_set will be ignored.
+WARNING - synthesis: Initial value found on instance rgb_values_i18_5917_5918_set will be ignored.
+WARNING - synthesis: mRegister spi_frame_sequence_i12_5349_5350_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_frame_sequence_i11_5345_5346_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_expected_length_i12_5137_5138_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_expected_length_i7_5117_5118_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_expected_length_i6_5113_5114_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_expected_length_i5_5109_5110_set is stuck at One
+WARNING - synthesis: mRegister spi_frame_sequence_i26_5405_5406_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_expected_length_i4_5105_5106_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_expected_length_i3_5101_5102_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_expected_length_i2_5097_5098_set is stuck at One
+WARNING - synthesis: mRegister spi_expected_length_i1_5093_5094_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_expected_length_i9_5125_5126_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_expected_length_i26_5193_5194_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_expected_length_i0_5089_5090_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_frame_sequence_i9_5337_5338_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_frame_sequence_i8_5333_5334_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_frame_sequence_i7_5329_5330_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_frame_sequence_i6_5325_5326_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_frame_sequence_i5_5321_5322_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_frame_sequence_i4_5317_5318_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_frame_sequence_i3_5313_5314_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_frame_sequence_i2_5309_5310_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_frame_sequence_i1_5305_5306_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_version_i7_5301_5302_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_version_i6_5297_5298_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_version_i5_5293_5294_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_version_i4_5289_5290_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_version_i3_5285_5286_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_version_i2_5281_5282_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_version_i1_5277_5278_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_command_i7_5273_5274_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_command_i6_5269_5270_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_command_i5_5265_5266_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_command_i4_5261_5262_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_command_i3_5257_5258_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_command_i2_5253_5254_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_command_i1_5249_5250_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_rx_shift_i7_5245_5246_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_rx_shift_i6_5241_5242_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_rx_shift_i5_5237_5238_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_rx_shift_i4_5233_5234_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_rx_shift_i3_5229_5230_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_rx_shift_i2_5225_5226_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_byte_count_i0_5085_5086_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_expected_length_i30_5209_5210_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_expected_length_i29_5205_5206_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_expected_length_i27_5197_5198_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_bit_count_i1_5217_5218_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_channel_field_i0_5081_5082_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_expected_length_i31_5213_5214_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_level_pending_i0_5077_5078_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_bit_count_i2_5221_5222_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_channel_index_i0_5073_5074_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_frame_sequence_i10_5341_5342_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_expected_length_i28_5201_5202_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_extension_length_i0_5069_5070_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_update_flags_i0_5065_5066_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_frame_sequence_i25_5401_5402_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_byte_count_i15_5605_5606_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_frame_sequence_i24_5397_5398_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_byte_count_i14_5601_5602_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_byte_count_i13_5597_5598_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_byte_count_i12_5593_5594_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_byte_count_i11_5589_5590_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_byte_count_i10_5585_5586_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_byte_count_i9_5581_5582_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_byte_count_i8_5577_5578_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_byte_count_i7_5573_5574_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_byte_count_i6_5569_5570_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_byte_count_i5_5565_5566_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_byte_count_i4_5561_5562_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_byte_count_i3_5557_5558_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_byte_count_i2_5553_5554_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_byte_count_i1_5549_5550_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_channel_field_i1_5545_5546_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_level_pending_i7_5541_5542_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_level_pending_i6_5537_5538_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_level_pending_i5_5533_5534_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_level_pending_i4_5529_5530_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_level_pending_i3_5525_5526_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_level_pending_i2_5521_5522_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_level_pending_i1_5517_5518_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_channel_index_i6_5513_5514_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_frame_sequence_i0_5061_5062_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_channel_index_i5_5509_5510_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_channel_index_i4_5505_5506_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_expected_length_i11_5133_5134_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_channel_index_i3_5501_5502_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_channel_index_i2_5497_5498_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_channel_index_i1_5493_5494_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_extension_length_i15_5489_5490_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_extension_length_i14_5485_5486_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_expected_length_i25_5189_5190_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_expected_length_i24_5185_5186_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_version_i0_5057_5058_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_extension_length_i13_5481_5482_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_extension_length_i12_5477_5478_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_extension_length_i11_5473_5474_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_extension_length_i10_5469_5470_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_extension_length_i9_5465_5466_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_extension_length_i8_5461_5462_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_frame_sequence_i13_5353_5354_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_expected_length_i8_5121_5122_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_expected_length_i23_5181_5182_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_command_i0_5053_5054_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_expected_length_i10_5129_5130_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_expected_length_i22_5177_5178_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_expected_length_i21_5173_5174_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_expected_length_i20_5169_5170_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_expected_length_i19_5165_5166_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_expected_length_i18_5161_5162_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_expected_length_i17_5157_5158_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_expected_length_i16_5153_5154_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_expected_length_i15_5149_5150_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_expected_length_i14_5145_5146_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_expected_length_i13_5141_5142_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_rx_shift_i1_5049_5050_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_extension_length_i7_5457_5458_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_frame_sequence_i23_5393_5394_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_extension_length_i6_5453_5454_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_frame_sequence_i22_5389_5390_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_extension_length_i5_5449_5450_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_frame_sequence_i21_5385_5386_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_extension_length_i4_5445_5446_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_frame_sequence_i20_5381_5382_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_extension_length_i3_5441_5442_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_frame_sequence_i19_5377_5378_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_extension_length_i2_5437_5438_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_frame_sequence_i18_5373_5374_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_extension_length_i1_5433_5434_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_frame_sequence_i17_5369_5370_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_update_flags_i1_5429_5430_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_frame_sequence_i16_5365_5366_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_frame_sequence_i31_5425_5426_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_frame_sequence_i15_5361_5362_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_frame_sequence_i30_5421_5422_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_frame_sequence_i14_5357_5358_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_frame_sequence_i29_5417_5418_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_frame_sequence_i28_5413_5414_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_bit_count_i0_5045_5046_reset is stuck at Zero
+WARNING - synthesis: mRegister spi_frame_sequence_i27_5409_5410_reset is stuck at Zero
+Applying 1.000000 MHz constraint to all clocks
+
+WARNING - synthesis: No .lpf file will be written because the -lpf option is not used or is set to zero.
+Results of NGD DRC are available in umh_fpga_top_drc.log.
+WARNING - synthesis: DRC checking was skipped because the -ngo option was used.
+Writing NGD file build/umh_fpga12.ngo.
+
+################### Begin Area Report (umh_fpga_top)######################
+Number of register bits => 1224 of 2427 (50 % )
+CCU2D => 102
+DP8KC => 2
+FD1P3AX => 484
+FD1P3BX => 96
+FD1P3DX => 132
+FD1P3IX => 36
+FD1S1D => 237
+FD1S3AX => 77
+FD1S3BX => 139
+FD1S3DX => 10
+FD1S3IX => 13
+GSR => 1
+IB => 8
+INV => 2
+LUT4 => 1421
+MUX321 => 2
+OB => 88
+PFUMX => 3
+################### End Area Report ##################
+
+################### Begin BlackBox Report ######################
+TSALL => 1
+################### End BlackBox Report ##################
+
+################### Begin Clock Report ######################
+Clock Nets
+Number of Clocks: 241
+  Net : fpga_clk_c, loads : 577
+  Net : fpga_cs_n_c, loads : 519
+  Net : spi1_sck_c, loads : 336
+  Net : spi_channel_index_6__N_1732, loads : 2
+  Net : spi_level_pending_7__N_1796, loads : 2
+  Net : spi_bit_count_2__N_948, loads : 2
+  Net : spi_level_pending_7__N_1794, loads : 2
+  Net : spi_command_7__N_1072, loads : 2
+  Net : spi_level_pending_7__N_1792, loads : 2
+  Net : spi_frame_sequence_31__N_1408, loads : 2
+  Net : spi_level_pending_7__N_1790, loads : 2
+  Net : spi_extension_length_15__N_1280, loads : 2
+  Net : spi_level_pending_7__N_1788, loads : 2
+  Net : spi_level_pending_7__N_1798, loads : 2
+  Net : spi_level_pending_7__N_1786, loads : 2
+  Net : spi_byte_count_15__N_992, loads : 2
+  Net : spi_level_pending_7__N_1784, loads : 2
+  Net : spi_expected_length_31__N_1598, loads : 2
+  Net : spi_channel_field_1__N_1772, loads : 2
+  Net : spi_expected_length_31__N_1594, loads : 2
+  Net : spi_byte_count_15__N_990, loads : 2
+  Net : spi_byte_count_15__N_988, loads : 2
+  Net : rgb_values_95__N_529, loads : 2
+  Net : spi_byte_count_15__N_986, loads : 2
+  Net : spi_expected_length_31__N_1584, loads : 2
+  Net : spi_byte_count_15__N_984, loads : 2
+  Net : spi_expected_length_31__N_1580, loads : 2
+  Net : spi_byte_count_15__N_982, loads : 2
+  Net : spi_expected_length_31__N_1576, loads : 2
+  Net : spi_byte_count_15__N_980, loads : 2
+  Net : spi_expected_length_31__N_1572, loads : 2
+  Net : spi_byte_count_15__N_978, loads : 2
+  Net : spi_expected_length_31__N_1568, loads : 2
+  Net : spi_byte_count_15__N_976, loads : 2
+  Net : spi_expected_length_31__N_1564, loads : 2
+  Net : spi_byte_count_15__N_974, loads : 2
+  Net : spi_expected_length_31__N_1560, loads : 2
+  Net : spi_byte_count_15__N_972, loads : 2
+  Net : spi_expected_length_31__N_1556, loads : 2
+  Net : spi_byte_count_15__N_970, loads : 2
+  Net : spi_expected_length_31__N_1552, loads : 2
+  Net : spi_byte_count_15__N_968, loads : 2
+  Net : spi_expected_length_31__N_1548, loads : 2
+  Net : spi_byte_count_15__N_966, loads : 2
+  Net : spi_expected_length_31__N_1544, loads : 2
+  Net : spi_byte_count_15__N_964, loads : 2
+  Net : spi_expected_length_31__N_1540, loads : 2
+  Net : spi_byte_count_15__N_962, loads : 2
+  Net : spi_bit_count_2__N_946, loads : 2
+  Net : rgb_values_95__N_337, loads : 2
+  Net : spi_rx_shift_6__N_921, loads : 2
+  Net : rgb_values_95__N_341, loads : 2
+  Net : spi_rx_shift_6__N_919, loads : 2
+  Net : rgb_values_95__N_343, loads : 2
+  Net : spi_rx_shift_6__N_917, loads : 2
+  Net : rgb_values_95__N_345, loads : 2
+  Net : spi_command_7__N_1070, loads : 2
+  Net : rgb_values_95__N_347, loads : 2
+  Net : spi_command_7__N_1066, loads : 2
+  Net : rgb_values_95__N_349, loads : 2
+  Net : spi_command_7__N_1062, loads : 2
+  Net : rgb_values_95__N_351, loads : 2
+  Net : spi_command_7__N_1058, loads : 2
+  Net : rgb_values_95__N_353, loads : 2
+  Net : spi_version_7__N_1116, loads : 2
+  Net : rgb_values_95__N_355, loads : 2
+  Net : spi_version_7__N_1112, loads : 2
+  Net : rgb_values_95__N_357, loads : 2
+  Net : spi_version_7__N_1108, loads : 2
+  Net : rgb_values_95__N_359, loads : 2
+  Net : spi_frame_sequence_31__N_1406, loads : 2
+  Net : rgb_values_95__N_361, loads : 2
+  Net : spi_frame_sequence_31__N_1402, loads : 2
+  Net : rgb_values_95__N_363, loads : 2
+  Net : spi_frame_sequence_31__N_1398, loads : 2
+  Net : rgb_values_95__N_365, loads : 2
+  Net : spi_frame_sequence_31__N_1394, loads : 2
+  Net : rgb_values_95__N_367, loads : 2
+  Net : spi_frame_sequence_31__N_1390, loads : 2
+  Net : rgb_values_95__N_369, loads : 2
+  Net : spi_frame_sequence_31__N_1386, loads : 2
+  Net : rgb_values_95__N_371, loads : 2
+  Net : spi_frame_sequence_31__N_1382, loads : 2
+  Net : rgb_values_95__N_373, loads : 2
+  Net : spi_frame_sequence_31__N_1378, loads : 2
+  Net : rgb_values_95__N_375, loads : 2
+  Net : spi_frame_sequence_31__N_1374, loads : 2
+  Net : rgb_values_95__N_377, loads : 2
+  Net : spi_frame_sequence_31__N_1370, loads : 2
+  Net : rgb_values_95__N_379, loads : 2
+  Net : spi_frame_sequence_31__N_1366, loads : 2
+  Net : rgb_values_95__N_381, loads : 2
+  Net : spi_frame_sequence_31__N_1362, loads : 2
+  Net : rgb_values_95__N_383, loads : 2
+  Net : spi_frame_sequence_31__N_1358, loads : 2
+  Net : rgb_values_95__N_385, loads : 2
+  Net : spi_frame_sequence_31__N_1354, loads : 2
+  Net : rgb_values_95__N_387, loads : 2
+  Net : spi_frame_sequence_31__N_1350, loads : 2
+  Net : rgb_values_95__N_389, loads : 2
+  Net : spi_frame_sequence_31__N_1346, loads : 2
+  Net : rgb_values_95__N_391, loads : 2
+  Net : spi_extension_length_15__N_1278, loads : 2
+  Net : rgb_values_95__N_393, loads : 2
+  Net : spi_extension_length_15__N_1274, loads : 2
+  Net : rgb_values_95__N_395, loads : 2
+  Net : spi_extension_length_15__N_1270, loads : 2
+  Net : rgb_values_95__N_397, loads : 2
+  Net : spi_extension_length_15__N_1266, loads : 2
+  Net : rgb_values_95__N_399, loads : 2
+  Net : spi_extension_length_15__N_1262, loads : 2
+  Net : rgb_values_95__N_401, loads : 2
+  Net : spi_extension_length_15__N_1258, loads : 2
+  Net : rgb_values_95__N_403, loads : 2
+  Net : spi_extension_length_15__N_1254, loads : 2
+  Net : rgb_values_95__N_405, loads : 2
+  Net : spi_extension_length_15__N_1250, loads : 2
+  Net : rgb_values_95__N_407, loads : 2
+  Net : spi_channel_index_6__N_1738, loads : 2
+  Net : rgb_values_95__N_409, loads : 2
+  Net : spi_channel_index_6__N_1734, loads : 2
+  Net : rgb_values_95__N_411, loads : 2
+  Net : spi_rx_shift_6__N_922, loads : 2
+  Net : rgb_values_95__N_413, loads : 2
+  Net : spi_update_flags_15__N_1184, loads : 2
+  Net : rgb_values_95__N_415, loads : 2
+  Net : spi_channel_field_1__N_1774, loads : 2
+  Net : rgb_values_95__N_417, loads : 2
+  Net : spi_expected_length_31__N_1592, loads : 2
+  Net : rgb_values_95__N_419, loads : 2
+  Net : spi_expected_length_31__N_1586, loads : 2
+  Net : rgb_values_95__N_421, loads : 2
+  Net : spi_expected_length_31__N_1578, loads : 2
+  Net : rgb_values_95__N_423, loads : 2
+  Net : spi_expected_length_31__N_1570, loads : 2
+  Net : rgb_values_95__N_425, loads : 2
+  Net : spi_expected_length_31__N_1562, loads : 2
+  Net : rgb_values_95__N_427, loads : 2
+  Net : spi_expected_length_31__N_1554, loads : 2
+  Net : rgb_values_95__N_429, loads : 2
+  Net : spi_expected_length_31__N_1546, loads : 2
+  Net : rgb_values_95__N_431, loads : 2
+  Net : spi_expected_length_31__N_1538, loads : 2
+  Net : rgb_values_95__N_433, loads : 2
+  Net : spi_rx_shift_6__N_920, loads : 2
+  Net : rgb_values_95__N_435, loads : 2
+  Net : spi_rx_shift_6__N_916, loads : 2
+  Net : rgb_values_95__N_437, loads : 2
+  Net : spi_command_7__N_1064, loads : 2
+  Net : rgb_values_95__N_439, loads : 2
+  Net : spi_version_7__N_1118, loads : 2
+  Net : rgb_values_95__N_441, loads : 2
+  Net : spi_version_7__N_1110, loads : 2
+  Net : rgb_values_95__N_443, loads : 2
+  Net : spi_frame_sequence_31__N_1404, loads : 2
+  Net : rgb_values_95__N_445, loads : 2
+  Net : spi_frame_sequence_31__N_1396, loads : 2
+  Net : rgb_values_95__N_447, loads : 2
+  Net : spi_frame_sequence_31__N_1388, loads : 2
+  Net : rgb_values_95__N_449, loads : 2
+  Net : spi_frame_sequence_31__N_1380, loads : 2
+  Net : rgb_values_95__N_451, loads : 2
+  Net : spi_frame_sequence_31__N_1372, loads : 2
+  Net : rgb_values_95__N_453, loads : 2
+  Net : spi_frame_sequence_31__N_1364, loads : 2
+  Net : rgb_values_95__N_455, loads : 2
+  Net : spi_frame_sequence_31__N_1356, loads : 2
+  Net : rgb_values_95__N_457, loads : 2
+  Net : spi_frame_sequence_31__N_1348, loads : 2
+  Net : rgb_values_95__N_459, loads : 2
+  Net : spi_extension_length_15__N_1276, loads : 2
+  Net : rgb_values_95__N_461, loads : 2
+  Net : spi_extension_length_15__N_1268, loads : 2
+  Net : rgb_values_95__N_463, loads : 2
+  Net : spi_extension_length_15__N_1260, loads : 2
+  Net : rgb_values_95__N_465, loads : 2
+  Net : spi_extension_length_15__N_1252, loads : 2
+  Net : rgb_values_95__N_467, loads : 2
+  Net : spi_channel_index_6__N_1736, loads : 2
+  Net : rgb_values_95__N_469, loads : 2
+  Net : spi_version_7__N_1120, loads : 2
+  Net : rgb_values_95__N_471, loads : 2
+  Net : spi_expected_length_31__N_1600, loads : 2
+  Net : rgb_values_95__N_473, loads : 2
+  Net : spi_expected_length_31__N_1582, loads : 2
+  Net : rgb_values_95__N_475, loads : 2
+  Net : spi_expected_length_31__N_1566, loads : 2
+  Net : rgb_values_95__N_477, loads : 2
+  Net : spi_expected_length_31__N_1550, loads : 2
+  Net : rgb_values_95__N_479, loads : 2
+  Net : spi_bit_count_2__N_944, loads : 2
+  Net : rgb_values_95__N_481, loads : 2
+  Net : spi_command_7__N_1068, loads : 2
+  Net : rgb_values_95__N_483, loads : 2
+  Net : spi_version_7__N_1114, loads : 2
+  Net : rgb_values_95__N_485, loads : 2
+  Net : spi_frame_sequence_31__N_1400, loads : 2
+  Net : rgb_values_95__N_487, loads : 2
+  Net : spi_frame_sequence_31__N_1384, loads : 2
+  Net : rgb_values_95__N_489, loads : 2
+  Net : spi_frame_sequence_31__N_1368, loads : 2
+  Net : rgb_values_95__N_491, loads : 2
+  Net : spi_frame_sequence_31__N_1352, loads : 2
+  Net : rgb_values_95__N_493, loads : 2
+  Net : spi_extension_length_15__N_1272, loads : 2
+  Net : rgb_values_95__N_495, loads : 2
+  Net : spi_extension_length_15__N_1256, loads : 2
+  Net : rgb_values_95__N_497, loads : 2
+  Net : spi_channel_index_6__N_1730, loads : 2
+  Net : rgb_values_95__N_499, loads : 2
+  Net : spi_expected_length_31__N_1588, loads : 2
+  Net : rgb_values_95__N_501, loads : 2
+  Net : spi_expected_length_31__N_1558, loads : 2
+  Net : rgb_values_95__N_503, loads : 2
+  Net : spi_rx_shift_6__N_918, loads : 2
+  Net : rgb_values_95__N_505, loads : 2
+  Net : spi_version_7__N_1106, loads : 2
+  Net : rgb_values_95__N_507, loads : 2
+  Net : spi_frame_sequence_31__N_1376, loads : 2
+  Net : rgb_values_95__N_509, loads : 2
+  Net : spi_update_flags_15__N_1182, loads : 2
+  Net : rgb_values_95__N_511, loads : 2
+  Net : spi_channel_index_6__N_1740, loads : 2
+  Net : rgb_values_95__N_513, loads : 2
+  Net : spi_expected_length_31__N_1574, loads : 2
+  Net : rgb_values_95__N_515, loads : 2
+  Net : spi_command_7__N_1060, loads : 2
+  Net : rgb_values_95__N_517, loads : 2
+  Net : spi_frame_sequence_31__N_1360, loads : 2
+  Net : rgb_values_95__N_519, loads : 2
+  Net : spi_channel_index_6__N_1742, loads : 2
+  Net : rgb_values_95__N_521, loads : 2
+  Net : spi_frame_sequence_31__N_1392, loads : 2
+  Net : rgb_values_95__N_523, loads : 2
+  Net : spi_expected_length_31__N_1542, loads : 2
+  Net : rgb_values_95__N_525, loads : 2
+  Net : spi_extension_length_15__N_1264, loads : 2
+  Net : rgb_values_95__N_527, loads : 2
+  Net : spi_expected_length_31__N_1590, loads : 1
+  Net : spi_mic_sck_c, loads : 1
+  Net : spi_expected_length_31__N_1596, loads : 1
+Clock Enable Nets
+Number of Clock Enables: 293
+Top 10 highest fanout Clock Enables:
+  Net : ws2812_i/fpga_clk_c_enable_443, loads : 111
+  Net : running_N_2903, loads : 35
+  Net : fpga_clk_c_enable_246, loads : 32
+  Net : fpga_cs_n_c_enable_34, loads : 32
+  Net : mic_stream_i/sck_N_3318_enable_32, loads : 32
+  Net : fpga_clk_c_enable_274, loads : 30
+  Net : mic_divider_6__N_2705, loads : 15
+  Net : ws2812_i/fpga_clk_c_enable_442, loads : 14
+  Net : fpga_clk_c_enable_441, loads : 7
+  Net : accepted_sequence_spi_31__N_2262, loads : 5
+Highest fanout non-clock nets
+Top 10 highest fanout non-clock nets:
+  Net : n21165, loads : 241
+  Net : n6931, loads : 192
+  Net : n21164, loads : 139
+  Net : ws2812_i/fpga_clk_c_enable_443, loads : 111
+  Net : ws2812_i/n11, loads : 100
+  Net : ws2812_i/n25, loads : 97
+  Net : phase_acc_31, loads : 87
+  Net : load_index_0, loads : 87
+  Net : load_active, loads : 87
+  Net : amplitude_phase_7, loads : 85
+################### End Clock Report ##################
+
+Timing Report Summary
+--------------
+--------------------------------------------------------------------------------
+Constraint                              |   Constraint|       Actual|Levels
+--------------------------------------------------------------------------------
+                                        |             |             |
+create_clock -period 1000.000000 -name  |             |             |
+clk3 [get_nets spi_mic_sck_c]           |    1.000 MHz|  114.929 MHz|     4  
+                                        |             |             |
+create_clock -period 1000.000000 -name  |             |             |
+clk2 [get_nets fpga_cs_n_c]             |    1.000 MHz|   52.441 MHz|    13  
+                                        |             |             |
+create_clock -period 1000.000000 -name  |             |             |
+clk1 [get_nets spi1_sck_c]              |    1.000 MHz|   51.897 MHz|    13  
+                                        |             |             |
+create_clock -period 1000.000000 -name  |             |             |
+clk0 [get_nets fpga_clk_c]              |    1.000 MHz|   19.213 MHz|    35  
+                                        |             |             |
+--------------------------------------------------------------------------------
+
+
+All constraints were met.
+
+
+Peak Memory Usage: 120.246  MB
+
+--------------------------------------------------------------
+Elapsed CPU time for LSE flow : 0.359  secs
+--------------------------------------------------------------

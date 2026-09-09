@@ -51,6 +51,7 @@ static uint8_t glyph_column(char character, uint8_t column)
 static int send(oled_ssd1315_t *oled, uint8_t control, const uint8_t *data, uint16_t length)
 {
   uint32_t start;
+  uint32_t error;
   if (oled == NULL || oled->i2c == NULL || length > OLED_WIDTH) return -1;
   oled->tx_buffer[0] = control;
   if (length != 0u && data != NULL) memcpy(&oled->tx_buffer[1], data, length);
@@ -63,21 +64,25 @@ static int send(oled_ssd1315_t *oled, uint8_t control, const uint8_t *data, uint
   start = HAL_GetTick();
   while (HAL_I2C_GetState(oled->i2c) != HAL_I2C_STATE_READY) {
     if ((HAL_GetTick() - start) > 100u) {
-      (void)HAL_I2C_Master_Abort_IT(oled->i2c, OLED_I2C_ADDRESS);
+      /* Stop DMA synchronously before releasing the shared bus/buffer. */
+      (void)HAL_I2C_DeInit(oled->i2c);
+      (void)HAL_I2C_Init(oled->i2c);
       i2c_bus_unlock();
       return -1;
     }
     if (osKernelGetState() == osKernelRunning) osDelay(1u);
   }
+  error = HAL_I2C_GetError(oled->i2c);
   i2c_bus_unlock();
-  return 0;
+  return error == HAL_I2C_ERROR_NONE ? 0 : -1;
 }
 
 void oled_ssd1315_init(oled_ssd1315_t *oled, I2C_HandleTypeDef *i2c)
 {
   static const uint8_t commands[] = {0xAEu, 0xD5u, 0x80u, 0xA8u, 0x3Fu, 0xD3u, 0x00u, 0x40u,
-                                     0x8Du, 0x14u, 0x20u, 0x02u, 0xA1u, 0xC8u, 0xDAu, 0x12u,
-                                     0x81u, 0x8Fu, 0xD9u, 0xF1u, 0xDBu, 0x40u, 0xA4u, 0xA6u, 0xAFu};
+                                     0x8Du, 0x14u, 0x20u, 0x02u, 0xA0u, 0xC0u, 0xDAu, 0x12u,
+                                     0x81u, 0x8Fu, 0xD9u, 0xF1u, 0xDBu, 0x40u, 0xA4u, 0xA6u};
+  static const uint8_t display_on = 0xAFu;
   int init_ok;
   if (oled == NULL) return;
   memset(oled, 0, sizeof(*oled));
@@ -88,7 +93,13 @@ void oled_ssd1315_init(oled_ssd1315_t *oled, I2C_HandleTypeDef *i2c)
   oled_ssd1315_clear(oled);
   /* The controller's RAM is not guaranteed to reset with the MCU.  Force a
    * complete first refresh even though the local framebuffer starts at zero. */
-  if (oled->initialized != 0u) oled->dirty_pages = 0xFFu;
+  if (oled->initialized != 0u) {
+    /* A0/C0 rotates both axes relative to the original A1/C8 mounting.
+     * Keep the display off until all power-on RAM has been overwritten. */
+    oled->dirty_pages = 0xFFu;
+    if (oled_ssd1315_refresh(oled) != 0 || send(oled, 0x00u, &display_on, 1u) != 0)
+      oled->initialized = 0u;
+  }
 }
 
 void oled_ssd1315_clear(oled_ssd1315_t *oled)

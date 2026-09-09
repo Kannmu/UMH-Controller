@@ -55,6 +55,7 @@ Core/Src/oled_ssd1315.c \
 Core/Src/rgb_output.c \
 Core/Src/input_events.c \
 Core/Src/device_gui.c \
+Core/Src/demo_engine.c \
 Core/Src/system_status.c \
 Core/Src/cordic.c \
 Core/Src/crc.c \

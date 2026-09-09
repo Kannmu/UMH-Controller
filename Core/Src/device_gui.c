@@ -1,5 +1,6 @@
 #include "device_gui.h"
 #include "main.h"
+#include "demo_engine.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -12,7 +13,7 @@
 static const char *page_title(device_gui_page_t page)
 {
   static const char *const titles[DEVICE_GUI_PAGE_COUNT] = {
-    "UMH-84", "PLAYBACK", "DEVICE", "CALIB", "STORAGE", "DEBUG", "CONTROL"
+    "UMH-84", "PLAYBACK", "DEVICE", "CALIB", "STORAGE", "DEBUG", "DEMOS", "CONTROL"
   };
   return page < DEVICE_GUI_PAGE_COUNT ? titles[page] : "UMH-84";
 }
@@ -222,6 +223,16 @@ static void render_control(device_gui_t *gui)
   oled_ssd1315_draw_text(gui->oled, 0u, 49u, "CONFIRM ACTION", 0u);
 }
 
+static void render_demos(device_gui_t *gui)
+{
+  uint8_t i;
+  for (i = 0u; i < gui->demo_count && i < GUI_VISIBLE_ROWS; ++i) {
+    const umh_demo_descriptor_t *demo = demo_engine_descriptor(i);
+    line(gui, i, demo != NULL ? demo->name : "-", i == gui->selected_demo ? "SELECT" : "READY");
+  }
+  oled_ssd1315_draw_text(gui->oled, 0u, 56u, "K1 RUN DEMO", 1u);
+}
+
 void device_gui_init(device_gui_t *gui, oled_ssd1315_t *oled,
                      const umh_device_profile_t *profile,
                      umh_system_status_t *status,
@@ -233,6 +244,8 @@ void device_gui_init(device_gui_t *gui, oled_ssd1315_t *oled,
                      device_gui_action_t stop,
                      device_gui_action_t clear,
                      device_gui_action_t trigger,
+                     device_gui_action_t demo,
+                     uint8_t demo_count,
                      void *action_context)
 {
   if (gui == NULL) return;
@@ -240,6 +253,7 @@ void device_gui_init(device_gui_t *gui, oled_ssd1315_t *oled,
   gui->oled = oled; gui->profile = profile; gui->status = status; gui->plan = plan;
   gui->fpga = fpga; gui->flash = flash; gui->eeprom = eeprom;
   gui->start = start; gui->stop = stop; gui->clear = clear; gui->trigger = trigger;
+  gui->demo = demo; gui->demo_count = demo_count;
   gui->action_context = action_context; gui->page = DEVICE_GUI_HOME; gui->debug_view = 0u;
 }
 
@@ -249,11 +263,15 @@ void device_gui_handle_event(device_gui_t *gui, const input_event_t *event)
   if (event->key == INPUT_KEY0) { gui->page = DEVICE_GUI_HOME; gui->row = 0u; return; }
   if (event->key == INPUT_KEY2) {
     if (gui->page == DEVICE_GUI_CONTROL) gui->row = (uint8_t)((gui->row + 1u) % 4u);
+    else if (gui->page == DEVICE_GUI_DEMOS && gui->demo_count != 0u)
+      gui->selected_demo = (uint8_t)((gui->selected_demo + 1u) % gui->demo_count);
     else gui->page = (device_gui_page_t)((gui->page + 1u) % DEVICE_GUI_PAGE_COUNT);
     return;
   }
   if (event->key == INPUT_KEY3) {
     if (gui->page == DEVICE_GUI_CONTROL) gui->row = gui->row == 0u ? 3u : (uint8_t)(gui->row - 1u);
+    else if (gui->page == DEVICE_GUI_DEMOS && gui->demo_count != 0u)
+      gui->selected_demo = gui->selected_demo == 0u ? (uint8_t)(gui->demo_count - 1u) : (uint8_t)(gui->selected_demo - 1u);
     else gui->page = gui->page == DEVICE_GUI_HOME ? (device_gui_page_t)(DEVICE_GUI_PAGE_COUNT - 1u) : (device_gui_page_t)(gui->page - 1u);
     return;
   }
@@ -269,6 +287,11 @@ void device_gui_handle_event(device_gui_t *gui, const input_event_t *event)
     else if (gui->row == 3u && gui->trigger != NULL) result = gui->trigger(gui->action_context);
     gui->action_message = result == 0 ? 1u : 2u; gui->message_until = HAL_GetTick() + GUI_MESSAGE_MS;
   }
+  if (event->key == INPUT_KEY1 && gui->page == DEVICE_GUI_DEMOS && gui->demo != NULL) {
+    int result = gui->demo(gui->action_context);
+    gui->action_message = result == 0 ? 1u : 2u;
+    gui->message_until = HAL_GetTick() + GUI_MESSAGE_MS;
+  }
 }
 
 void device_gui_render(device_gui_t *gui, uint32_t now_ms)
@@ -283,6 +306,7 @@ void device_gui_render(device_gui_t *gui, uint32_t now_ms)
     case DEVICE_GUI_CALIBRATION: render_calibration(gui); break;
     case DEVICE_GUI_STORAGE: render_storage(gui); break;
     case DEVICE_GUI_DIAGNOSTICS: render_diagnostics(gui); break;
+    case DEVICE_GUI_DEMOS: render_demos(gui); break;
     case DEVICE_GUI_CONTROL: render_control(gui); break;
     default: break;
   }

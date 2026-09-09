@@ -13,7 +13,6 @@ reg mic_data_0 = 1'b0;
 reg mic_data_1 = 1'b0;
 reg spi_mic_cs_n = 1'b1;
 reg spi_mic_sck = 1'b0;
-reg spi_mic_mosi = 1'b0;
 wire spi_mic_miso;
 reg [7:0] reply [0:15];
 integer failures = 0;
@@ -108,7 +107,7 @@ initial begin
         $display("FAIL: accepted sequence was %02x%02x", reply[13], reply[12]);
         failures = failures + 1;
     end
-    if (dut.running !== 1'b1 || dut.enable_active[0] !== 1'b1 || dut.phase_active[0] !== 8'h40) begin
+    if (dut.running !== 1'b1 || dut.level_active[0] !== 2'b11 || dut.phase_active[0] !== 1'b0) begin
         $display("FAIL: frame did not commit at a carrier boundary");
         failures = failures + 1;
     end

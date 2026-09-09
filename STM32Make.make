@@ -80,6 +80,7 @@ Core/Src/block_parser.c \
 Core/Src/cordic.c \
 Core/Src/crc.c \
 Core/Src/device_gui.c \
+Core/Src/demo_engine.c \
 Core/Src/device_profile.c \
 Core/Src/dma.c \
 Core/Src/eeprom_profile.c \

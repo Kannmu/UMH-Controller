@@ -20,6 +20,7 @@
 #include "input_events.h"
 #include "system_status.h"
 #include "device_gui.h"
+#include "demo_engine.h"
 #include "spi.h"
 #include "i2c.h"
 #include "i2c_bus.h"
@@ -75,6 +76,13 @@ static umh_fault_code_t fault_code_for_status(umh_status_t status, uint8_t messa
 }
 
 static StaticTask_t protocol_task_cb, render_task_cb, storage_task_cb, ui_task_cb, health_task_cb;
+static StaticTask_t input_task_cb;
+static StackType_t input_task_stack[128];
+static const osThreadAttr_t input_task_attributes = {
+  .name = "input", .cb_mem = &input_task_cb, .cb_size = sizeof(input_task_cb),
+  .stack_mem = input_task_stack, .stack_size = sizeof(input_task_stack),
+  .priority = osPriorityNormal
+};
 static StackType_t protocol_task_stack[1024], render_task_stack[512], storage_task_stack[512], ui_task_stack[384], health_task_stack[256];
 static const osThreadAttr_t protocol_task_attributes = {
   .name = "protocol", .cb_mem = &protocol_task_cb, .cb_size = sizeof(protocol_task_cb),
@@ -153,6 +161,21 @@ static int gui_trigger(void *context)
 {
   (void)context;
   playback_plan_notify_trigger(&playback_plan);
+  return 0;
+}
+
+static int gui_demo(void *context)
+{
+  const umh_demo_descriptor_t *descriptor;
+  (void)context;
+  descriptor = demo_engine_descriptor(device_gui.selected_demo);
+  if (descriptor == NULL) return -1;
+  playback_plan_stop(&playback_plan);
+  (void)fpga_link_safe_stop(&fpga_link);
+  block_parser_cancel(&block_parser);
+  block_stream_active = 0u;
+  if (demo_engine_build(device_gui.selected_demo, &renderer, &frame_ring,
+                        system_time_us(), &playback_plan) != 0) return -1;
   return 0;
 }
 
@@ -321,6 +344,24 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       if (playback_plan.running != 0u ||
           frame->payload_size != sizeof(umh_playback_plan_wire_t) ||
           playback_plan_set(&playback_plan, (const umh_playback_plan_wire_t *)frame->payload) != 0) status = UMH_STATUS_INVALID_STATE;
+      break;
+    case UMH_MSG_SET_DEMO:
+      if (frame->payload_size != 1u || frame->payload[0] >= demo_engine_count()) {
+        status = UMH_STATUS_BAD_LENGTH;
+      } else {
+        playback_plan_stop(&playback_plan);
+        (void)fpga_link_safe_stop(&fpga_link);
+        block_parser_cancel(&block_parser);
+        block_stream_active = 0u;
+        if (demo_engine_build(frame->payload[0], &renderer, &frame_ring,
+                              system_time_us(), &playback_plan) != 0) status = UMH_STATUS_INVALID_STATE;
+        else {
+          const umh_demo_descriptor_t *descriptor = demo_engine_descriptor(frame->payload[0]);
+          send_result(frame, UMH_STATUS_OK, descriptor->name,
+                      (uint16_t)strlen(descriptor->name));
+          return;
+        }
+      }
       break;
     case UMH_MSG_START_PLAN:
       if (frame->payload_size != 0u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
@@ -519,17 +560,35 @@ static void storage_task(void *argument)
   }
 }
 
-static void ui_task(void *argument)
+static void input_task(void *argument)
 {
-  input_event_t event;
+  TickType_t last_wake = xTaskGetTickCount();
   (void)argument;
   for (;;) {
     input_events_sample();
+    vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(10u));
+  }
+}
+
+static void ui_task(void *argument)
+{
+  input_event_t event;
+  uint32_t last_oled_attempt = HAL_GetTick();
+  (void)argument;
+  for (;;) {
     while (input_events_poll(&event) != 0u) {
       device_gui_handle_event(&device_gui, &event);
     }
+    if (oled.initialized == 0u && (HAL_GetTick() - last_oled_attempt) >= 1000u) {
+      last_oled_attempt = HAL_GetTick();
+      oled_ssd1315_init(&oled, &hi2c1);
+    }
     device_gui_render(&device_gui, HAL_GetTick());
-    (void)oled_ssd1315_refresh(&oled);
+    if (oled.initialized != 0u && oled_ssd1315_refresh(&oled) != 0) {
+      oled.initialized = 0u;
+      last_oled_attempt = HAL_GetTick();
+      system_status_fault(UMH_FAULT_HAL_INIT, 1u, UMH_FAULT_CRITICAL);
+    }
     osDelay(100u);
   }
 }
@@ -593,7 +652,8 @@ static void application_init(void)
   input_events_init();
   device_gui_init(&device_gui, &oled, &device_profile, system_status_get(),
                   &playback_plan, &fpga_link, &flash_store, &eeprom_profile,
-                  gui_start, gui_stop, gui_clear, gui_trigger, NULL);
+                  gui_start, gui_stop, gui_clear, gui_trigger, gui_demo,
+                  demo_engine_count(), NULL);
   {
     const osMessageQueueAttr_t storage_queue_attributes = {
       .name = "storage", .cb_mem = &storage_queue_cb, .cb_size = sizeof(storage_queue_cb),
@@ -605,6 +665,7 @@ static void application_init(void)
   (void)osThreadNew(render_task, NULL, &render_task_attributes);
   (void)osThreadNew(storage_task, NULL, &storage_task_attributes);
   (void)osThreadNew(ui_task, NULL, &ui_task_attributes);
+  (void)osThreadNew(input_task, NULL, &input_task_attributes);
   (void)osThreadNew(health_task, NULL, &health_task_attributes);
 }
 

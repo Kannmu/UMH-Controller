@@ -34,6 +34,7 @@ typedef enum {
   UMH_MSG_FLASH_WRITE        = 0x52,
   UMH_MSG_FLASH_DELETE       = 0x53,
   UMH_MSG_ERROR_COUNTERS     = 0x60,
+  UMH_MSG_SET_DEMO           = 0x61,
   UMH_MSG_ACK                 = 0x70,
   UMH_MSG_NACK                = 0x71
 } umh_message_type_t;
