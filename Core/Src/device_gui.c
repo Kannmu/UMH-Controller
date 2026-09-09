@@ -5,17 +5,48 @@
 #include <string.h>
 
 #define GUI_TITLE_Y 0u
-#define GUI_BODY_Y 9u
-#define GUI_ROW_HEIGHT 8u
+#define GUI_BODY_Y 10u
+#define GUI_ROW_HEIGHT 9u
 #define GUI_VISIBLE_ROWS 6u
 #define GUI_MESSAGE_MS 1200u
+#define GUI_TRANSITION_MS 180u
+#define GUI_CURSOR_STEP 3u
 
 static const char *page_title(device_gui_page_t page)
 {
   static const char *const titles[DEVICE_GUI_PAGE_COUNT] = {
-    "UMH-84", "PLAYBACK", "DEVICE", "CALIB", "STORAGE", "DEBUG", "DEMOS", "CONTROL"
+    "STATUS", "PLAYBACK", "DEVICE", "CALIB", "STORAGE", "DEBUG", "DEMOS", "OUTPUT"
   };
   return page < DEVICE_GUI_PAGE_COUNT ? titles[page] : "UMH-84";
+}
+
+static uint8_t page_item_count(const device_gui_t *gui)
+{
+  switch (gui->page) {
+    case DEVICE_GUI_HOME: return 6u;
+    case DEVICE_GUI_PLAYBACK: return 6u;
+    case DEVICE_GUI_DEVICE: return 7u;
+    case DEVICE_GUI_CALIBRATION: return 6u;
+    case DEVICE_GUI_STORAGE: return 6u;
+    case DEVICE_GUI_DIAGNOSTICS: return 30u;
+    case DEVICE_GUI_DEMOS: return (uint8_t)(gui->demo_count + 1u);
+    case DEVICE_GUI_CONTROL: return 4u;
+    default: return 0u;
+  }
+}
+
+static void keep_selected_visible(device_gui_t *gui)
+{
+  uint8_t count = page_item_count(gui);
+  if (count == 0u) {
+    gui->row = 0u;
+    gui->scroll_offset = 0u;
+    return;
+  }
+  if (gui->row >= count) gui->row = (uint8_t)(count - 1u);
+  if (gui->row < gui->scroll_offset) gui->scroll_offset = gui->row;
+  if (gui->row >= (uint8_t)(gui->scroll_offset + GUI_VISIBLE_ROWS))
+    gui->scroll_offset = (uint8_t)(gui->row - GUI_VISIBLE_ROWS + 1u);
 }
 
 static const char *flag_word(uint32_t flags, uint32_t flag, const char *yes, const char *no)
@@ -26,9 +57,44 @@ static const char *flag_word(uint32_t flags, uint32_t flag, const char *yes, con
 static void line(device_gui_t *gui, uint8_t row, const char *label, const char *value)
 {
   char text[22];
-  uint8_t selected = (uint8_t)(gui->page == DEVICE_GUI_CONTROL && row == gui->row);
-  (void)snprintf(text, sizeof(text), "%-8s %s", label, value != NULL ? value : "-");
-  oled_ssd1315_draw_text(gui->oled, 0u, (uint8_t)(GUI_BODY_Y + row * GUI_ROW_HEIGHT), text, selected);
+  uint8_t selected;
+  if (row < gui->scroll_offset || row >= (uint8_t)(gui->scroll_offset + GUI_VISIBLE_ROWS)) return;
+  selected = (uint8_t)(gui->content_focused != 0u && row == gui->row);
+  /* 5x7 glyphs are six pixels wide. Keep a full blank column between fields. */
+  (void)snprintf(text, sizeof(text), "%-9s%s", label, value != NULL ? value : "-");
+  oled_ssd1315_draw_text(gui->oled, 0u,
+                         (uint8_t)(GUI_BODY_Y + (row - gui->scroll_offset) * GUI_ROW_HEIGHT),
+                         text, selected);
+}
+
+static void separator(device_gui_t *gui)
+{
+  uint8_t x;
+  for (x = 0u; x < OLED_WIDTH; ++x) oled_ssd1315_set_pixel(gui->oled, x, 8u, 1u);
+}
+
+static void page_header(device_gui_t *gui)
+{
+  char title[22];
+  (void)snprintf(title, sizeof(title), "%s %u/%u", page_title(gui->page),
+                 (unsigned)(gui->page + 1u), (unsigned)DEVICE_GUI_PAGE_COUNT);
+  /* The title is the top-level menu item. Highlight it until OK enters the page. */
+  oled_ssd1315_draw_text(gui->oled, 0u, GUI_TITLE_Y, title,
+                         (uint8_t)(gui->content_focused == 0u));
+  separator(gui);
+}
+
+static void draw_cursor(device_gui_t *gui)
+{
+  uint8_t visible_row;
+  uint8_t y;
+  if (gui->content_focused == 0u || page_item_count(gui) == 0u) return;
+  keep_selected_visible(gui);
+  visible_row = (uint8_t)(gui->row - gui->scroll_offset);
+  y = (uint8_t)(GUI_BODY_Y + visible_row * GUI_ROW_HEIGHT + 2u);
+  oled_ssd1315_set_pixel(gui->oled, 125u, y, 1u);
+  oled_ssd1315_set_pixel(gui->oled, 126u, (uint8_t)(y + 1u), 1u);
+  oled_ssd1315_set_pixel(gui->oled, 127u, y, 1u);
 }
 
 static void number(char *out, size_t size, uint32_t value)
@@ -58,21 +124,13 @@ static void render_home(device_gui_t *gui)
 {
   char value[14];
   const umh_system_status_t *s = gui->status;
-  oled_ssd1315_draw_text(gui->oled, 0u, GUI_BODY_Y, "LINK     ", 0u);
-  oled_ssd1315_draw_text(gui->oled, 54u, GUI_BODY_Y, flag_word(s->flags, UMH_SYSTEM_CONNECTED, "ON", "OFF"), 0u);
-  oled_ssd1315_draw_text(gui->oled, 0u, 17u, "FPGA     ", 0u);
-  oled_ssd1315_draw_text(gui->oled, 54u, 17u, flag_word(s->flags, UMH_SYSTEM_FPGA_READY, "READY", "WAIT"), 0u);
-  oled_ssd1315_draw_text(gui->oled, 0u, 25u, "OUTPUT   ", 0u);
-  oled_ssd1315_draw_text(gui->oled, 54u, 25u,
-                         gui->fpga != NULL && gui->fpga->running != 0u ?
-                         (s->flags & UMH_SYSTEM_PLAYING) != 0u ? "RUN" : "HOLD" : "IDLE", 0u);
+  line(gui, 0u, "LINK", flag_word(s->flags, UMH_SYSTEM_CONNECTED, "ON", "OFF"));
+  line(gui, 1u, "FPGA", flag_word(s->flags, UMH_SYSTEM_FPGA_READY, "READY", "WAIT"));
+  line(gui, 2u, "OUTPUT", gui->fpga != NULL && gui->fpga->running != 0u ?
+       ((s->flags & UMH_SYSTEM_PLAYING) != 0u ? "RUN" : "HOLD") : "IDLE");
   number(value, sizeof(value), s->frame_count); line(gui, 3u, "FRAMES", value);
   number(value, sizeof(value), s->fpga_credit); line(gui, 4u, "CREDIT", value);
   number(value, sizeof(value), s->fault_count); line(gui, 5u, "ERRORS", value);
-  if ((s->flags & UMH_SYSTEM_ERROR) != 0u && s->critical_fault_valid != 0u) {
-    oled_ssd1315_draw_text(gui->oled, 0u, 56u, "ERR ", 1u);
-    oled_ssd1315_draw_text(gui->oled, 24u, 56u, fault_name(s->critical_fault_code), 1u);
-  }
 }
 
 static void render_playback(device_gui_t *gui)
@@ -102,7 +160,7 @@ static void render_device(device_gui_t *gui)
   number(value, sizeof(value), p->carrier_hz); line(gui, 3u, "CARRIER", value);
   number(value, sizeof(value), p->timebase_hz); line(gui, 4u, "TIMEBASE", value);
   number(value, sizeof(value), p->fpga_ref_clock_hz); line(gui, 5u, "FPGA CLK", value);
-  oled_ssd1315_draw_text(gui->oled, 0u, 56u, (p->capability_flags & UMH_PROFILE_CAP_GEOMETRY_VALID) != 0u ? "GEOMETRY OK" : "GEOMETRY --", 0u);
+  line(gui, 6u, "GEOMETRY", (p->capability_flags & UMH_PROFILE_CAP_GEOMETRY_VALID) != 0u ? "OK" : "--");
 }
 
 static void render_calibration(device_gui_t *gui)
@@ -128,16 +186,14 @@ static void render_storage(device_gui_t *gui)
   char value[16];
   const umh_system_status_t *s = gui->status;
   number(value, sizeof(value), gui->flash != NULL ? gui->flash->count : 0u); line(gui, 0u, "OBJECTS", value);
-  oled_ssd1315_draw_text(gui->oled, 0u, 17u, "FLASH    ", 0u);
-  oled_ssd1315_draw_text(gui->oled, 54u, 17u, flag_word(s->flags, UMH_SYSTEM_FLASH_READY, "READY", "WAIT"), 0u);
-  oled_ssd1315_draw_text(gui->oled, 0u, 25u, "EEPROM   ", 0u);
-  oled_ssd1315_draw_text(gui->oled, 54u, 25u, gui->eeprom != NULL && gui->eeprom->valid != 0u ? "VALID" : "DEFAULT", 0u);
+  line(gui, 1u, "FLASH", flag_word(s->flags, UMH_SYSTEM_FLASH_READY, "READY", "WAIT"));
+  line(gui, 2u, "EEPROM", gui->eeprom != NULL && gui->eeprom->valid != 0u ? "VALID" : "DEFAULT");
   if (gui->eeprom != NULL) { number(value, sizeof(value), gui->eeprom->record.generation); line(gui, 3u, "GEN", value); }
   number(value, sizeof(value), s->usb_dropped); line(gui, 4u, "USB DROP", value);
-  oled_ssd1315_draw_text(gui->oled, 0u, 49u, "DATA LOCAL", 0u);
+  line(gui, 5u, "DATA", "LOCAL");
 }
 
-static void render_diagnostics(device_gui_t *gui)
+static void render_diagnostic_item(device_gui_t *gui, uint8_t item)
 {
   char value[22];
   const umh_system_status_t *s = gui->status;
@@ -160,7 +216,7 @@ static void render_diagnostics(device_gui_t *gui)
     fault_time = s->last_fault_time_ms;
     fault_level = s->last_fault_severity;
   }
-  switch (gui->debug_view % 5u) {
+  switch (item) {
     case 0u:
       line(gui, 0u, "SEVERITY", fault_code == UMH_FAULT_NONE ? "OK" : fault_severity(fault_level));
       line(gui, 1u, "CAUSE", fault_name(fault_code));
@@ -169,49 +225,44 @@ static void render_diagnostics(device_gui_t *gui)
       number(value, sizeof(value), age); line(gui, 3u, "AGE MS", value);
       number(value, sizeof(value), s->fault_count); line(gui, 4u, "FAULTS", value);
       line(gui, 5u, "FLAGS", (s->flags & UMH_SYSTEM_ERROR) != 0u ? "ERROR" : "NORMAL");
-      oled_ssd1315_draw_text(gui->oled, 0u, 56u, "K1 NEXT DETAIL", 1u);
       break;
-    case 1u:
-      number(value, sizeof(value), s->protocol_errors); line(gui, 0u, "PROTO", value);
-      number(value, sizeof(value), s->parser_errors); line(gui, 1u, "PARSER", value);
-      number(value, sizeof(value), s->fpga_errors); line(gui, 2u, "FPGA", value);
-      number(value, sizeof(value), s->underruns); line(gui, 3u, "UNDERRUN", value);
-      number(value, sizeof(value), s->usb_dropped); line(gui, 4u, "USB TX", value);
-      number(value, sizeof(value), s->rx_dropped); line(gui, 5u, "USB RX", value);
-      oled_ssd1315_draw_text(gui->oled, 0u, 56u, "K1 NEXT LINK", 1u);
-      break;
-    case 2u:
+    case 6u: number(value, sizeof(value), s->protocol_errors); line(gui, 6u, "PROTO", value); break;
+    case 7u: number(value, sizeof(value), s->parser_errors); line(gui, 7u, "PARSER", value); break;
+    case 8u: number(value, sizeof(value), s->fpga_errors); line(gui, 8u, "FPGA", value); break;
+    case 9u: number(value, sizeof(value), s->underruns); line(gui, 9u, "UNDERRUN", value); break;
+    case 10u: number(value, sizeof(value), s->usb_dropped); line(gui, 10u, "USB TX", value); break;
+    case 11u: number(value, sizeof(value), s->rx_dropped); line(gui, 11u, "USB RX", value); break;
+    case 12u:
       if (f == NULL) {
-        line(gui, 0u, "FPGA", "NO LINK");
+        line(gui, 12u, "FPGA", "NO LINK");
       } else {
-        number(value, sizeof(value), f->protocol_version); line(gui, 0u, "PROTO VER", value);
-        number(value, sizeof(value), f->fifo_credit); line(gui, 1u, "CREDIT", value);
-        number(value, sizeof(value), f->fifo_depth); line(gui, 2u, "DEPTH", value);
-        number(value, sizeof(value), f->status_flags); line(gui, 3u, "FLAGS", value);
-        number(value, sizeof(value), f->accepted_sequence); line(gui, 4u, "ACCEPTED", value);
-        number(value, sizeof(value), f->fpga_time); line(gui, 5u, "FPGA TIME", value);
+        number(value, sizeof(value), f->protocol_version); line(gui, 12u, "PROTO VER", value);
+        number(value, sizeof(value), f->fifo_credit); line(gui, 13u, "CREDIT", value);
+        number(value, sizeof(value), f->fifo_depth); line(gui, 14u, "DEPTH", value);
+        number(value, sizeof(value), f->status_flags); line(gui, 15u, "FLAGS", value);
+        number(value, sizeof(value), f->accepted_sequence); line(gui, 16u, "ACCEPTED", value);
+        number(value, sizeof(value), f->fpga_time); line(gui, 17u, "FPGA TIME", value);
       }
-      oled_ssd1315_draw_text(gui->oled, 0u, 56u, "K1 NEXT RUNTIME", 1u);
       break;
-    case 3u:
-      number(value, sizeof(value), s->uptime_ms / 1000u); line(gui, 0u, "UPTIME S", value);
-      number(value, sizeof(value), s->device_time / 1000u); line(gui, 1u, "DEVICE MS", value);
-      number(value, sizeof(value), s->frame_count); line(gui, 2u, "FRAMES", value);
-      number(value, sizeof(value), s->frame_free); line(gui, 3u, "FREE", value);
-      number(value, sizeof(value), s->frame_dropped); line(gui, 4u, "FRAME DROP", value);
-      line(gui, 5u, "PLAY", p != NULL && p->running != 0u ? "RUN" : "STOP");
-      oled_ssd1315_draw_text(gui->oled, 0u, 56u, "K1 NEXT DEVICE", 1u);
-      break;
-    default:
-      line(gui, 0u, "MODEL", profile != NULL ? profile->model : "-");
-      line(gui, 1u, "FIRMWARE", profile != NULL ? profile->firmware : "-");
-      line(gui, 2u, "PROTOCOL", profile != NULL ? profile->protocol : "-");
-      number(value, sizeof(value), profile != NULL ? profile->ram_bytes / 1024u : 0u); line(gui, 3u, "RAM KB", value);
-      number(value, sizeof(value), profile != NULL ? profile->max_frame_rate : 0u); line(gui, 4u, "MAX FPS", value);
-      number(value, sizeof(value), profile != NULL ? profile->calibration_generation : 0u); line(gui, 5u, "CAL GEN", value);
-      oled_ssd1315_draw_text(gui->oled, 0u, 56u, "K1 NEXT FAULT", 1u);
-      break;
+    case 18u: number(value, sizeof(value), s->uptime_ms / 1000u); line(gui, 18u, "UPTIME S", value); break;
+    case 19u: number(value, sizeof(value), s->device_time / 1000u); line(gui, 19u, "DEVICE MS", value); break;
+    case 20u: number(value, sizeof(value), s->frame_count); line(gui, 20u, "FRAMES", value); break;
+    case 21u: number(value, sizeof(value), s->frame_free); line(gui, 21u, "FREE", value); break;
+    case 22u: number(value, sizeof(value), s->frame_dropped); line(gui, 22u, "FRAME DROP", value); break;
+    case 23u: line(gui, 23u, "PLAY", p != NULL && p->running != 0u ? "RUN" : "STOP"); break;
+    case 24u: line(gui, 24u, "MODEL", profile != NULL ? profile->model : "-"); break;
+    case 25u: line(gui, 25u, "FIRMWARE", profile != NULL ? profile->firmware : "-"); break;
+    case 26u: line(gui, 26u, "PROTOCOL", profile != NULL ? profile->protocol : "-"); break;
+    case 27u: number(value, sizeof(value), profile != NULL ? profile->ram_bytes / 1024u : 0u); line(gui, 27u, "RAM KB", value); break;
+    case 28u: number(value, sizeof(value), profile != NULL ? profile->max_frame_rate : 0u); line(gui, 28u, "MAX FPS", value); break;
+    default: number(value, sizeof(value), profile != NULL ? profile->calibration_generation : 0u); line(gui, 29u, "CAL GEN", value); break;
   }
+}
+
+static void render_diagnostics(device_gui_t *gui)
+{
+  uint8_t item;
+  for (item = 0u; item < page_item_count(gui); ++item) render_diagnostic_item(gui, item);
 }
 
 static void render_control(device_gui_t *gui)
@@ -220,17 +271,16 @@ static void render_control(device_gui_t *gui)
   line(gui, 1u, "STOP", "OUTPUT");
   line(gui, 2u, "CLEAR", "PLAN");
   line(gui, 3u, "TRIGGER", "WAIT");
-  oled_ssd1315_draw_text(gui->oled, 0u, 49u, "CONFIRM ACTION", 0u);
 }
 
 static void render_demos(device_gui_t *gui)
 {
   uint8_t i;
-  for (i = 0u; i < gui->demo_count && i < GUI_VISIBLE_ROWS; ++i) {
+  for (i = 0u; i < gui->demo_count; ++i) {
     const umh_demo_descriptor_t *demo = demo_engine_descriptor(i);
     line(gui, i, demo != NULL ? demo->name : "-", i == gui->selected_demo ? "SELECT" : "READY");
   }
-  oled_ssd1315_draw_text(gui->oled, 0u, 56u, "K1 RUN DEMO", 1u);
+  line(gui, gui->demo_count, "MODE", gui->content_focused != 0u ? "SELECT" : "READY");
 }
 
 void device_gui_init(device_gui_t *gui, oled_ssd1315_t *oled,
@@ -254,40 +304,81 @@ void device_gui_init(device_gui_t *gui, oled_ssd1315_t *oled,
   gui->fpga = fpga; gui->flash = flash; gui->eeprom = eeprom;
   gui->start = start; gui->stop = stop; gui->clear = clear; gui->trigger = trigger;
   gui->demo = demo; gui->demo_count = demo_count;
-  gui->action_context = action_context; gui->page = DEVICE_GUI_HOME; gui->debug_view = 0u;
+  gui->action_context = action_context; gui->page = DEVICE_GUI_HOME;
+  gui->cursor_y = GUI_BODY_Y + 1u;
+}
+
+static void select_page(device_gui_t *gui, device_gui_page_t page)
+{
+  if (gui->page == page) return;
+  gui->page = page;
+  gui->row = 0u;
+  gui->content_focused = 0u;
+  gui->scroll_offset = 0u;
+  gui->transition_until = HAL_GetTick() + GUI_TRANSITION_MS;
+  gui->cursor_y = GUI_BODY_Y + 1u;
+}
+
+static void move_page(device_gui_t *gui, int8_t direction)
+{
+  int16_t next = (int16_t)gui->page + direction;
+  if (next < (int16_t)DEVICE_GUI_HOME) next = (int16_t)DEVICE_GUI_PAGE_COUNT - 1;
+  else if (next >= (int16_t)DEVICE_GUI_PAGE_COUNT) next = DEVICE_GUI_HOME;
+  select_page(gui, (device_gui_page_t)next);
 }
 
 void device_gui_handle_event(device_gui_t *gui, const input_event_t *event)
 {
+  uint8_t count;
   if (gui == NULL || event == NULL || event->type != INPUT_EVENT_PRESS) return;
-  if (event->key == INPUT_KEY0) { gui->page = DEVICE_GUI_HOME; gui->row = 0u; return; }
-  if (event->key == INPUT_KEY2) {
-    if (gui->page == DEVICE_GUI_CONTROL) gui->row = (uint8_t)((gui->row + 1u) % 4u);
-    else if (gui->page == DEVICE_GUI_DEMOS && gui->demo_count != 0u)
-      gui->selected_demo = (uint8_t)((gui->selected_demo + 1u) % gui->demo_count);
-    else gui->page = (device_gui_page_t)((gui->page + 1u) % DEVICE_GUI_PAGE_COUNT);
+
+  if (event->key == INPUT_KEY0) {
+    if (gui->content_focused != 0u) {
+      gui->content_focused = 0u;
+      gui->scroll_offset = 0u;
+      gui->row = 0u;
+    } else if (gui->page != DEVICE_GUI_HOME) {
+      select_page(gui, DEVICE_GUI_HOME);
+    }
     return;
   }
-  if (event->key == INPUT_KEY3) {
-    if (gui->page == DEVICE_GUI_CONTROL) gui->row = gui->row == 0u ? 3u : (uint8_t)(gui->row - 1u);
-    else if (gui->page == DEVICE_GUI_DEMOS && gui->demo_count != 0u)
-      gui->selected_demo = gui->selected_demo == 0u ? (uint8_t)(gui->demo_count - 1u) : (uint8_t)(gui->selected_demo - 1u);
-    else gui->page = gui->page == DEVICE_GUI_HOME ? (device_gui_page_t)(DEVICE_GUI_PAGE_COUNT - 1u) : (device_gui_page_t)(gui->page - 1u);
+
+  if (gui->content_focused == 0u) {
+    if (event->key == INPUT_KEY2) move_page(gui, 1);
+    else if (event->key == INPUT_KEY3) move_page(gui, -1);
+    else if (event->key == INPUT_KEY1) {
+      gui->content_focused = 1u;
+      gui->row = 0u;
+      gui->scroll_offset = 0u;
+      gui->selected_demo = 0u;
+    }
     return;
   }
-  if (event->key == INPUT_KEY1 && gui->page == DEVICE_GUI_DIAGNOSTICS) {
-    gui->debug_view = (uint8_t)((gui->debug_view + 1u) % 5u);
+
+  count = page_item_count(gui);
+  if (event->key == INPUT_KEY2 && count != 0u) {
+    if (gui->row + 1u < count) ++gui->row;
+    keep_selected_visible(gui);
+    if (gui->page == DEVICE_GUI_DEMOS && gui->row < gui->demo_count) gui->selected_demo = gui->row;
     return;
   }
-  if (event->key == INPUT_KEY1 && gui->page == DEVICE_GUI_CONTROL) {
+  if (event->key == INPUT_KEY3 && count != 0u) {
+    if (gui->row != 0u) --gui->row;
+    keep_selected_visible(gui);
+    if (gui->page == DEVICE_GUI_DEMOS && gui->row < gui->demo_count) gui->selected_demo = gui->row;
+    return;
+  }
+  if (event->key != INPUT_KEY1) return;
+
+  if (gui->page == DEVICE_GUI_CONTROL && gui->row < 4u) {
     int result = -1;
     if (gui->row == 0u && gui->start != NULL) result = gui->start(gui->action_context);
     else if (gui->row == 1u && gui->stop != NULL) result = gui->stop(gui->action_context);
     else if (gui->row == 2u && gui->clear != NULL) result = gui->clear(gui->action_context);
     else if (gui->row == 3u && gui->trigger != NULL) result = gui->trigger(gui->action_context);
-    gui->action_message = result == 0 ? 1u : 2u; gui->message_until = HAL_GetTick() + GUI_MESSAGE_MS;
-  }
-  if (event->key == INPUT_KEY1 && gui->page == DEVICE_GUI_DEMOS && gui->demo != NULL) {
+    gui->action_message = result == 0 ? 1u : 2u;
+    gui->message_until = HAL_GetTick() + GUI_MESSAGE_MS;
+  } else if (gui->page == DEVICE_GUI_DEMOS && gui->row < gui->demo_count && gui->demo != NULL) {
     int result = gui->demo(gui->action_context);
     gui->action_message = result == 0 ? 1u : 2u;
     gui->message_until = HAL_GetTick() + GUI_MESSAGE_MS;
@@ -296,9 +387,11 @@ void device_gui_handle_event(device_gui_t *gui, const input_event_t *event)
 
 void device_gui_render(device_gui_t *gui, uint32_t now_ms)
 {
+  uint8_t progress;
+  uint8_t x;
   if (gui == NULL || gui->oled == NULL) return;
   oled_ssd1315_clear(gui->oled);
-  oled_ssd1315_draw_text(gui->oled, 0u, GUI_TITLE_Y, page_title(gui->page), 1u);
+  page_header(gui);
   switch (gui->page) {
     case DEVICE_GUI_HOME: render_home(gui); break;
     case DEVICE_GUI_PLAYBACK: render_playback(gui); break;
@@ -309,6 +402,12 @@ void device_gui_render(device_gui_t *gui, uint32_t now_ms)
     case DEVICE_GUI_DEMOS: render_demos(gui); break;
     case DEVICE_GUI_CONTROL: render_control(gui); break;
     default: break;
+  }
+  draw_cursor(gui);
+  if ((int32_t)(gui->transition_until - now_ms) > 0) {
+    uint32_t elapsed = GUI_TRANSITION_MS - (gui->transition_until - now_ms);
+    progress = (uint8_t)((elapsed * OLED_WIDTH) / GUI_TRANSITION_MS);
+    for (x = 0u; x < progress; ++x) oled_ssd1315_set_pixel(gui->oled, x, 63u, 1u);
   }
   if (gui->action_message != 0u && (int32_t)(gui->message_until - now_ms) > 0)
     oled_ssd1315_draw_text(gui->oled, 78u, 56u, gui->action_message == 1u ? "OK" : "ERR", 1u);

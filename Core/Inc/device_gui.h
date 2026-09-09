@@ -43,9 +43,12 @@ typedef struct {
   void *action_context;
   device_gui_page_t page;
   uint8_t row;
-  uint8_t debug_view;
+  uint8_t scroll_offset;
+  uint8_t cursor_y;
+  uint8_t content_focused;
   uint8_t action_message;
   uint32_t message_until;
+  uint32_t transition_until;
 } device_gui_t;
 
 void device_gui_init(device_gui_t *gui, oled_ssd1315_t *oled,

@@ -589,7 +589,9 @@ static void ui_task(void *argument)
       last_oled_attempt = HAL_GetTick();
       system_status_fault(UMH_FAULT_HAL_INIT, 1u, UMH_FAULT_CRITICAL);
     }
-    osDelay(100u);
+    /* Keep the display and cursor animation responsive while input scanning
+     * remains independent at 10 ms. */
+    osDelay(30u);
   }
 }
 

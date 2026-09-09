@@ -79,8 +79,8 @@ Core/Src/app_freertos.c \
 Core/Src/block_parser.c \
 Core/Src/cordic.c \
 Core/Src/crc.c \
-Core/Src/device_gui.c \
 Core/Src/demo_engine.c \
+Core/Src/device_gui.c \
 Core/Src/device_profile.c \
 Core/Src/dma.c \
 Core/Src/eeprom_profile.c \
@@ -200,13 +200,6 @@ ifeq ($(OS),Windows_NT)
   convert_to_windows_path = $(strip $(subst /,\,$(patsubst %/,%,$(1))))
   REMOVE_DIRECTORY_COMMAND = cmd /c rd /s /q
   mkdir_function = cmd /e:on /c if not exist $(call convert_to_windows_path,$(1)) md $(call convert_to_windows_path,$(1))
-endif
-
-# The VSCode extension can launch make from PowerShell without OS=Windows_NT.
-ifneq ($(ComSpec),)
-  convert_to_windows_path = $(strip $(subst /,\,$(patsubst %/,%,$(1))))
-  REMOVE_DIRECTORY_COMMAND = cmd /c rd /s /q
-  mkdir_function = if not exist "$(call convert_to_windows_path,$(1))" md "$(call convert_to_windows_path,$(1))"
 endif
 
 

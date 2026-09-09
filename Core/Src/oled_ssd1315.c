@@ -35,7 +35,15 @@ static uint8_t glyph_column(char character, uint8_t column)
   if (column >= 5u) return 0u;
   if (character >= 'A' && character <= 'Z') return font_upper[(uint8_t)character - 'A'][column];
   if (character >= 'a' && character <= 'z') return font_upper[(uint8_t)character - 'a'][column];
-  if (character >= '0' && character <= '9') return font_digit[(uint8_t)character - '0'][column];
+  if (character >= '0' && character <= '9') {
+    uint8_t value = font_digit[(uint8_t)character - '0'][column];
+    uint8_t reversed = 0u;
+    uint8_t bit;
+    /* Digit artwork is stored MSB-first; the framebuffer is LSB-first. */
+    for (bit = 0u; bit < 7u; ++bit)
+      reversed |= (uint8_t)(((value >> bit) & 1u) << (6u - bit));
+    return reversed;
+  }
   switch (character) {
     case ':': return column == 1u || column == 3u ? 0x14u : 0u;
     case '.': return column == 2u ? 0x40u : 0u;
