@@ -42,16 +42,18 @@ endmodule
  * entry into the running output reproduces the duty window exactly. */
 module umh_toggle_ram84 (
     input  wire        clk,
-    input  wire        we,
-    input  wire [8:0]  wr_addr,
-    input  wire [83:0] wr_data,
-    input  wire [8:0]  rd_addr,
-    output reg  [83:0] rd_data
+    input  wire [8:0]  addr_a,
+    output reg  [83:0] rd_data_a,
+    input  wire        we_b,
+    input  wire [8:0]  addr_b,
+    input  wire [83:0] wr_data_b,
+    output reg  [83:0] rd_data_b
 );
     (* syn_ramstyle = "block_ram" *) reg [83:0] mem [0:511];
     always @(posedge clk) begin
-        if (we) mem[wr_addr] <= wr_data;
-        rd_data <= mem[rd_addr];
+        rd_data_a <= mem[addr_a];
+        if (we_b) mem[addr_b] <= wr_data_b;
+        rd_data_b <= mem[addr_b];
     end
 endmodule
 
@@ -154,16 +156,17 @@ module umh_fpga_top (
     reg  [83:0] ev_run_hold;
     wire [24:0] phase_frac_sum = {1'b0, phase_frac} + 25'd1342177;
     wire        phase_step     = phase_step_reg;
-    wire [7:0]  next_phase     = global_phase + {7'd0, phase_step};
-    wire        carrier_wrap   = phase_step && (next_phase == 8'd0);
+    wire [7:0]  next_global_phase = global_phase + 8'd1;
+    wire        carrier_wrap   = phase_step_reg && (global_phase == 8'hFF);
 
     /* Microphone PDM sampler. */
     reg  [6:0]  mic_divider;
     reg         mic_tick;
     reg         mic_clock_reg;
-    reg  [15:0] mic_shift_0, mic_shift_1;
+    reg  [15:0] mic_shift_0_l, mic_shift_0_r;
+    reg  [15:0] mic_shift_1_l, mic_shift_1_r;
     reg  [4:0]  mic_sample_count;
-    reg  [31:0] mic_latest;
+    reg  [63:0] mic_latest;
 
     /* ------------------------------------------------------------------
      * Frame builder.  CLEAR wipes the inactive bank, then every channel
@@ -195,30 +198,25 @@ module umh_fpga_top (
         .wr_en(spi_write), .rd_clk(fpga_clk), .rd_addr(staging_rd_addr), .rd_data(staging_q)
     );
 
-    /* The builder shares the single EBR read port with the running
-     * waveform.  A running read is only needed on the cycle that ends in a
-     * phase step, and phase_step is known one cycle ahead, so the builder
-     * simply yields that cycle and never disturbs a toggle. */
-    wire        ev_rd_want    = (ev_state == EV_RD0) ||
-                                (ev_state == EV_RD1);
-    wire        ev_rd_grant   = ev_rd_want && !phase_step && !phase_step_d1;
-    wire [7:0]  ev_rd_slot    = (ev_state == EV_RD1) ? build_sum[7:0] : build_phase;
-    wire [8:0]  ev_build_addr = {~active_bank, ev_rd_slot};
+    /* True dual-port EBR: port A is dedicated to the running waveform and
+     * port B is dedicated to frame construction. */
+    wire [8:0]  ev_build_addr = (ev_state == EV_CLEAR) ? {~active_bank, ev_clear_addr} :
+                                (ev_state == EV_RD0 || ev_state == EV_WR0) ? {~active_bank, build_phase} :
+                                (ev_state == EV_RD1 || ev_state == EV_WR1) ? {~active_bank, build_sum[7:0]} :
+                                9'd0;
     wire        swap_now      = swap_pending && carrier_wrap;
     wire        run_bank      = active_bank ^ swap_now ^ swap_now_d1;
-    wire [8:0]  event_rd_addr = ev_rd_grant ? ev_build_addr : run_addr_reg;
-
-    wire        ev_we     = (ev_state == EV_CLEAR) || (ev_state == EV_WR0) ||
-                            (ev_state == EV_WR1);
-    wire [8:0]  ev_wr_addr = (ev_state == EV_CLEAR) ? {~active_bank, ev_clear_addr} :
-                            (ev_state == EV_WR0)   ? {~active_bank, build_phase} :
-                                                      {~active_bank, build_sum[7:0]};
-    wire [83:0] ev_rd_data;
+    wire        ev_we_b = (ev_state == EV_CLEAR) || (ev_state == EV_WR0) ||
+                          (ev_state == EV_WR1);
+    wire [83:0] ev_rd_data_a;
+    wire [83:0] ev_rd_data_b;
     reg  [83:0] ev_rd_hold;
-    wire [83:0] ev_wr_data = (ev_state == EV_CLEAR) ? 84'd0 : (ev_rd_hold | ev_bit);
+    wire [83:0] ev_wr_data_b = (ev_state == EV_CLEAR) ? 84'd0 : (ev_rd_hold | ev_bit);
     umh_toggle_ram84 event_ram (
-        .clk(fpga_clk), .we(ev_we), .wr_addr(ev_wr_addr), .wr_data(ev_wr_data),
-        .rd_addr(event_rd_addr), .rd_data(ev_rd_data)
+        .clk(fpga_clk),
+        .addr_a(run_addr_reg), .rd_data_a(ev_rd_data_a),
+        .we_b(ev_we_b), .addr_b(ev_build_addr), .wr_data_b(ev_wr_data_b),
+        .rd_data_b(ev_rd_data_b)
     );
 
     /* ------------------------------------------------------------------
@@ -352,15 +350,15 @@ module umh_fpga_top (
 
         /* DDS stage 2: advance the event-table slot from the registered carry. */
         if (phase_step_reg)
-            global_phase <= next_phase;
+            global_phase <= next_global_phase;
         phase_step_d1 <= phase_step_reg;
         phase_step_d2 <= phase_step_d1;
         phase_step_d3 <= phase_step_d2;
         swap_now_d1   <= swap_now;
         swap_now_d2   <= swap_now_d1;
         swap_now_d3   <= swap_now_d2;
-        run_addr_reg  <= {run_bank, next_phase};
-        ev_run_hold   <= ev_rd_data;
+        run_addr_reg  <= {run_bank, phase_step_reg ? next_global_phase : global_phase};
+        ev_run_hold   <= ev_rd_data_a;
         if (time_divider == 7'd127) begin
             time_divider <= 7'd0;
             fpga_time    <= fpga_time + 32'd1;
@@ -411,7 +409,6 @@ module umh_fpga_top (
                     ev_state         <= EV_CLEAR;
                     ev_clear_addr    <= 8'd0;
                     ev_ch            <= 7'd0;
-                    ev_bit           <= 84'd1;
                     init_shadow      <= 84'd0;
                     pending_sequence <= accepted_sequence_sync;
                 end
@@ -445,26 +442,23 @@ module umh_fpga_top (
                     ev_state <= EV_ADDR;
                 end
                 ev_ch  <= ev_ch + 7'd1;
-                ev_bit <= {ev_bit[82:0], 1'b0};
             end
             EV_RD0: begin
-                if (ev_rd_grant) begin
-                    if (build_sum[8]) init_shadow <= init_shadow | ev_bit;
-                    ev_state <= EV_CAP0;
-                end
+                ev_state <= EV_CAP0;
             end
             EV_CAP0: begin
-                ev_rd_hold <= ev_rd_data;
+                if (build_sum[8]) init_shadow <= init_shadow | ev_bit;
+                ev_rd_hold <= ev_rd_data_b;
                 ev_state <= EV_WR0;
             end
             EV_WR0: begin
                 ev_state <= EV_RD1;
             end
             EV_RD1: begin
-                if (ev_rd_grant) ev_state <= EV_CAP1;
+                ev_state <= EV_CAP1;
             end
             EV_CAP1: begin
-                ev_rd_hold <= ev_rd_data;
+                ev_rd_hold <= ev_rd_data_b;
                 ev_state <= EV_WR1;
             end
             EV_WR1: begin
@@ -475,10 +469,11 @@ module umh_fpga_top (
                     ev_state <= EV_ADDR;
                 end
                 ev_ch  <= ev_ch + 7'd1;
-                ev_bit <= {ev_bit[82:0], 1'b0};
             end
             default: ev_state <= EV_IDLE;
         endcase
+
+        ev_bit <= 84'd1 << ev_ch;
 
         if (!pll_locked || stop_event) begin
             us_tx <= 84'd0;
@@ -492,17 +487,26 @@ module umh_fpga_top (
                 us_tx <= us_tx ^ ev_run_hold;
         end
 
-        mic_tick <= (mic_divider == 6'd6);
+        /* 128 MHz / (2 * 16) = 4 MHz microphone clock. */
+        mic_tick <= (mic_divider == 6'd15);
         if (mic_tick) begin
             mic_divider   <= 6'd0;
             mic_clock_reg <= ~mic_clock_reg;
+            /* Each SPH0641 pair puts left/right PDM on opposite clock edges.
+             * The edge polarity is retained in the source marker below:
+             * MIC0/1 are DATA0 rising/falling, MIC2/3 are DATA1 rising/falling. */
             if (!mic_clock_reg) begin
-                mic_shift_0 <= {mic_shift_0[14:0], mic_data_0};
-                mic_shift_1 <= {mic_shift_1[14:0], mic_data_1};
+                mic_shift_0_l <= {mic_shift_0_l[14:0], mic_data_0};
+                mic_shift_1_l <= {mic_shift_1_l[14:0], mic_data_1};
+            end else begin
+                mic_shift_0_r <= {mic_shift_0_r[14:0], mic_data_0};
+                mic_shift_1_r <= {mic_shift_1_r[14:0], mic_data_1};
                 mic_sample_count <= mic_sample_count + 5'd1;
                 if (mic_sample_count == 5'd15)
-                    mic_latest <= {mic_shift_0[14:0], mic_data_0,
-                                   mic_shift_1[14:0], mic_data_1};
+                    mic_latest <= {mic_shift_0_l,
+                                   {mic_shift_0_r[14:0], mic_data_0},
+                                   mic_shift_1_l,
+                                   {mic_shift_1_r[14:0], mic_data_1}};
             end
         end else begin
             mic_divider <= mic_divider + 6'd1;
@@ -513,10 +517,7 @@ module umh_fpga_top (
 
     ws2812_stream ws2812_i (
         .clk(fpga_clk),
-        .g0(rgb_hold[87:80]), .r0(rgb_hold[95:88]), .b0(rgb_hold[79:72]),
-        .g1(rgb_hold[63:56]), .r1(rgb_hold[71:64]), .b1(rgb_hold[55:48]),
-        .g2(rgb_hold[39:32]), .r2(rgb_hold[47:40]), .b2(rgb_hold[31:24]),
-        .g3(rgb_hold[15:8]),  .r3(rgb_hold[23:16]), .b3(rgb_hold[7:0]),
+        .g(rgb_hold[87:80]), .r(rgb_hold[95:88]), .b(rgb_hold[79:72]),
         .data_out(rgb_data)
     );
     spi_mic_stream mic_stream_i (
@@ -548,7 +549,9 @@ module umh_fpga_top (
         build_phase = 8'd0; build_sum = 9'd0; build_zero = 1'b0;
         frame_req = 1'b0; swap_pending = 1'b0; running = 1'b0; active_bank = 1'b0;
         us_tx = 84'd0;
-        mic_divider = 6'd0; mic_clock_reg = 1'b0; mic_shift_0 = 16'd0;
-        mic_tick = 1'b0; mic_shift_1 = 16'd0; mic_sample_count = 5'd0; mic_latest = 32'd0;
+        mic_divider = 6'd0; mic_clock_reg = 1'b0;
+        mic_shift_0_l = 16'd0; mic_shift_0_r = 16'd0;
+        mic_shift_1_l = 16'd0; mic_shift_1_r = 16'd0;
+        mic_tick = 1'b0; mic_sample_count = 5'd0; mic_latest = 64'd0;
     end
 endmodule

@@ -27,11 +27,12 @@ read pipeline is included before the 84-word load, so the RAM output is never
 sampled on the wrong address. This removes the old 42-cycle output scan and its
 channel-to-channel phase jitter.
 
-`ws2812_stream.v` transmits four GRB pixels at the 128 MHz PLL timing.  PDM inputs are
-sampled at 3.04 MHz and `spi_mic_stream.v` returns the latest two 16-bit sample
-words to CH347T in SPI mode 0.  The host-side CH347 acquisition framing is not
-defined elsewhere in this repository, so it remains a repeated 32-bit raw
-sample transport.
+`ws2812_stream.v` transmits the RGB output at the 128 MHz PLL timing. The shared
+4 MHz-class microphone clock is sampled on both edges, producing four 16-bit PDM
+words. `spi_mic_stream.v` returns a repeated 12-byte SPI mode-0 packet to CH347T;
+each three-byte record is `source_id (0..3), sample[15:8], sample[7:0]`. IDs 0/1
+are the rising/falling-edge channels on `MIC_DATA_0`, and IDs 2/3 are the same
+channels on `MIC_DATA_1`.
 
 `sim/tb_umh_fpga_top.v` verifies the SPI status byte order, a full 84-channel
 frame, carrier-boundary activation and the accepted-sequence status field.
@@ -87,3 +88,6 @@ CLKOP feedback setting in the checked-in primitive. `INT_OP` is rejected by
 Map, and an incompatible `CLKOP_CPHASE` makes the feedback phase illegal.
 Keep the source 8 MHz clock constraint in `UMH_7.lpf`;
 generated implementation LPFs are disposable.
+
+保持FPGA及其子文件夹下文件整齐，不会存在多版本文件共存的干扰现象。
+

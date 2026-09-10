@@ -4,7 +4,6 @@ BLOCK ASYNCPATHS;
 LOCATE COMP "fpga_clk_8m" SITE "C1";
 IOBUF  PORT "fpga_clk_8m" IO_TYPE=LVCMOS33;
 FREQUENCY PORT "fpga_clk_8m" 8 MHZ;
-FREQUENCY NET "pll_clk_c" 128 MHZ;
 FREQUENCY NET "pll_clk" 128 MHZ;
 
 LOCATE COMP "fpga_cs_n" SITE "M1";

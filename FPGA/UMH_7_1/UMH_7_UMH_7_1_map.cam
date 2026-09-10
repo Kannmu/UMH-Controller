@@ -1,78 +1,76 @@
 [ START MERGED ]
-spi1_miso_N_2421_1 status_bit_index_1
+n23419 n23737
+spi1_miso_N_2337_5 status_bit_index_5
+spi1_miso_N_2337_1 status_bit_index_1
 spi1_sck_N_457 spi1_sck_c
-spi1_miso_N_2421_5 status_bit_index_5
-sck_N_2937 spi_mic_sck_c
-mic_stream_i/sck_N_2937_enable_35 mic_stream_i/bit_count_5
-fpga_cs_n_N_2458 fpga_cs_n_c
+fpga_cs_n_N_2374 fpga_cs_n_c
+sck_N_2716 spi_mic_sck_c
+mic_stream_i/sck_N_2716_enable_35 mic_stream_i/bit_count_5
 [ END MERGED ]
 [ START CLIPPED ]
 GND_net
 VCC_net
-equal_1582_0/S1
-equal_1582_0/S0
-equal_1582_0/CI
-ws2812_i/add_909_13/CO
-ws2812_i/add_17_1/S0
-ws2812_i/add_17_1/CI
-ws2812_i/add_909_1/S0
-ws2812_i/add_909_1/CI
-ws2812_i/add_17_9/S1
-ws2812_i/add_17_9/CO
-ws2812_i/add_911_1/S0
-ws2812_i/add_911_1/CI
-ws2812_i/add_911_7/CO
-global_phase_7__I_0_438_8/CO
+spi_channel_index_1043_add_4_7/CO
+time_divider_1047_add_4_1/S0
+time_divider_1047_add_4_1/CI
+ws2812_i/add_866_13/CO
+ws2812_i/add_866_1/S0
+ws2812_i/add_866_1/CI
+ws2812_i/add_14_1/S0
+ws2812_i/add_14_1/CI
+ws2812_i/add_14_9/S1
+ws2812_i/add_14_9/CO
+time_divider_1047_add_4_7/CO
+global_phase_7__I_0_436_8/CO
+status_bit_index_1042_add_4_1/S0
+status_bit_index_1042_add_4_1/CI
+status_bit_index_1042_add_4_7/CO
+equal_1827_0/S1
+equal_1827_0/S0
+equal_1827_0/CI
+fpga_time_1046_add_4_1/S0
+fpga_time_1046_add_4_1/CI
+equal_1827_13/S1
+equal_1827_13/S0
+equal_1827_11/S1
+equal_1827_11/S0
+equal_1827_15/S1
+equal_1827_15/S0
+equal_1827_17_13589/S1
+equal_1827_17_13589/S0
+equal_1827_17/S1
+equal_1827_17/CO
 add_135_1/S0
 add_135_1/CI
-add_493_cout/S1
-add_493_cout/CO
-expected_next_15__I_0_488_15/S1
-expected_next_15__I_0_488_15/CO
-spi_channel_index_1088_add_4_1/S0
-spi_channel_index_1088_add_4_1/CI
-fpga_time_1091_add_4_33/S1
-fpga_time_1091_add_4_33/CO
-spi_channel_index_1088_add_4_7/CO
-mic_divider_1094_add_4_1/S0
-mic_divider_1094_add_4_1/CI
-add_491_25/CO
-status_bit_index_1087_add_4_1/S0
-status_bit_index_1087_add_4_1/CI
+add_491_2/S0
+add_491_2/CI
+global_phase_7__I_0_436_2/S0
+global_phase_7__I_0_436_2/CI
+add_489_25/CO
+add_491_cout/S1
+add_491_cout/CO
+expected_next_15__I_0_486_1/S0
+expected_next_15__I_0_486_1/CI
 add_135_17/CO
-add_242_1/S0
-add_242_1/CI
-mic_divider_1094_add_4_7/CO
-time_divider_1092_add_4_1/S0
-time_divider_1092_add_4_1/CI
-status_bit_index_1087_add_4_7/CO
-fpga_time_1091_add_4_1/S0
-fpga_time_1091_add_4_1/CI
-time_divider_1092_add_4_7/CO
-expected_next_15__I_0_488_1/S0
-expected_next_15__I_0_488_1/CI
-add_242_9/S1
-add_242_9/CO
-add_491_1/S0
-add_491_1/CI
-equal_1582_13/S1
-equal_1582_13/S0
-equal_1582_11/S1
-equal_1582_11/S0
-equal_1582_15/S1
-equal_1582_15/S0
-add_493_2/S0
-add_493_2/CI
-equal_1582_17_13152/S1
-equal_1582_17_13152/S0
-equal_1582_17/S1
-equal_1582_17/CO
-global_phase_7__I_0_438_2/S0
-global_phase_7__I_0_438_2/CI
+add_241_1/S0
+add_241_1/CI
+expected_next_15__I_0_486_15/S1
+expected_next_15__I_0_486_15/CO
+fpga_time_1046_add_4_33/S1
+fpga_time_1046_add_4_33/CO
+add_241_9/S1
+add_241_9/CO
+add_489_1/S0
+add_489_1/CI
+mic_divider_1049_add_4_1/S0
+mic_divider_1049_add_4_1/CI
+spi_channel_index_1043_add_4_1/S0
+spi_channel_index_1043_add_4_1/CI
+mic_divider_1049_add_4_7/CO
 [ END CLIPPED ]
 [ START DESIGN PREFS ]
 SCHEMATIC START ;
-# map:  version Diamond (64-bit) 3.13.0.56.2 -- WARNING: Map write only section -- Thu Sep 10 19:01:17 2026
+# map:  version Diamond (64-bit) 3.13.0.56.2 -- WARNING: Map write only section -- Thu Sep 10 19:45:54 2026
 
 SYSCONFIG SDM_PORT=DISABLE SLAVE_SPI_PORT=DISABLE I2C_PORT=DISABLE MASTER_SPI_PORT=DISABLE COMPRESS_CONFIG=ON CONFIGURATION=CFG MY_ASSP=OFF ONE_TIME_PROGRAM=OFF CONFIG_SECURE=OFF MCCLK_FREQ=2.08 JTAG_PORT=ENABLE ENABLE_TRANSFR=DISABLE SHAREDEBRINIT=DISABLE MUX_CONFIGURATION_PORTS=DISABLE BACKGROUND_RECONFIG=OFF INBUF=ON ;
 LOCATE COMP "us_tx[77]" SITE "N5" ;

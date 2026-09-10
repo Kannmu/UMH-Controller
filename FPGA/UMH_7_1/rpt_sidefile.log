@@ -1,0 +1,60 @@
+
+################### Begin Area Report (umh_fpga_top)######################
+Number of register bits => 1467 of 2427 (60 % )
+CCU2D => 95
+EHXPLLJ => 1
+FD1P3AX => 792
+FD1P3AY => 2
+FD1P3DX => 101
+FD1P3IX => 208
+FD1S3AX => 268
+FD1S3AY => 3
+FD1S3DX => 1
+FD1S3IX => 92
+GSR => 1
+IB => 8
+INV => 2
+L6MUX21 => 12
+LUT4 => 849
+OB => 88
+PDPW8KC => 6
+PFUMX => 24
+################### End Area Report ##################
+
+################### Begin BlackBox Report ######################
+TSALL => 1
+################### End BlackBox Report ##################
+
+################### Begin Clock Report ######################
+Clock Nets
+Number of Clocks: 4
+  Net : pll_clk, loads : 1010
+  Net : spi1_sck_c, loads : 361
+  Net : spi_mic_sck_c, loads : 1
+  Net : fpga_clk_8m_c, loads : 1
+Clock Enable Nets
+Number of Clock Enables: 58
+Top 10 highest fanout Clock Enables:
+  Net : mic_stream_i/sck_N_2908_enable_101, loads : 101
+  Net : cs_fall, loads : 68
+  Net : pll_clk_enable_128, loads : 50
+  Net : pll_clk_enable_242, loads : 50
+  Net : spi1_sck_c_enable_138, loads : 50
+  Net : pll_clk_enable_399, loads : 50
+  Net : pll_clk_enable_600, loads : 50
+  Net : spi1_sck_c_enable_225, loads : 50
+  Net : spi1_sck_c_enable_271, loads : 46
+  Net : spi1_sck_c_enable_176, loads : 38
+Highest fanout non-clock nets
+Top 10 highest fanout non-clock nets:
+  Net : ev_state_0, loads : 125
+  Net : mic_stream_i/n13, loads : 104
+  Net : spi_mic_cs_n_c, loads : 103
+  Net : sck_N_2908, loads : 102
+  Net : mic_stream_i/sck_N_2908_enable_101, loads : 101
+  Net : n23522, loads : 95
+  Net : swap_now_d3, loads : 84
+  Net : build_sum_8, loads : 84
+  Net : n23529, loads : 84
+  Net : pll_clk_enable_574, loads : 70
+################### End Clock Report ##################

@@ -1,3 +1,15 @@
+synthesis:  version Diamond (64-bit) 3.13.0.56.2
+
+Copyright (c) 1991-1994 by NeoCAD Inc. All rights reserved.
+Copyright (c) 1995 AT&T Corp.   All rights reserved.
+Copyright (c) 1995-2001 Lucent Technologies Inc.  All rights reserved.
+Copyright (c) 2001 Agere Systems   All rights reserved.
+Copyright (c) 2002-2023 Lattice Semiconductor Corporation,  All rights reserved.
+Thu Sep 10 20:16:51 2026
+
+
+Command Line:  synthesis -f UMH_7_UMH_7_1_lattice.synproj 
+
 Synthesis options:
 The -a option is MachXO2.
 The -s option is 4.
@@ -198,8 +210,4 @@ Applying 128.000000 MHz constraint to all clocks
 WARNING - synthesis: No user .sdc file.
 Results of NGD DRC are available in umh_fpga_top_drc.log.
 Loading NGL library 'D:/Software/Lattice Diamond/diamond/3.13/ispfpga/xo2c00a/data/xo2alib.ngl'...
-Loading NGL library 'D:/Software/Lattice Diamond/diamond/3.13/ispfpga/xo2c00/data/xo2clib.ngl'...
-Loading NGL library 'D:/Software/Lattice Diamond/diamond/3.13/ispfpga/mg5g00/data/mg5glib.ngl'...
-Loading NGL library 'D:/Software/Lattice Diamond/diamond/3.13/ispfpga/or5g00/data/orc5glib.ngl'...
-All blocks are expanded and NGD expansion is successful.
-ERROR - synthesis: Cannot open output file 'UMH_7_UMH_7_1.ngd'
+Loading NGL library '
