@@ -100,9 +100,8 @@ static uint16_t pack_common(fpga_link_t *link, uint8_t command, const umh_output
   put_u16(&link->tx[pos], extension_length); pos += 2u;
   if (frame != NULL && (update & UMH_FRAME_FLAG_ULTRASOUND) != 0u) {
     for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
-      put_u16(&link->tx[pos], frame->channels[i].phase); pos += 2u;
+      link->tx[pos++] = frame->channels[i].phase;
       link->tx[pos++] = frame->channels[i].level;
-      link->tx[pos++] = frame->channels[i].enabled;
     }
   }
   if (frame != NULL && (update & UMH_FRAME_FLAG_RGB) != 0u) {

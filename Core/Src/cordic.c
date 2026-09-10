@@ -19,6 +19,8 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "cordic.h"
+#include <math.h>
+#include <stdint.h>
 
 /* USER CODE BEGIN 0 */
 
@@ -123,6 +125,37 @@ void HAL_CORDIC_MspDeInit(CORDIC_HandleTypeDef* cordicHandle)
 }
 
 /* USER CODE BEGIN 1 */
+
+int umh_cordic_phase8(float real, float imag, uint8_t *phase)
+{
+  CORDIC_ConfigTypeDef config;
+  int32_t input[2];
+  int32_t output;
+  float angle;
+  int32_t code;
+  if (phase == NULL || (real == 0.0f && imag == 0.0f)) return -1;
+  if (real > 1.0f) real = 1.0f;
+  if (real < -1.0f) real = -1.0f;
+  if (imag > 1.0f) imag = 1.0f;
+  if (imag < -1.0f) imag = -1.0f;
+  input[0] = (int32_t)(real * 2147483647.0f);
+  input[1] = (int32_t)(imag * 2147483647.0f);
+  config.Function = CORDIC_FUNCTION_PHASE;
+  config.Scale = CORDIC_SCALE_0;
+  config.InSize = CORDIC_INSIZE_32BITS;
+  config.OutSize = CORDIC_OUTSIZE_32BITS;
+  config.NbWrite = CORDIC_NBWRITE_2;
+  config.NbRead = CORDIC_NBREAD_1;
+  config.Precision = CORDIC_PRECISION_6CYCLES;
+  if (HAL_CORDIC_Configure(&hcordic, &config) != HAL_OK ||
+      HAL_CORDIC_Calculate(&hcordic, input, &output, 1u, 2u) != HAL_OK) return -1;
+  /* The phase result is Q3.29 radians on STM32G4 CORDIC. */
+  angle = (float)output / 536870912.0f;
+  if (angle < 0.0f) angle += 6.28318530717958647692f;
+  code = (int32_t)(angle * (256.0f / 6.28318530717958647692f) + 0.5f);
+  *phase = (uint8_t)(code & 0xFF);
+  return 0;
+}
 
 /* USER CODE END 1 */
 

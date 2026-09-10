@@ -1,0 +1,296 @@
+synthesis:  version Diamond (64-bit) 3.13.0.56.2
+
+Copyright (c) 1991-1994 by NeoCAD Inc. All rights reserved.
+Copyright (c) 1995 AT&T Corp.   All rights reserved.
+Copyright (c) 1995-2001 Lucent Technologies Inc.  All rights reserved.
+Copyright (c) 2001 Agere Systems   All rights reserved.
+Copyright (c) 2002-2023 Lattice Semiconductor Corporation,  All rights reserved.
+Thu Sep 10 19:01:14 2026
+
+
+Command Line:  synthesis -f UMH_7_UMH_7_1_lattice.synproj 
+
+Synthesis options:
+The -a option is MachXO2.
+The -s option is 4.
+The -t option is CSBGA132.
+The -d option is LCMXO2-2000HC.
+Using package CSBGA132.
+Using performance grade 4.
+                                                          
+
+##########################################################
+
+### Lattice Family : MachXO2
+
+### Device  : LCMXO2-2000HC
+
+### Package : CSBGA132
+
+### Speed   : 4
+
+##########################################################
+
+                                                          
+
+INFO - synthesis: User-Selected Strategy Settings
+Optimization goal = Balanced
+The -top option is not used.
+Target frequency = 128.000000 MHz.
+Maximum fanout = 1000.
+Timing path count = 3
+BRAM utilization = 100.000000 %
+DSP usage = true
+DSP utilization = 100.000000 %
+fsm_encoding_style = auto
+resolve_mixed_drivers = 0
+fix_gated_clocks = 1
+
+Mux style = Auto
+Use Carry Chain = true
+carry_chain_length = 0
+Loop Limit = 1950.
+Use IO Insertion = TRUE
+Use IO Reg = AUTO
+
+Resource Sharing = TRUE
+Propagate Constants = TRUE
+Remove Duplicate Registers = TRUE
+force_gsr = auto
+ROM style = auto
+RAM style = auto
+The -comp option is FALSE.
+The -syn option is FALSE.
+-p D:/Data/OneDrive/Projects/UMH/Software/UMH Controller/FPGA (searchpath added)
+-p D:/Software/Lattice Diamond/diamond/3.13/ispfpga/xo2c00/data (searchpath added)
+-p D:/Data/OneDrive/Projects/UMH/Software/UMH Controller/FPGA/UMH_7_1 (searchpath added)
+-p D:/Data/OneDrive/Projects/UMH/Software/UMH Controller/FPGA (searchpath added)
+Verilog design file = D:/Data/OneDrive/Projects/UMH/Software/UMH Controller/FPGA/src/umh_fpga_top.v
+Verilog design file = D:/Data/OneDrive/Projects/UMH/Software/UMH Controller/FPGA/src/ws2812_stream.v
+Verilog design file = D:/Data/OneDrive/Projects/UMH/Software/UMH Controller/FPGA/src/spi_mic_stream.v
+NGD file = UMH_7_UMH_7_1.ngd
+-sdc option: SDC file input not used.
+-lpf option: Output file option is ON.
+Hardtimer checking is enabled (default). The -dt option is not used.
+The -r option is OFF. [ Remove LOC Properties is OFF. ]
+WARNING - synthesis: Setting umh_fpga_top as the top-level module. To specify the top-level module explicitly, use the -top option.
+Technology check ok...
+
+Analyzing Verilog file D:/Software/Lattice Diamond/diamond/3.13/ispfpga/userware/NT/SYNTHESIS_HEADERS/machxo2.v. VERI-1482
+Compile design.
+Compile Design Begin
+Analyzing Verilog file d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v. VERI-1482
+Analyzing Verilog file d:/data/onedrive/projects/umh/software/umh controller/fpga/src/ws2812_stream.v. VERI-1482
+Analyzing Verilog file d:/data/onedrive/projects/umh/software/umh controller/fpga/src/spi_mic_stream.v. VERI-1482
+Analyzing Verilog file D:/Software/Lattice Diamond/diamond/3.13/ispfpga/userware/NT/SYNTHESIS_HEADERS/machxo2.v. VERI-1482
+Top module name (Verilog): umh_fpga_top
+INFO - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(58): compiling module umh_fpga_top. VERI-1018
+INFO - synthesis: D:/Software/Lattice Diamond/diamond/3.13/ispfpga/userware/NT/SYNTHESIS_HEADERS/machxo2.v(1730): compiling module EHXPLLJ(CLKFB_DIV=16,CLKOP_DIV=4,CLKOP_CPHASE=3,FEEDBK_PATH="INT_DIVA"). VERI-1018
+INFO - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(25): compiling module umh_channel_ram18. VERI-1018
+INFO - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(43): compiling module umh_toggle_ram84. VERI-1018
+INFO - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/ws2812_stream.v(3): compiling module ws2812_stream. VERI-1018
+INFO - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/spi_mic_stream.v(5): compiling module spi_mic_stream. VERI-1018
+WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(106): input port ENCLKOS is not connected on this instance. VDB-1013
+Loading NGL library 'D:/Software/Lattice Diamond/diamond/3.13/ispfpga/xo2c00a/data/xo2alib.ngl'...
+Loading NGL library 'D:/Software/Lattice Diamond/diamond/3.13/ispfpga/xo2c00/data/xo2clib.ngl'...
+Loading NGL library 'D:/Software/Lattice Diamond/diamond/3.13/ispfpga/mg5g00/data/mg5glib.ngl'...
+Loading NGL library 'D:/Software/Lattice Diamond/diamond/3.13/ispfpga/or5g00/data/orc5glib.ngl'...
+Loading device for application map from file 'xo2c2000.nph' in environment: D:/Software/Lattice Diamond/diamond/3.13/ispfpga.
+Package Status:                     Final          Version 1.44.
+Top-level module name = umh_fpga_top.
+WARNING - synthesis: Bit 127 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 126 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 125 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 124 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 123 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 122 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 121 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 120 of Register status_hold is stuck at One
+WARNING - synthesis: Bit 119 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 118 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 117 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 116 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 115 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 114 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 113 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 112 of Register status_hold is stuck at Zero
+######## Missing driver on net n7136. Patching with GND.
+######## Missing driver on net n7138. Patching with GND.
+######## Missing driver on net n7133. Patching with GND.
+######## Missing driver on net n7137. Patching with GND.
+######## Missing driver on net n7135. Patching with GND.
+######## Missing driver on net n7132. Patching with GND.
+######## Missing driver on net n7134. Patching with GND.
+######## Missing driver on net n7131. Patching with GND.
+######## Missing driver on net n7139. Patching with GND.
+######## Missing driver on net n7140. Patching with GND.
+######## Missing driver on net n7141. Patching with GND.
+######## Missing driver on net n7142. Patching with GND.
+######## Missing driver on net n7143. Patching with GND.
+######## Missing driver on net n7144. Patching with GND.
+######## Missing driver on net n7145. Patching with GND.
+######## Missing driver on net n7146. Patching with GND.
+######## Missing driver on net n7147. Patching with GND.
+######## Missing driver on net n7148. Patching with GND.
+######## Missing driver on net n7149. Patching with GND.
+######## Missing driver on net n7150. Patching with GND.
+WARNING - synthesis: Bit 72 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 111 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 110 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 109 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 108 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 107 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 106 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 105 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 103 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 102 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 101 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 100 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 99 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 98 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 97 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 96 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 95 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 94 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 93 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 92 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 91 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 90 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 89 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 87 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 86 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 85 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 84 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 83 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 82 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 81 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 80 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 79 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 78 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 77 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 75 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 73 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 71 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 70 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 69 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 68 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 67 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 66 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 65 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 64 of Register status_hold is stuck at Zero
+
+
+
+######## Found 2 RTL RAMs in the design.
+######## Mapping RTL RAM \event_ram/mem to 5 EBR blocks in PSEUDO_DUAL_PORT Mode
+
+######## Mapping RTL RAM \staging_ram/mem to 1 EBR blocks in PSEUDO_DUAL_PORT Mode
+
+WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(342): Register spi_expected_length_i16 is stuck at Zero. VDB-5013
+WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/spi_mic_stream.v(31): Register \mic_stream_i/shift_register_i0 is stuck at Zero. VDB-5013
+Duplicate register/latch removal. spi_rx_shift_i1 is a one-to-one match with spi_rx_shift_rep_6_i1.
+Duplicate register/latch removal. spi_rx_shift_i7 is a one-to-one match with spi_rx_shift_rep_6_i7.
+Duplicate register/latch removal. spi_rx_shift_i6 is a one-to-one match with spi_rx_shift_rep_6_i6.
+Duplicate register/latch removal. spi_rx_shift_i5 is a one-to-one match with spi_rx_shift_rep_6_i5.
+Duplicate register/latch removal. spi_rx_shift_i4 is a one-to-one match with spi_rx_shift_rep_6_i4.
+Duplicate register/latch removal. spi_rx_shift_i3 is a one-to-one match with spi_rx_shift_rep_6_i3.
+Duplicate register/latch removal. spi_rx_shift_i2 is a one-to-one match with spi_rx_shift_rep_6_i2.
+GSR instance connected to net fpga_cs_n_N_2458.
+WARNING - synthesis: Initial value found on instance ev_bit_i0 will be ignored.
+Applying 128.000000 MHz constraint to all clocks
+
+WARNING - synthesis: No user .sdc file.
+Results of NGD DRC are available in umh_fpga_top_drc.log.
+Loading NGL library 'D:/Software/Lattice Diamond/diamond/3.13/ispfpga/xo2c00a/data/xo2alib.ngl'...
+Loading NGL library 'D:/Software/Lattice Diamond/diamond/3.13/ispfpga/xo2c00/data/xo2clib.ngl'...
+Loading NGL library 'D:/Software/Lattice Diamond/diamond/3.13/ispfpga/mg5g00/data/mg5glib.ngl'...
+Loading NGL library 'D:/Software/Lattice Diamond/diamond/3.13/ispfpga/or5g00/data/orc5glib.ngl'...
+All blocks are expanded and NGD expansion is successful.
+Writing NGD file UMH_7_UMH_7_1.ngd.
+
+################### Begin Area Report (umh_fpga_top)######################
+Number of register bits => 1490 of 2427 (61 % )
+CCU2D => 99
+EHXPLLJ => 1
+FD1P3AX => 878
+FD1P3AY => 2
+FD1P3DX => 35
+FD1P3IX => 294
+FD1S3AX => 268
+FD1S3AY => 3
+FD1S3DX => 2
+FD1S3IX => 8
+GSR => 1
+IB => 8
+INV => 2
+L6MUX21 => 12
+LUT4 => 787
+OB => 88
+PDPW8KC => 6
+PFUMX => 26
+################### End Area Report ##################
+
+################### Begin BlackBox Report ######################
+TSALL => 1
+################### End BlackBox Report ##################
+
+################### Begin Clock Report ######################
+Clock Nets
+Number of Clocks: 4
+  Net : pll_clk, loads : 1098
+  Net : spi1_sck_c, loads : 361
+  Net : spi_mic_sck_c, loads : 1
+  Net : fpga_clk_8m_c, loads : 1
+Clock Enable Nets
+Number of Clock Enables: 60
+Top 10 highest fanout Clock Enables:
+  Net : ws2812_i/pll_clk_enable_727, loads : 96
+  Net : cs_fall, loads : 68
+  Net : pll_clk_enable_268, loads : 50
+  Net : spi1_sck_c_enable_139, loads : 50
+  Net : pll_clk_enable_382, loads : 50
+  Net : pll_clk_enable_172, loads : 50
+  Net : pll_clk_enable_759, loads : 50
+  Net : spi1_sck_c_enable_226, loads : 50
+  Net : pll_clk_enable_715, loads : 50
+  Net : pll_clk_enable_219, loads : 47
+Highest fanout non-clock nets
+Top 10 highest fanout non-clock nets:
+  Net : ev_state_0, loads : 137
+  Net : ws2812_i/state_1, loads : 113
+  Net : ws2812_i/pll_clk_enable_727, loads : 96
+  Net : spi1_sck_c_enable_272, loads : 92
+  Net : n23163, loads : 92
+  Net : swap_now_d3, loads : 84
+  Net : n13915, loads : 84
+  Net : pll_clk_enable_447, loads : 82
+  Net : spi1_sck_c_enable_177, loads : 76
+  Net : mic_stream_i/sck_N_2937_enable_35, loads : 70
+################### End Clock Report ##################
+
+Timing Report Summary
+--------------
+--------------------------------------------------------------------------------
+Constraint                              |   Constraint|       Actual|Levels
+--------------------------------------------------------------------------------
+                                        |             |             |
+create_clock -period 7.812500 -name     |             |             |
+clk2 [get_nets spi1_sck_c]              |  128.008 MHz|   51.771 MHz|    12 *
+                                        |             |             |
+create_clock -period 7.812500 -name     |             |             |
+clk1 [get_nets spi_mic_sck_c]           |  128.008 MHz|  109.806 MHz|     5 *
+                                        |             |             |
+create_clock -period 7.812500 -name     |             |             |
+clk0 [get_nets pll_clk]                 |  128.008 MHz|   92.285 MHz|     5 *
+                                        |             |             |
+--------------------------------------------------------------------------------
+
+
+3 constraints not met.
+
+
+Peak Memory Usage: 90.129  MB
+
+--------------------------------------------------------------
+Elapsed CPU time for LSE flow : 0.531  secs
+--------------------------------------------------------------

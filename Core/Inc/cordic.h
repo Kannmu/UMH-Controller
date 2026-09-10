@@ -39,6 +39,7 @@ extern CORDIC_HandleTypeDef hcordic;
 /* USER CODE END Private defines */
 
 void MX_CORDIC_Init(void);
+int umh_cordic_phase8(float real, float imag, uint8_t *phase);
 
 /* USER CODE BEGIN Prototypes */
 

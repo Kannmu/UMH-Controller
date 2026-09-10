@@ -32,7 +32,7 @@ typedef struct __attribute__((packed)) {
 } umh_element_coordinate_t;
 
 typedef struct __attribute__((packed)) {
-  uint16_t phase;
+  uint8_t phase;
   uint8_t gain;
   uint8_t enabled;
 } umh_channel_calibration_t;

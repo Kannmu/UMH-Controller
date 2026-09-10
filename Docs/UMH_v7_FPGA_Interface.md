@@ -1,10 +1,10 @@
 # UMH v7 FPGA SPI1 接口
 
-STM32 通过 SPI1 以 8 bit、CPOL=0、CPHA=0、软件片选方式连接 LCMXO2-2000HC-4MG132C。控制链路时钟为 42.5 MHz，由 STM32G4 的 170 MHz PCLK2 通过 `/4` 分频得到，SPI DMA 保证整帧连续传输。PA8 输出 8 MHz HSE MCO，驱动 FPGA 内部 PLL 生成 128 MHz 主时钟。PA4 为软件 CS。完整 384 字节帧的线缆传输时间约为 72 us。
+STM32 通过 SPI1 以 8 bit、CPOL=0、CPHA=0、软件片选方式连接 LCMXO2-2000HC-4MG132C。控制链路时钟为 42.5 MHz，由 STM32G4 的 170 MHz PCLK2 通过 `/4` 分频得到，SPI DMA 保证整帧连续传输。PA8 输出 8 MHz HSE MCO，驱动 FPGA 内部 PLL 生成 128 MHz 主时钟。PA4 为软件 CS。包含 84 路超声和 4 路 RGB 的完整帧为 216 字节，线缆传输时间约为 40.7 us。
 
 FPGA 负责 84 路超声驱动状态、输出帧定时、载波生成、4 路 PDM 麦克风采样和四颗 WS2812C-2020-V6 的串行 GRB 输出。STM32 只提交通道状态和同步字段，不在实时 SPI 事务中生成载波或复制麦克风数据。
 
-FPGA 使用 32 位 DDS 生成载波，每一路直接使用 SPI 传入的完整 16 位 phase 和 8 位 level 字段，不在 FPGA 边界进行精度压缩。level 通过载波周期内的 8 位占空比阈值实现，`us_tx` 始终是 0/1 数字信号，对应外部 0 V/3.3 V 方波。`DeviceProfile` 应报告 16 位相位和 8 位强度实现能力。
+FPGA 使用 32 位 DDS 生成载波，通道线格式固定为 `phase(uint8), level(uint8)`。相位把一个载波周期划分为 256 个码，128 MHz 时钟下相邻码约为 97.65625 ns，实际输出边沿仍对齐到 7.8125 ns 时钟。`level=0` 表示关闭，`level=1..254` 为对应占空比，`level=255` 表示 100% 高电平。`us_tx` 始终是 0/1 数字信号，对应外部 0 V/3.3 V 方波。EEPROM 可以继续保存旧的 16 位校准字，STM32 在载入时转换到 8 位运行格式。
 
 ## STM32 到 FPGA 帧
 
@@ -24,7 +24,7 @@ uint8  digital_state
 uint16 extension_length
 ```
 
-当 `update_flags` 包含超声位时，位图低 84 位有效，随后发送 84 个 `phase(uint16), level(uint8), enabled(uint8)`。当前 STM32 提交完整 84 路状态，位图为全选；FPGA 仍按位图定义接口，便于后续稀疏提交。包含 RGB 位时，随后发送 4 组三字节 RGB 值，顺序为 R、G、B；STM32 已完成颜色与亮度合成。包含扩展位时，发送 `extension_length` 字节，最大 32 字节。数字字段在所有类型帧中固定出现，更新由 `digital_mask` 指示。超声、RGB、数字和扩展数据只在同一提交边界生效。
+当 `update_flags` 包含超声位时，位图低 84 位有效，随后发送 84 个 `phase(uint8), level(uint8)`，共 168 字节。当前 STM32 提交完整 84 路状态，位图为全选；FPGA 仍按位图定义接口，便于后续稀疏提交。包含 RGB 位时，随后发送 4 组三字节 RGB 值，顺序为 R、G、B；STM32 已完成颜色与亮度合成。包含扩展位时，发送 `extension_length` 字节，最大 32 字节。数字字段在所有类型帧中固定出现，更新由 `digital_mask` 指示。超声、RGB、数字和扩展数据只在同一提交边界生效。
 
 FPGA 必须拒绝版本、长度、位图越界、序号非法或 FIFO 无信用的帧，并在安全状态关闭 84 路输出、将 RGB 置为安全值。`STOP` 复位触发输出并清空运行状态；SPI 失联、欠载策略要求停止或检测到输出故障时执行同样的安全动作。
 

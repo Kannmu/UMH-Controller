@@ -49,21 +49,20 @@ static int apply_channel_state(const umh_track_wire_descriptor_t *track,
   uint16_t target_start = 0u;
   uint16_t target_count = UMH_DEVICE_CHANNEL_COUNT;
   uint16_t payload_offset = 0u;
-  uint16_t bitmap_bytes = 0u;
+  uint16_t components;
   if (track == NULL || payload == NULL || frame == NULL) return -1;
-  /* A zero component mask is the wire-compatible shorthand for all fields. */
-  uint16_t components = track->component_mask != 0u ? track->component_mask :
-                        (UMH_TRACK_COMPONENT_PHASE | UMH_TRACK_COMPONENT_LEVEL |
-                         UMH_TRACK_COMPONENT_ENABLE);
+  /* The wire value is always phase8, level8.  A zero level disables a channel;
+   * the legacy enable component is accepted as a descriptor hint only. */
+  components = track->component_mask != 0u ? track->component_mask :
+               (UMH_TRACK_COMPONENT_PHASE | UMH_TRACK_COMPONENT_LEVEL);
   if (track->target_mode == UMH_TARGET_RANGE) {
     target_start = track->target_start;
     target_count = track->target_count;
     if (target_count == 0u || target_start >= UMH_DEVICE_CHANNEL_COUNT ||
         target_count > UMH_DEVICE_CHANNEL_COUNT - target_start) return -2;
   } else if (track->target_mode == UMH_TARGET_BITMAP) {
-    bitmap_bytes = UMH_DEVICE_CHANNEL_BITMAP_BYTES;
-    if (length < bitmap_bytes) return -2;
-    payload_offset = bitmap_bytes;
+    if (length < UMH_DEVICE_CHANNEL_BITMAP_BYTES) return -2;
+    payload_offset = UMH_DEVICE_CHANNEL_BITMAP_BYTES;
     target_count = 0u;
     for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i)
       if ((payload[i / 8u] & (uint8_t)(1u << (i % 8u))) != 0u) ++target_count;
@@ -72,84 +71,59 @@ static int apply_channel_state(const umh_track_wire_descriptor_t *track,
     if (target_count == 0u || target_count > UMH_DEVICE_CHANNEL_COUNT) return -2;
   } else if (track->target_mode != UMH_TARGET_ALL) return -2;
   if (track->encoding == UMH_ENCODING_DENSE) {
-    if (length < payload_offset + target_count * 4u) return -3;
-    if (track->target_mode == UMH_TARGET_SPARSE) return -3;
+    if (track->target_mode == UMH_TARGET_SPARSE || length < payload_offset + target_count * 2u) return -3;
     for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
       uint8_t selected = track->target_mode == UMH_TARGET_BITMAP ?
                          (uint8_t)((payload[i / 8u] >> (i % 8u)) & 1u) :
                          (uint8_t)(i >= target_start && i < target_start + target_count);
-      uint16_t source_index;
+      uint16_t source_index = 0u;
       if (selected == 0u) continue;
-      source_index = track->target_mode == UMH_TARGET_BITMAP ? 0u : (uint16_t)(i - target_start);
       if (track->target_mode == UMH_TARGET_BITMAP) {
-        source_index = 0u;
         for (uint16_t j = 0u; j < i; ++j)
           if ((payload[j / 8u] & (uint8_t)(1u << (j % 8u))) != 0u) ++source_index;
+      } else {
+        source_index = (uint16_t)(i - target_start);
       }
-      source_index = (uint16_t)(payload_offset + source_index * 4u);
-      if ((components & UMH_TRACK_COMPONENT_PHASE) != 0u)
-        frame->channels[i].phase = (uint16_t)payload[source_index] | ((uint16_t)payload[source_index + 1u] << 8);
-      if ((components & UMH_TRACK_COMPONENT_LEVEL) != 0u)
-        frame->channels[i].level = payload[source_index + 2u];
-      if ((components & UMH_TRACK_COMPONENT_ENABLE) != 0u)
-        frame->channels[i].enabled = payload[source_index + 3u];
+      source_index = (uint16_t)(payload_offset + source_index * 2u);
+      if ((components & UMH_TRACK_COMPONENT_PHASE) != 0u) frame->channels[i].phase = payload[source_index];
+      if ((components & UMH_TRACK_COMPONENT_LEVEL) != 0u) frame->channels[i].level = payload[source_index + 1u];
     }
   } else if (track->encoding == UMH_ENCODING_SPARSE ||
              track->encoding == UMH_ENCODING_DELTA ||
              track->encoding == UMH_ENCODING_ZERO_SUPPRESS ||
              (track->encoding == UMH_ENCODING_CONSTANT && track->target_mode == UMH_TARGET_SPARSE)) {
     uint16_t pos = payload_offset;
-    uint16_t end = length;
     uint8_t seen[UMH_DEVICE_CHANNEL_COUNT] = {0u};
     uint16_t seen_count = 0u;
-    while (pos + 6u <= end) {
+    while (pos + 4u <= length) {
       uint16_t channel = (uint16_t)payload[pos] | ((uint16_t)payload[pos + 1u] << 8);
-      if (channel >= UMH_DEVICE_CHANNEL_COUNT) return -3;
-      if (seen[channel] != 0u) return -3;
+      if (channel >= UMH_DEVICE_CHANNEL_COUNT || seen[channel] != 0u) return -3;
       seen[channel] = 1u;
       ++seen_count;
-      if (track->target_mode == UMH_TARGET_RANGE &&
-          (channel < target_start || channel >= target_start + target_count)) return -3;
-      if (track->target_mode == UMH_TARGET_BITMAP &&
-          (payload[channel / 8u] & (uint8_t)(1u << (channel % 8u))) == 0u) return -3;
+      if (track->target_mode == UMH_TARGET_RANGE && (channel < target_start || channel >= target_start + target_count)) return -3;
+      if (track->target_mode == UMH_TARGET_BITMAP && (payload[channel / 8u] & (uint8_t)(1u << (channel % 8u))) == 0u) return -3;
       if (track->encoding == UMH_ENCODING_DELTA) {
-        int16_t phase_delta = (int16_t)((uint16_t)payload[pos + 2u] |
-                                        ((uint16_t)payload[pos + 3u] << 8));
-        int32_t level = (int32_t)frame->channels[channel].level + (int8_t)payload[pos + 4u];
-        if ((components & UMH_TRACK_COMPONENT_PHASE) != 0u)
-          frame->channels[channel].phase = (uint16_t)(frame->channels[channel].phase + phase_delta);
-        if ((components & UMH_TRACK_COMPONENT_LEVEL) != 0u)
-          frame->channels[channel].level = (uint8_t)(level < 0 ? 0 : level > 255 ? 255 : level);
+        int16_t level = (int16_t)frame->channels[channel].level + (int8_t)payload[pos + 3u];
+        if ((components & UMH_TRACK_COMPONENT_PHASE) != 0u) frame->channels[channel].phase = (uint8_t)(frame->channels[channel].phase + (int8_t)payload[pos + 2u]);
+        if ((components & UMH_TRACK_COMPONENT_LEVEL) != 0u) frame->channels[channel].level = (uint8_t)(level < 0 ? 0 : level > 255 ? 255 : level);
       } else {
-        if ((components & UMH_TRACK_COMPONENT_PHASE) != 0u)
-          frame->channels[channel].phase = (uint16_t)payload[pos + 2u] | ((uint16_t)payload[pos + 3u] << 8);
-        if ((components & UMH_TRACK_COMPONENT_LEVEL) != 0u)
-          frame->channels[channel].level = payload[pos + 4u];
+        if ((components & UMH_TRACK_COMPONENT_PHASE) != 0u) frame->channels[channel].phase = payload[pos + 2u];
+        if ((components & UMH_TRACK_COMPONENT_LEVEL) != 0u) frame->channels[channel].level = payload[pos + 3u];
       }
-      if ((components & UMH_TRACK_COMPONENT_ENABLE) != 0u)
-        frame->channels[channel].enabled = payload[pos + 5u];
-      pos = (uint16_t)(pos + 6u);
+      pos = (uint16_t)(pos + 4u);
     }
-    if (pos != end || seen_count == 0u ||
+    if (pos != length || seen_count == 0u ||
         (track->target_mode == UMH_TARGET_SPARSE && seen_count != target_count) ||
         (track->target_mode == UMH_TARGET_BITMAP && seen_count > target_count)) return -3;
   } else if (track->encoding == UMH_ENCODING_CONSTANT) {
-    if (length < payload_offset + 4u) return -4;
+    if (length != payload_offset + 2u) return -4;
     for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
-      if (track->target_mode == UMH_TARGET_BITMAP &&
-          (payload[i / 8u] & (uint8_t)(1u << (i % 8u))) == 0u) continue;
-      if (track->target_mode == UMH_TARGET_RANGE &&
-          (i < target_start || i >= target_start + target_count)) continue;
-      if ((components & UMH_TRACK_COMPONENT_PHASE) != 0u)
-        frame->channels[i].phase = (uint16_t)payload[payload_offset] | ((uint16_t)payload[payload_offset + 1u] << 8);
-      if ((components & UMH_TRACK_COMPONENT_LEVEL) != 0u)
-        frame->channels[i].level = payload[payload_offset + 2u];
-      if ((components & UMH_TRACK_COMPONENT_ENABLE) != 0u)
-        frame->channels[i].enabled = payload[payload_offset + 3u];
+      if (track->target_mode == UMH_TARGET_BITMAP && (payload[i / 8u] & (uint8_t)(1u << (i % 8u))) == 0u) continue;
+      if (track->target_mode == UMH_TARGET_RANGE && (i < target_start || i >= target_start + target_count)) continue;
+      if ((components & UMH_TRACK_COMPONENT_PHASE) != 0u) frame->channels[i].phase = payload[payload_offset];
+      if ((components & UMH_TRACK_COMPONENT_LEVEL) != 0u) frame->channels[i].level = payload[payload_offset + 1u];
     }
-  } else {
-    return -5;
-  }
+  } else return -5;
   frame->update_flags |= UMH_FRAME_FLAG_ULTRASOUND;
   return 0;
 }

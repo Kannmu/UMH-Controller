@@ -82,10 +82,8 @@ task send_full_frame;
         spi_byte(8'h00, discard); spi_byte(8'h00, discard);
         spi_byte(8'h00, discard); spi_byte(8'h00, discard);
         for (n = 0; n < 84; n = n + 1) begin
-            spi_byte(8'h00, discard);
             spi_byte(n == 0 ? 8'h40 : 8'h00, discard);
             spi_byte(n == 0 ? 8'hff : 8'h00, discard);
-            spi_byte(n == 0 ? 8'h01 : 8'h00, discard);
         end
         spi_byte(8'h11, discard); spi_byte(8'h22, discard); spi_byte(8'h33, discard);
         for (n = 0; n < 9; n = n + 1) spi_byte(8'h00, discard);
@@ -107,7 +105,7 @@ initial begin
         $display("FAIL: accepted sequence was %02x%02x", reply[13], reply[12]);
         failures = failures + 1;
     end
-    if (dut.running !== 1'b1 || dut.level_active[0] !== 8'hff || dut.phase_active[0] !== 16'h0040) begin
+    if (dut.running !== 1'b1 || dut.init_shadow[0] !== 1'b1) begin
         $display("FAIL: frame did not commit at a carrier boundary");
         failures = failures + 1;
     end

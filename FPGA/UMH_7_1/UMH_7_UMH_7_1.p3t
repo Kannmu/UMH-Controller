@@ -1,0 +1,5 @@
+-rem
+-distrce
+-log "UMH_7_UMH_7_1.log"
+-o "UMH_7_UMH_7_1.csv"
+-pr "UMH_7_UMH_7_1.prf"

@@ -19,10 +19,10 @@ void device_profile_init(umh_device_profile_t *target)
   target->channel_count = UMH_DEVICE_CHANNEL_COUNT;
   target->rgb_count = UMH_DEVICE_RGB_COUNT;
   target->microphone_count = UMH_DEVICE_MIC_COUNT;
-  /* The 2000HC implementation exposes one phase bit and a two-bit level
-   * envelope in the parallel output bank.  Input frames remain 16/8-bit and
-   * are quantized at the FPGA boundary. */
-  target->phase_bits = 16u;
+  /* The FPGA wire format uses one byte for phase and one byte for level.
+   * EEPROM calibration keeps its legacy 16-bit phase storage and is reduced
+   * to the wire resolution by the renderer. */
+  target->phase_bits = 8u;
   target->intensity_bits = 8u;
   target->max_frame_rate = 10000u;
   target->timebase_hz = UMH_DEVICE_TIMEBASE_HZ;

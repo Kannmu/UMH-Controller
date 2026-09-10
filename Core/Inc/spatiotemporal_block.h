@@ -115,14 +115,13 @@ typedef struct __attribute__((packed)) {
   int32_t y_um;
   int32_t z_um;
   uint8_t level;
-  uint16_t phase;
+  uint8_t phase;
   uint8_t source_id;
 } umh_spatial_point_t;
 
 typedef struct __attribute__((packed)) {
-  uint16_t phase;
+  uint8_t phase;
   uint8_t level;
-  uint8_t enabled;
 } umh_channel_value_t;
 
 typedef struct {
@@ -137,7 +136,7 @@ typedef struct {
 _Static_assert(sizeof(umh_block_wire_header_t) == 36u, "block header wire size");
 _Static_assert(sizeof(umh_track_wire_descriptor_t) == 22u, "track descriptor wire size");
 _Static_assert(sizeof(umh_record_wire_prefix_t) == 3u, "record prefix wire size");
-_Static_assert(sizeof(umh_spatial_point_t) == 16u, "spatial point wire size");
+_Static_assert(sizeof(umh_spatial_point_t) == 15u, "spatial point wire size");
 
 int spatiotemporal_block_begin(umh_block_context_t *block,
                                const uint8_t *payload, uint16_t length);

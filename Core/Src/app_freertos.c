@@ -637,7 +637,9 @@ static void application_init(void)
     uint16_t i;
     const eeprom_profile_record_t *record = eeprom_profile_current(&eeprom_profile);
     for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
-      calibration[i].phase = record->phase[i];
+      /* EEPROM v7 keeps the historical 16-bit phase word.  The renderer and
+       * FPGA link use the upper byte as the new 8-bit phase contract. */
+      calibration[i].phase = (uint8_t)(record->phase[i] >> 8);
       calibration[i].gain = record->gain[i];
       calibration[i].enabled = (uint8_t)((record->enabled[i / 8u] >> (i % 8u)) & 1u);
     }

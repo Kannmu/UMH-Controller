@@ -1,0 +1,479 @@
+PAD Specification File
+***************************
+
+PART TYPE:        LCMXO2-2000HC
+Performance Grade:      4
+PACKAGE:          CSBGA132
+Package Status:                     Final          Version 1.44
+
+Thu Sep 10 19:01:21 2026
+
+Pinout by Port Name:
++--------------+----------+--------------+-------+-----------+-----------+--------------------------------------+
+| Port Name    | Pin/Bank | Buffer Type  | Site  | PG Enable | BC Enable | Properties                           |
++--------------+----------+--------------+-------+-----------+-----------+--------------------------------------+
+| fpga_clk_8m  | C1/5     | LVCMOS33_IN  | PL2A  |           |           | PULL:DOWN CLAMP:ON HYSTERESIS:SMALL  |
+| fpga_cs_n    | M1/3     | LVCMOS33_IN  | PL14A |           |           | PULL:UP CLAMP:ON HYSTERESIS:SMALL    |
+| mic_clk      | J2/4     | LVCMOS33_OUT | PL10B |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| mic_data_0   | K2/3     | LVCMOS33_IN  | PL11B |           |           | PULL:DOWN CLAMP:ON HYSTERESIS:SMALL  |
+| mic_data_1   | F2/5     | LVCMOS33_IN  | PL5B  |           |           | PULL:DOWN CLAMP:ON HYSTERESIS:SMALL  |
+| rgb_data     | J3/3     | LVCMOS33_OUT | PL11A |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| spi1_miso    | J1/4     | LVCMOS33_OUT | PL10A |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| spi1_mosi    | H1/4     | LVCMOS33_IN  | PL9A  |           |           | PULL:DOWN CLAMP:ON HYSTERESIS:SMALL  |
+| spi1_sck     | K1/3     | LVCMOS33_IN  | PL12A |           |           | PULL:DOWN CLAMP:ON HYSTERESIS:SMALL  |
+| spi_mic_cs_n | B1/5     | LVCMOS33_IN  | PL1A  |           |           | PULL:UP CLAMP:ON HYSTERESIS:SMALL    |
+| spi_mic_miso | E1/5     | LVCMOS33_OUT | PL4A  |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| spi_mic_sck  | D1/5     | LVCMOS33_IN  | PL3B  |           |           | PULL:DOWN CLAMP:ON HYSTERESIS:SMALL  |
+| us_tx[0]     | A3/0     | LVCMOS33_OUT | PT11A |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[10]    | B8/0     | LVCMOS33_OUT | PT18D |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[11]    | C9/0     | LVCMOS33_OUT | PT19A |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[12]    | C2/5     | LVCMOS33_OUT | PL3A  |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[13]    | C3/5     | LVCMOS33_OUT | PL2B  |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[14]    | F3/4     | LVCMOS33_OUT | PL6B  |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[15]    | E3/5     | LVCMOS33_OUT | PL5A  |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[16]    | G3/4     | LVCMOS33_OUT | PL7C  |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[17]    | A7/0     | LVCMOS33_OUT | PT17A |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[18]    | A9/0     | LVCMOS33_OUT | PT19B |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[19]    | A11/0    | LVCMOS33_OUT | PT22A |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[1]     | C6/0     | LVCMOS33_OUT | PT13B |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[20]    | C8/0     | LVCMOS33_OUT | PT18C |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[21]    | G12/1    | LVCMOS33_OUT | PR6A  |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[22]    | C13/1    | LVCMOS33_OUT | PR1B  |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[23]    | H12/1    | LVCMOS33_OUT | PR7B  |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[24]    | F14/1    | LVCMOS33_OUT | PR5B  |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[25]    | E13/1    | LVCMOS33_OUT | PR4A  |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[26]    | B14/1    | LVCMOS33_OUT | PR1A  |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[27]    | B12/0    | LVCMOS33_OUT | PT22B |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[28]    | G14/1    | LVCMOS33_OUT | PR6B  |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[29]    | F13/1    | LVCMOS33_OUT | PR5A  |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[2]     | A2/0     | LVCMOS33_OUT | PT9A  |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[30]    | E12/1    | LVCMOS33_OUT | PR3A  |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[31]    | C12/0    | LVCMOS33_OUT | PT23A |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[32]    | A13/0    | LVCMOS33_OUT | PT24D |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[33]    | G13/1    | LVCMOS33_OUT | PR7A  |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[34]    | F12/1    | LVCMOS33_OUT | PR4B  |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[35]    | H3/4     | LVCMOS33_OUT | PL9B  |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[36]    | E14/1    | LVCMOS33_OUT | PR3B  |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[37]    | D12/1    | LVCMOS33_OUT | PR2B  |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[38]    | C14/1    | LVCMOS33_OUT | PR2A  |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[39]    | B13/0    | LVCMOS33_OUT | PT24C |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[3]     | E2/5     | LVCMOS33_OUT | PL4B  |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[40]    | A12/0    | LVCMOS33_OUT | PT23B |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[41]    | C11/0    | LVCMOS33_OUT | PT21B |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[42]    | K14/1    | LVCMOS33_OUT | PR11B |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[43]    | M10/2    | LVCMOS33_OUT | PB22A |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[44]    | J14/1    | LVCMOS33_OUT | PR9B  |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[45]    | K13/1    | LVCMOS33_OUT | PR11A |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[46]    | M13/1    | LVCMOS33_OUT | PR12B |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[47]    | J13/1    | LVCMOS33_OUT | PR10A |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[48]    | K12/1    | LVCMOS33_OUT | PR10B |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[49]    | M12/1    | LVCMOS33_OUT | PR13A |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[4]     | C4/0     | LVCMOS33_OUT | PT11B |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[50]    | N14/1    | LVCMOS33_OUT | PR14B |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[51]    | P13/2    | LVCMOS33_OUT | PB25B |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[52]    | P11/2    | LVCMOS33_OUT | PB22B |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[53]    | J12/1    | LVCMOS33_OUT | PR9A  |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[54]    | L14/1    | LVCMOS33_OUT | PR12A |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[55]    | M14/1    | LVCMOS33_OUT | PR13B |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[56]    | M11/2    | LVCMOS33_OUT | PB24A |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[57]    | M9/2     | LVCMOS33_OUT | PB21A |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[58]    | M8/2     | LVCMOS33_OUT | PB18B |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[59]    | N13/1    | LVCMOS33_OUT | PR14A |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[5]     | B7/0     | LVCMOS33_OUT | PT17B |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[60]    | P12/2    | LVCMOS33_OUT | PB24B |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[61]    | N9/2     | LVCMOS33_OUT | PB19B |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[62]    | N10/2    | LVCMOS33_OUT | PB21B |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[63]    | P3/2     | LVCMOS33_OUT | PB5A  |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[64]    | N4/2     | LVCMOS33_OUT | PB8B  |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[65]    | M4/2     | LVCMOS33_OUT | PB8A  |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[66]    | M5/2     | LVCMOS33_OUT | PB9B  |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[67]    | K3/3     | LVCMOS33_OUT | PL12B |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[68]    | N6/2     | LVCMOS33_OUT | PB11A |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[69]    | M7/2     | LVCMOS33_OUT | PB16A |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[6]     | A10/0    | LVCMOS33_OUT | PT21A |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[70]    | P2/2     | LVCMOS33_OUT | PB3A  |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[71]    | N3/2     | LVCMOS33_OUT | PB6A  |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[72]    | N8/2     | LVCMOS33_OUT | PB16B |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[73]    | N2/2     | LVCMOS33_OUT | PB3B  |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[74]    | M3/2     | LVCMOS33_OUT | PB5B  |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[75]    | M2/3     | LVCMOS33_OUT | PL14B |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[76]    | P4/2     | LVCMOS33_OUT | PB6B  |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[77]    | N5/2     | LVCMOS33_OUT | PB9A  |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[78]    | P7/2     | LVCMOS33_OUT | PB12A |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[79]    | P9/2     | LVCMOS33_OUT | PB19A |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[7]     | B2/5     | LVCMOS33_OUT | PL1B  |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[80]    | L3/3     | LVCMOS33_OUT | PL13B |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[81]    | P6/2     | LVCMOS33_OUT | PB11B |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[82]    | N7/2     | LVCMOS33_OUT | PB12B |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[83]    | P8/2     | LVCMOS33_OUT | PB18A |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[8]     | B3/0     | LVCMOS33_OUT | PT9B  |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| us_tx[9]     | B5/0     | LVCMOS33_OUT | PT13A |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
++--------------+----------+--------------+-------+-----------+-----------+--------------------------------------+
+
+Vccio by Bank:
++------+-------+
+| Bank | Vccio |
++------+-------+
+| 0    | 3.3V  |
+| 1    | 3.3V  |
+| 2    | 3.3V  |
+| 3    | 3.3V  |
+| 4    | 3.3V  |
+| 5    | 3.3V  |
++------+-------+
+
+Vref by Bank:
++------+-----+-----------------+---------+
+| Vref | Pin | Bank # / Vref # | Load(s) |
++------+-----+-----------------+---------+
++------+-----+-----------------+---------+
+
+Pinout by Pin Number:
++----------+-----------------------+------------+--------------+-------+---------------+-----------+-----------+
+| Pin/Bank | Pin Info              | Preference | Buffer Type  | Site  | Dual Function | PG Enable | BC Enable |
++----------+-----------------------+------------+--------------+-------+---------------+-----------+-----------+
+| A2/0     | us_tx[2]              | LOCATED    | LVCMOS33_OUT | PT9A  |               |           |           |
+| A3/0     | us_tx[0]              | LOCATED    | LVCMOS33_OUT | PT11A |               |           |           |
+| A4/0     | Reserved: sysCONFIG   |            |              | PT12C | TDO           |           |           |
+| A6/0     | Reserved: sysCONFIG   |            |              | PT16D | TMS           |           |           |
+| A7/0     | us_tx[17]             | LOCATED    | LVCMOS33_OUT | PT17A | PCLKT0_1      |           |           |
+| A9/0     | us_tx[18]             | LOCATED    | LVCMOS33_OUT | PT19B |               |           |           |
+| A10/0    | us_tx[6]              | LOCATED    | LVCMOS33_OUT | PT21A |               |           |           |
+| A11/0    | us_tx[19]             | LOCATED    | LVCMOS33_OUT | PT22A |               |           |           |
+| A12/0    | us_tx[40]             | LOCATED    | LVCMOS33_OUT | PT23B |               |           |           |
+| A13/0    | us_tx[32]             | LOCATED    | LVCMOS33_OUT | PT24D | DONE          |           |           |
+| B1/5     | spi_mic_cs_n          | LOCATED    | LVCMOS33_IN  | PL1A  | L_GPLLT_FB    |           |           |
+| B2/5     | us_tx[7]              | LOCATED    | LVCMOS33_OUT | PL1B  | L_GPLLC_FB    |           |           |
+| B3/0     | us_tx[8]              | LOCATED    | LVCMOS33_OUT | PT9B  |               |           |           |
+| B4/0     | Reserved: sysCONFIG   |            |              | PT12D | TDI           |           |           |
+| B5/0     | us_tx[9]              | LOCATED    | LVCMOS33_OUT | PT13A |               |           |           |
+| B6/0     | Reserved: sysCONFIG   |            |              | PT16C | TCK           |           |           |
+| B7/0     | us_tx[5]              | LOCATED    | LVCMOS33_OUT | PT17B | PCLKC0_1      |           |           |
+| B8/0     | us_tx[10]             | LOCATED    | LVCMOS33_OUT | PT18D | SDA/PCLKC0_0  |           |           |
+| B9/0     |     unused, PULL:DOWN |            |              | PT20C | JTAGENB       |           |           |
+| B12/0    | us_tx[27]             | LOCATED    | LVCMOS33_OUT | PT22B |               |           |           |
+| B13/0    | us_tx[39]             | LOCATED    | LVCMOS33_OUT | PT24C | INITN         |           |           |
+| B14/1    | us_tx[26]             | LOCATED    | LVCMOS33_OUT | PR1A  | DQ0           |           |           |
+| C1/5     | fpga_clk_8m           | LOCATED    | LVCMOS33_IN  | PL2A  | L_GPLLT_IN    |           |           |
+| C2/5     | us_tx[12]             | LOCATED    | LVCMOS33_OUT | PL3A  | PCLKT5_0      |           |           |
+| C3/5     | us_tx[13]             | LOCATED    | LVCMOS33_OUT | PL2B  | L_GPLLC_IN    |           |           |
+| C4/0     | us_tx[4]              | LOCATED    | LVCMOS33_OUT | PT11B |               |           |           |
+| C6/0     | us_tx[1]              | LOCATED    | LVCMOS33_OUT | PT13B |               |           |           |
+| C8/0     | us_tx[20]             | LOCATED    | LVCMOS33_OUT | PT18C | SCL/PCLKT0_0  |           |           |
+| C9/0     | us_tx[11]             | LOCATED    | LVCMOS33_OUT | PT19A |               |           |           |
+| C10/0    |     unused, PULL:DOWN |            |              | PT20D | PROGRAMN      |           |           |
+| C11/0    | us_tx[41]             | LOCATED    | LVCMOS33_OUT | PT21B |               |           |           |
+| C12/0    | us_tx[31]             | LOCATED    | LVCMOS33_OUT | PT23A |               |           |           |
+| C13/1    | us_tx[22]             | LOCATED    | LVCMOS33_OUT | PR1B  | DQ0           |           |           |
+| C14/1    | us_tx[38]             | LOCATED    | LVCMOS33_OUT | PR2A  | DQ0           |           |           |
+| D1/5     | spi_mic_sck           | LOCATED    | LVCMOS33_IN  | PL3B  | PCLKC5_0      |           |           |
+| D12/1    | us_tx[37]             | LOCATED    | LVCMOS33_OUT | PR2B  | DQ0           |           |           |
+| E1/5     | spi_mic_miso          | LOCATED    | LVCMOS33_OUT | PL4A  |               |           |           |
+| E2/5     | us_tx[3]              | LOCATED    | LVCMOS33_OUT | PL4B  |               |           |           |
+| E3/5     | us_tx[15]             | LOCATED    | LVCMOS33_OUT | PL5A  |               |           |           |
+| E12/1    | us_tx[30]             | LOCATED    | LVCMOS33_OUT | PR3A  | DQ0           |           |           |
+| E13/1    | us_tx[25]             | LOCATED    | LVCMOS33_OUT | PR4A  | DQ0           |           |           |
+| E14/1    | us_tx[36]             | LOCATED    | LVCMOS33_OUT | PR3B  | DQ0           |           |           |
+| F1/4     |     unused, PULL:DOWN |            |              | PL6A  |               |           |           |
+| F2/5     | mic_data_1            | LOCATED    | LVCMOS33_IN  | PL5B  |               |           |           |
+| F3/4     | us_tx[14]             | LOCATED    | LVCMOS33_OUT | PL6B  |               |           |           |
+| F12/1    | us_tx[34]             | LOCATED    | LVCMOS33_OUT | PR4B  | DQ0           |           |           |
+| F13/1    | us_tx[29]             | LOCATED    | LVCMOS33_OUT | PR5A  | DQ0           |           |           |
+| F14/1    | us_tx[24]             | LOCATED    | LVCMOS33_OUT | PR5B  | DQ0           |           |           |
+| G3/4     | us_tx[16]             | LOCATED    | LVCMOS33_OUT | PL7C  | PCLKT4_0      |           |           |
+| G12/1    | us_tx[21]             | LOCATED    | LVCMOS33_OUT | PR6A  | DQS0          |           |           |
+| G13/1    | us_tx[33]             | LOCATED    | LVCMOS33_OUT | PR7A  | PCLKT1_0/DQ0  |           |           |
+| G14/1    | us_tx[28]             | LOCATED    | LVCMOS33_OUT | PR6B  | DQS0N         |           |           |
+| H1/4     | spi1_mosi             | LOCATED    | LVCMOS33_IN  | PL9A  |               |           |           |
+| H2/4     |     unused, PULL:DOWN |            |              | PL7D  | PCLKC4_0      |           |           |
+| H3/4     | us_tx[35]             | LOCATED    | LVCMOS33_OUT | PL9B  |               |           |           |
+| H12/1    | us_tx[23]             | LOCATED    | LVCMOS33_OUT | PR7B  | PCLKC1_0/DQ0  |           |           |
+| J1/4     | spi1_miso             | LOCATED    | LVCMOS33_OUT | PL10A |               |           |           |
+| J2/4     | mic_clk               | LOCATED    | LVCMOS33_OUT | PL10B |               |           |           |
+| J3/3     | rgb_data              | LOCATED    | LVCMOS33_OUT | PL11A |               |           |           |
+| J12/1    | us_tx[53]             | LOCATED    | LVCMOS33_OUT | PR9A  | DQS1          |           |           |
+| J13/1    | us_tx[47]             | LOCATED    | LVCMOS33_OUT | PR10A | DQ1           |           |           |
+| J14/1    | us_tx[44]             | LOCATED    | LVCMOS33_OUT | PR9B  | DQS1N         |           |           |
+| K1/3     | spi1_sck              | LOCATED    | LVCMOS33_IN  | PL12A | PCLKT3_0      |           |           |
+| K2/3     | mic_data_0            | LOCATED    | LVCMOS33_IN  | PL11B |               |           |           |
+| K3/3     | us_tx[67]             | LOCATED    | LVCMOS33_OUT | PL12B | PCLKC3_0      |           |           |
+| K12/1    | us_tx[48]             | LOCATED    | LVCMOS33_OUT | PR10B | DQ1           |           |           |
+| K13/1    | us_tx[45]             | LOCATED    | LVCMOS33_OUT | PR11A | DQ1           |           |           |
+| K14/1    | us_tx[42]             | LOCATED    | LVCMOS33_OUT | PR11B | DQ1           |           |           |
+| L3/3     | us_tx[80]             | LOCATED    | LVCMOS33_OUT | PL13B |               |           |           |
+| L14/1    | us_tx[54]             | LOCATED    | LVCMOS33_OUT | PR12A | DQ1           |           |           |
+| M1/3     | fpga_cs_n             | LOCATED    | LVCMOS33_IN  | PL14A |               |           |           |
+| M2/3     | us_tx[75]             | LOCATED    | LVCMOS33_OUT | PL14B |               |           |           |
+| M3/2     | us_tx[74]             | LOCATED    | LVCMOS33_OUT | PB5B  |               |           |           |
+| M4/2     | us_tx[65]             | LOCATED    | LVCMOS33_OUT | PB8A  | MCLK/CCLK     |           |           |
+| M5/2     | us_tx[66]             | LOCATED    | LVCMOS33_OUT | PB9B  |               |           |           |
+| M7/2     | us_tx[69]             | LOCATED    | LVCMOS33_OUT | PB16A | PCLKT2_1      |           |           |
+| M8/2     | us_tx[58]             | LOCATED    | LVCMOS33_OUT | PB18B |               |           |           |
+| M9/2     | us_tx[57]             | LOCATED    | LVCMOS33_OUT | PB21A |               |           |           |
+| M10/2    | us_tx[43]             | LOCATED    | LVCMOS33_OUT | PB22A |               |           |           |
+| M11/2    | us_tx[56]             | LOCATED    | LVCMOS33_OUT | PB24A |               |           |           |
+| M12/1    | us_tx[49]             | LOCATED    | LVCMOS33_OUT | PR13A | DQ1           |           |           |
+| M13/1    | us_tx[46]             | LOCATED    | LVCMOS33_OUT | PR12B | DQ1           |           |           |
+| M14/1    | us_tx[55]             | LOCATED    | LVCMOS33_OUT | PR13B | DQ1           |           |           |
+| N2/2     | us_tx[73]             | LOCATED    | LVCMOS33_OUT | PB3B  |               |           |           |
+| N3/2     | us_tx[71]             | LOCATED    | LVCMOS33_OUT | PB6A  |               |           |           |
+| N4/2     | us_tx[64]             | LOCATED    | LVCMOS33_OUT | PB8B  | SO/SPISO      |           |           |
+| N5/2     | us_tx[77]             | LOCATED    | LVCMOS33_OUT | PB9A  |               |           |           |
+| N6/2     | us_tx[68]             | LOCATED    | LVCMOS33_OUT | PB11A | PCLKT2_0      |           |           |
+| N7/2     | us_tx[82]             | LOCATED    | LVCMOS33_OUT | PB12B |               |           |           |
+| N8/2     | us_tx[72]             | LOCATED    | LVCMOS33_OUT | PB16B | PCLKC2_1      |           |           |
+| N9/2     | us_tx[61]             | LOCATED    | LVCMOS33_OUT | PB19B |               |           |           |
+| N10/2    | us_tx[62]             | LOCATED    | LVCMOS33_OUT | PB21B |               |           |           |
+| N12/2    |     unused, PULL:DOWN |            |              | PB25A | SN            |           |           |
+| N13/1    | us_tx[59]             | LOCATED    | LVCMOS33_OUT | PR14A | DQ1           |           |           |
+| N14/1    | us_tx[50]             | LOCATED    | LVCMOS33_OUT | PR14B | DQ1           |           |           |
+| P2/2     | us_tx[70]             | LOCATED    | LVCMOS33_OUT | PB3A  |               |           |           |
+| P3/2     | us_tx[63]             | LOCATED    | LVCMOS33_OUT | PB5A  | CSSPIN        |           |           |
+| P4/2     | us_tx[76]             | LOCATED    | LVCMOS33_OUT | PB6B  |               |           |           |
+| P6/2     | us_tx[81]             | LOCATED    | LVCMOS33_OUT | PB11B | PCLKC2_0      |           |           |
+| P7/2     | us_tx[78]             | LOCATED    | LVCMOS33_OUT | PB12A |               |           |           |
+| P8/2     | us_tx[83]             | LOCATED    | LVCMOS33_OUT | PB18A |               |           |           |
+| P9/2     | us_tx[79]             | LOCATED    | LVCMOS33_OUT | PB19A |               |           |           |
+| P11/2    | us_tx[52]             | LOCATED    | LVCMOS33_OUT | PB22B |               |           |           |
+| P12/2    | us_tx[60]             | LOCATED    | LVCMOS33_OUT | PB24B |               |           |           |
+| P13/2    | us_tx[51]             | LOCATED    | LVCMOS33_OUT | PB25B | SI/SISPI      |           |           |
+| PB3C/2   |     unused, PULL:DOWN |            |              | PB3C  |               |           |           |
+| PB3D/2   |     unused, PULL:DOWN |            |              | PB3D  |               |           |           |
+| PB5C/2   |     unused, PULL:DOWN |            |              | PB5C  |               |           |           |
+| PB5D/2   |     unused, PULL:DOWN |            |              | PB5D  |               |           |           |
+| PB6C/2   |     unused, PULL:DOWN |            |              | PB6C  |               |           |           |
+| PB6D/2   |     unused, PULL:DOWN |            |              | PB6D  |               |           |           |
+| PB8C/2   |     unused, PULL:DOWN |            |              | PB8C  |               |           |           |
+| PB8D/2   |     unused, PULL:DOWN |            |              | PB8D  |               |           |           |
+| PB9C/2   |     unused, PULL:DOWN |            |              | PB9C  |               |           |           |
+| PB9D/2   |     unused, PULL:DOWN |            |              | PB9D  |               |           |           |
+| PB11C/2  |     unused, PULL:DOWN |            |              | PB11C |               |           |           |
+| PB11D/2  |     unused, PULL:DOWN |            |              | PB11D |               |           |           |
+| PB12C/2  |     unused, PULL:DOWN |            |              | PB12C |               |           |           |
+| PB12D/2  |     unused, PULL:DOWN |            |              | PB12D |               |           |           |
+| PB16C/2  |     unused, PULL:DOWN |            |              | PB16C |               |           |           |
+| PB16D/2  |     unused, PULL:DOWN |            |              | PB16D |               |           |           |
+| PB18C/2  |     unused, PULL:DOWN |            |              | PB18C |               |           |           |
+| PB18D/2  |     unused, PULL:DOWN |            |              | PB18D |               |           |           |
+| PB19C/2  |     unused, PULL:DOWN |            |              | PB19C |               |           |           |
+| PB19D/2  |     unused, PULL:DOWN |            |              | PB19D |               |           |           |
+| PB21C/2  |     unused, PULL:DOWN |            |              | PB21C |               |           |           |
+| PB21D/2  |     unused, PULL:DOWN |            |              | PB21D |               |           |           |
+| PB22C/2  |     unused, PULL:DOWN |            |              | PB22C |               |           |           |
+| PB22D/2  |     unused, PULL:DOWN |            |              | PB22D |               |           |           |
+| PB24C/2  |     unused, PULL:DOWN |            |              | PB24C |               |           |           |
+| PB24D/2  |     unused, PULL:DOWN |            |              | PB24D |               |           |           |
+| PB25C/2  |     unused, PULL:DOWN |            |              | PB25C |               |           |           |
+| PB25D/2  |     unused, PULL:DOWN |            |              | PB25D |               |           |           |
+| PL1C/5   |     unused, PULL:DOWN |            |              | PL1C  |               |           |           |
+| PL1D/5   |     unused, PULL:DOWN |            |              | PL1D  |               |           |           |
+| PL2C/5   |     unused, PULL:DOWN |            |              | PL2C  |               |           |           |
+| PL2D/5   |     unused, PULL:DOWN |            |              | PL2D  |               |           |           |
+| PL3C/5   |     unused, PULL:DOWN |            |              | PL3C  |               |           |           |
+| PL3D/5   |     unused, PULL:DOWN |            |              | PL3D  |               |           |           |
+| PL4C/5   |     unused, PULL:DOWN |            |              | PL4C  |               |           |           |
+| PL4D/5   |     unused, PULL:DOWN |            |              | PL4D  |               |           |           |
+| PL5C/5   |     unused, PULL:DOWN |            |              | PL5C  |               |           |           |
+| PL5D/5   |     unused, PULL:DOWN |            |              | PL5D  |               |           |           |
+| PL6C/4   |     unused, PULL:DOWN |            |              | PL6C  |               |           |           |
+| PL6D/4   |     unused, PULL:DOWN |            |              | PL6D  |               |           |           |
+| PL7A/4   |     unused, PULL:DOWN |            |              | PL7A  |               |           |           |
+| PL7B/4   |     unused, PULL:DOWN |            |              | PL7B  |               |           |           |
+| PL9C/4   |     unused, PULL:DOWN |            |              | PL9C  |               |           |           |
+| PL9D/4   |     unused, PULL:DOWN |            |              | PL9D  |               |           |           |
+| PL10C/4  |     unused, PULL:DOWN |            |              | PL10C |               |           |           |
+| PL10D/4  |     unused, PULL:DOWN |            |              | PL10D |               |           |           |
+| PL11C/3  |     unused, PULL:DOWN |            |              | PL11C |               |           |           |
+| PL11D/3  |     unused, PULL:DOWN |            |              | PL11D |               |           |           |
+| PL12C/3  |     unused, PULL:DOWN |            |              | PL12C |               |           |           |
+| PL12D/3  |     unused, PULL:DOWN |            |              | PL12D |               |           |           |
+| PL13A/3  |     unused, PULL:DOWN |            |              | PL13A |               |           |           |
+| PL13C/3  |     unused, PULL:DOWN |            |              | PL13C |               |           |           |
+| PL13D/3  |     unused, PULL:DOWN |            |              | PL13D |               |           |           |
+| PL14C/3  |     unused, PULL:DOWN |            |              | PL14C |               |           |           |
+| PL14D/3  |     unused, PULL:DOWN |            |              | PL14D |               |           |           |
+| PR1C/1   |     unused, PULL:DOWN |            |              | PR1C  |               |           |           |
+| PR1D/1   |     unused, PULL:DOWN |            |              | PR1D  |               |           |           |
+| PR2C/1   |     unused, PULL:DOWN |            |              | PR2C  |               |           |           |
+| PR2D/1   |     unused, PULL:DOWN |            |              | PR2D  |               |           |           |
+| PR3C/1   |     unused, PULL:DOWN |            |              | PR3C  |               |           |           |
+| PR3D/1   |     unused, PULL:DOWN |            |              | PR3D  |               |           |           |
+| PR4C/1   |     unused, PULL:DOWN |            |              | PR4C  |               |           |           |
+| PR4D/1   |     unused, PULL:DOWN |            |              | PR4D  |               |           |           |
+| PR5C/1   |     unused, PULL:DOWN |            |              | PR5C  |               |           |           |
+| PR5D/1   |     unused, PULL:DOWN |            |              | PR5D  |               |           |           |
+| PR6C/1   |     unused, PULL:DOWN |            |              | PR6C  |               |           |           |
+| PR6D/1   |     unused, PULL:DOWN |            |              | PR6D  |               |           |           |
+| PR7C/1   |     unused, PULL:DOWN |            |              | PR7C  |               |           |           |
+| PR7D/1   |     unused, PULL:DOWN |            |              | PR7D  |               |           |           |
+| PR9C/1   |     unused, PULL:DOWN |            |              | PR9C  |               |           |           |
+| PR9D/1   |     unused, PULL:DOWN |            |              | PR9D  |               |           |           |
+| PR10C/1  |     unused, PULL:DOWN |            |              | PR10C |               |           |           |
+| PR10D/1  |     unused, PULL:DOWN |            |              | PR10D |               |           |           |
+| PR11C/1  |     unused, PULL:DOWN |            |              | PR11C | DQ1           |           |           |
+| PR11D/1  |     unused, PULL:DOWN |            |              | PR11D | DQ1           |           |           |
+| PR12C/1  |     unused, PULL:DOWN |            |              | PR12C |               |           |           |
+| PR12D/1  |     unused, PULL:DOWN |            |              | PR12D |               |           |           |
+| PR13C/1  |     unused, PULL:DOWN |            |              | PR13C |               |           |           |
+| PR13D/1  |     unused, PULL:DOWN |            |              | PR13D |               |           |           |
+| PR14C/1  |     unused, PULL:DOWN |            |              | PR14C |               |           |           |
+| PR14D/1  |     unused, PULL:DOWN |            |              | PR14D |               |           |           |
+| PT9C/0   |     unused, PULL:DOWN |            |              | PT9C  |               |           |           |
+| PT9D/0   |     unused, PULL:DOWN |            |              | PT9D  |               |           |           |
+| PT10A/0  |     unused, PULL:DOWN |            |              | PT10A |               |           |           |
+| PT10B/0  |     unused, PULL:DOWN |            |              | PT10B |               |           |           |
+| PT10C/0  |     unused, PULL:DOWN |            |              | PT10C |               |           |           |
+| PT10D/0  |     unused, PULL:DOWN |            |              | PT10D |               |           |           |
+| PT11C/0  |     unused, PULL:DOWN |            |              | PT11C |               |           |           |
+| PT11D/0  |     unused, PULL:DOWN |            |              | PT11D |               |           |           |
+| PT12A/0  |     unused, PULL:DOWN |            |              | PT12A |               |           |           |
+| PT12B/0  |     unused, PULL:DOWN |            |              | PT12B |               |           |           |
+| PT13C/0  |     unused, PULL:DOWN |            |              | PT13C |               |           |           |
+| PT13D/0  |     unused, PULL:DOWN |            |              | PT13D |               |           |           |
+| PT16A/0  |     unused, PULL:DOWN |            |              | PT16A |               |           |           |
+| PT16B/0  |     unused, PULL:DOWN |            |              | PT16B |               |           |           |
+| PT17C/0  |     unused, PULL:DOWN |            |              | PT17C |               |           |           |
+| PT17D/0  |     unused, PULL:DOWN |            |              | PT17D |               |           |           |
+| PT18A/0  |     unused, PULL:DOWN |            |              | PT18A |               |           |           |
+| PT18B/0  |     unused, PULL:DOWN |            |              | PT18B |               |           |           |
+| PT19C/0  |     unused, PULL:DOWN |            |              | PT19C |               |           |           |
+| PT19D/0  |     unused, PULL:DOWN |            |              | PT19D |               |           |           |
+| PT20A/0  |     unused, PULL:DOWN |            |              | PT20A |               |           |           |
+| PT20B/0  |     unused, PULL:DOWN |            |              | PT20B |               |           |           |
+| PT21C/0  |     unused, PULL:DOWN |            |              | PT21C |               |           |           |
+| PT21D/0  |     unused, PULL:DOWN |            |              | PT21D |               |           |           |
+| PT22C/0  |     unused, PULL:DOWN |            |              | PT22C |               |           |           |
+| PT22D/0  |     unused, PULL:DOWN |            |              | PT22D |               |           |           |
+| PT23C/0  |     unused, PULL:DOWN |            |              | PT23C |               |           |           |
+| PT23D/0  |     unused, PULL:DOWN |            |              | PT23D |               |           |           |
+| PT24A/0  |     unused, PULL:DOWN |            |              | PT24A |               |           |           |
+| PT24B/0  |     unused, PULL:DOWN |            |              | PT24B |               |           |           |
++----------+-----------------------+------------+--------------+-------+---------------+-----------+-----------+
+
+sysCONFIG Pins:
++----------+--------------------+--------------------+----------+-------------+-------------------+
+| Pad Name | sysCONFIG Pin Name | sysCONFIG Settings | Pin/Bank | Buffer Type | Config Pull Mode  |
++----------+--------------------+--------------------+----------+-------------+-------------------+
+| PT16D    | TMS                | JTAG_PORT=ENABLE   | A6/0     |             | PULLUP            |
+| PT16C    | TCK/TEST_CLK       | JTAG_PORT=ENABLE   | B6/0     |             | NO pull up/down   |
+| PT12D    | TDI/MD7            | JTAG_PORT=ENABLE   | B4/0     |             | PULLUP            |
+| PT12C    | TDO                | JTAG_PORT=ENABLE   | A4/0     |             | PULLUP            |
++----------+--------------------+--------------------+----------+-------------+-------------------+
+
+Dedicated sysCONFIG Pins:
+
+
+List of All Pins' Locate Preferences Based on Final Placement After PAR 
+to Help Users Lock Down ALL the Pins Easily (by Simply Copy & Paste): 
+
+LOCATE  COMP  "fpga_clk_8m"  SITE  "C1";
+LOCATE  COMP  "fpga_cs_n"  SITE  "M1";
+LOCATE  COMP  "mic_clk"  SITE  "J2";
+LOCATE  COMP  "mic_data_0"  SITE  "K2";
+LOCATE  COMP  "mic_data_1"  SITE  "F2";
+LOCATE  COMP  "rgb_data"  SITE  "J3";
+LOCATE  COMP  "spi1_miso"  SITE  "J1";
+LOCATE  COMP  "spi1_mosi"  SITE  "H1";
+LOCATE  COMP  "spi1_sck"  SITE  "K1";
+LOCATE  COMP  "spi_mic_cs_n"  SITE  "B1";
+LOCATE  COMP  "spi_mic_miso"  SITE  "E1";
+LOCATE  COMP  "spi_mic_sck"  SITE  "D1";
+LOCATE  COMP  "us_tx[0]"  SITE  "A3";
+LOCATE  COMP  "us_tx[10]"  SITE  "B8";
+LOCATE  COMP  "us_tx[11]"  SITE  "C9";
+LOCATE  COMP  "us_tx[12]"  SITE  "C2";
+LOCATE  COMP  "us_tx[13]"  SITE  "C3";
+LOCATE  COMP  "us_tx[14]"  SITE  "F3";
+LOCATE  COMP  "us_tx[15]"  SITE  "E3";
+LOCATE  COMP  "us_tx[16]"  SITE  "G3";
+LOCATE  COMP  "us_tx[17]"  SITE  "A7";
+LOCATE  COMP  "us_tx[18]"  SITE  "A9";
+LOCATE  COMP  "us_tx[19]"  SITE  "A11";
+LOCATE  COMP  "us_tx[1]"  SITE  "C6";
+LOCATE  COMP  "us_tx[20]"  SITE  "C8";
+LOCATE  COMP  "us_tx[21]"  SITE  "G12";
+LOCATE  COMP  "us_tx[22]"  SITE  "C13";
+LOCATE  COMP  "us_tx[23]"  SITE  "H12";
+LOCATE  COMP  "us_tx[24]"  SITE  "F14";
+LOCATE  COMP  "us_tx[25]"  SITE  "E13";
+LOCATE  COMP  "us_tx[26]"  SITE  "B14";
+LOCATE  COMP  "us_tx[27]"  SITE  "B12";
+LOCATE  COMP  "us_tx[28]"  SITE  "G14";
+LOCATE  COMP  "us_tx[29]"  SITE  "F13";
+LOCATE  COMP  "us_tx[2]"  SITE  "A2";
+LOCATE  COMP  "us_tx[30]"  SITE  "E12";
+LOCATE  COMP  "us_tx[31]"  SITE  "C12";
+LOCATE  COMP  "us_tx[32]"  SITE  "A13";
+LOCATE  COMP  "us_tx[33]"  SITE  "G13";
+LOCATE  COMP  "us_tx[34]"  SITE  "F12";
+LOCATE  COMP  "us_tx[35]"  SITE  "H3";
+LOCATE  COMP  "us_tx[36]"  SITE  "E14";
+LOCATE  COMP  "us_tx[37]"  SITE  "D12";
+LOCATE  COMP  "us_tx[38]"  SITE  "C14";
+LOCATE  COMP  "us_tx[39]"  SITE  "B13";
+LOCATE  COMP  "us_tx[3]"  SITE  "E2";
+LOCATE  COMP  "us_tx[40]"  SITE  "A12";
+LOCATE  COMP  "us_tx[41]"  SITE  "C11";
+LOCATE  COMP  "us_tx[42]"  SITE  "K14";
+LOCATE  COMP  "us_tx[43]"  SITE  "M10";
+LOCATE  COMP  "us_tx[44]"  SITE  "J14";
+LOCATE  COMP  "us_tx[45]"  SITE  "K13";
+LOCATE  COMP  "us_tx[46]"  SITE  "M13";
+LOCATE  COMP  "us_tx[47]"  SITE  "J13";
+LOCATE  COMP  "us_tx[48]"  SITE  "K12";
+LOCATE  COMP  "us_tx[49]"  SITE  "M12";
+LOCATE  COMP  "us_tx[4]"  SITE  "C4";
+LOCATE  COMP  "us_tx[50]"  SITE  "N14";
+LOCATE  COMP  "us_tx[51]"  SITE  "P13";
+LOCATE  COMP  "us_tx[52]"  SITE  "P11";
+LOCATE  COMP  "us_tx[53]"  SITE  "J12";
+LOCATE  COMP  "us_tx[54]"  SITE  "L14";
+LOCATE  COMP  "us_tx[55]"  SITE  "M14";
+LOCATE  COMP  "us_tx[56]"  SITE  "M11";
+LOCATE  COMP  "us_tx[57]"  SITE  "M9";
+LOCATE  COMP  "us_tx[58]"  SITE  "M8";
+LOCATE  COMP  "us_tx[59]"  SITE  "N13";
+LOCATE  COMP  "us_tx[5]"  SITE  "B7";
+LOCATE  COMP  "us_tx[60]"  SITE  "P12";
+LOCATE  COMP  "us_tx[61]"  SITE  "N9";
+LOCATE  COMP  "us_tx[62]"  SITE  "N10";
+LOCATE  COMP  "us_tx[63]"  SITE  "P3";
+LOCATE  COMP  "us_tx[64]"  SITE  "N4";
+LOCATE  COMP  "us_tx[65]"  SITE  "M4";
+LOCATE  COMP  "us_tx[66]"  SITE  "M5";
+LOCATE  COMP  "us_tx[67]"  SITE  "K3";
+LOCATE  COMP  "us_tx[68]"  SITE  "N6";
+LOCATE  COMP  "us_tx[69]"  SITE  "M7";
+LOCATE  COMP  "us_tx[6]"  SITE  "A10";
+LOCATE  COMP  "us_tx[70]"  SITE  "P2";
+LOCATE  COMP  "us_tx[71]"  SITE  "N3";
+LOCATE  COMP  "us_tx[72]"  SITE  "N8";
+LOCATE  COMP  "us_tx[73]"  SITE  "N2";
+LOCATE  COMP  "us_tx[74]"  SITE  "M3";
+LOCATE  COMP  "us_tx[75]"  SITE  "M2";
+LOCATE  COMP  "us_tx[76]"  SITE  "P4";
+LOCATE  COMP  "us_tx[77]"  SITE  "N5";
+LOCATE  COMP  "us_tx[78]"  SITE  "P7";
+LOCATE  COMP  "us_tx[79]"  SITE  "P9";
+LOCATE  COMP  "us_tx[7]"  SITE  "B2";
+LOCATE  COMP  "us_tx[80]"  SITE  "L3";
+LOCATE  COMP  "us_tx[81]"  SITE  "P6";
+LOCATE  COMP  "us_tx[82]"  SITE  "N7";
+LOCATE  COMP  "us_tx[83]"  SITE  "P8";
+LOCATE  COMP  "us_tx[8]"  SITE  "B3";
+LOCATE  COMP  "us_tx[9]"  SITE  "B5";
+
+#PLL
+LOCATE  COMP  "fpga_pll_i"  SITE  "LPLL" ;
+
+
+
+
+PAR: Place And Route Diamond (64-bit) 3.13.0.56.2.
+Copyright (c) 1991-1994 by NeoCAD Inc. All rights reserved.
+Copyright (c) 1995 AT&T Corp.   All rights reserved.
+Copyright (c) 1995-2001 Lucent Technologies Inc.  All rights reserved.
+Copyright (c) 2001 Agere Systems   All rights reserved.
+Copyright (c) 2002-2023 Lattice Semiconductor Corporation,  All rights reserved.
+Thu Sep 10 19:01:23 2026
+

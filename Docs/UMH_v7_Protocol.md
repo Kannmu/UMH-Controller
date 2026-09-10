@@ -63,13 +63,13 @@ uint8    record_flags
 uint8[payload_length] payload
 ```
 
-`delta_time` 和可变载荷长度都是无符号 varuint，低 7 位为数据、最高位表示后续字节，最多 5 字节。常量和密集轨道在描述符已经确定目标数量时由设备推导载荷长度，不重复携带长度字段。稀疏、差分、零抑制、位图密集以及 `VARIABLE` 轨道携带 varuint 长度，长度受设备记录缓冲限制。固定 84 通道密集状态记录最大 336 字节，设备记录重组缓冲为 512 字节。记录时间等于上一记录时间加 `delta_time`，必须落在块起始时间到结束时间内。同一时间戳允许连续记录，解析器在提交输出帧前将其合并。记录标志为 `KEYFRAME=0x01` 和 `END_OF_FRAME=0x02`。
+`delta_time` 和可变载荷长度都是无符号 varuint，低 7 位为数据、最高位表示后续字节，最多 5 字节。常量和密集轨道在描述符已经确定目标数量时由设备推导载荷长度，不重复携带长度字段。稀疏、差分、零抑制、位图密集以及 `VARIABLE` 轨道携带 varuint 长度，长度受设备记录缓冲限制。固定 84 通道密集状态记录最大 168 字节，设备记录重组缓冲为 512 字节。记录时间等于上一记录时间加 `delta_time`，必须落在块起始时间到结束时间内。同一时间戳允许连续记录，解析器在提交输出帧前将其合并。记录标志为 `KEYFRAME=0x01` 和 `END_OF_FRAME=0x02`。
 当目标选择为 `SPARSE` 时，载荷长度始终显式携带；颜色轨道的每项为 `index,r,g,b`，亮度轨道的每项为 `index,level`，常量编码也沿用该逐目标形式。
 
 内建载荷类型如下：
 
-* `CHANNEL_STATE=1`：每个选中通道为 `phase(uint16), level(uint8), enabled(uint8)`，支持全量、稀疏和差分更新。
-* `SPATIAL_POINT=2`：`x_um, y_um, z_um(int32)`、源强度 `level(uint8)`、源相位 `phase(uint16)` 和 `source_id(uint8)`，共 16 字节。STM32 根据阵元坐标、声速、校准参数解算通道域状态；多个源先进行复数叠加。
+* `CHANNEL_STATE=1`：每个选中通道为 `phase(uint8), level(uint8)`，支持全量、稀疏和差分更新。`level=0` 表示关闭，不再发送独立 enable 字段。
+* `SPATIAL_POINT=2`：`x_um, y_um, z_um(int32)`、源强度 `level(uint8)`、源相位 `phase(uint8)` 和 `source_id(uint8)`，共 15 字节。STM32 根据阵元坐标、声速、校准参数解算通道域状态；多个源先进行复数叠加。
 * `COLOR_RGB8=3`：每个选中 RGB 输出 3 字节 RGB 值。
 * `LIGHT_LEVEL8=4`：每个选中 RGB 输出 1 字节亮度。
 * `DIGITAL_STATE=5`：2 字节 `mask,state`，用于通用数字输出，其中 bit0 对应 `TRIGGER`。

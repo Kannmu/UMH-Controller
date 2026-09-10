@@ -168,11 +168,11 @@ uint16_t spatiotemporal_track_fixed_payload_size(
       track->encoding == UMH_ENCODING_CONSTANT) return 2u;
   if (track->payload_type == UMH_PAYLOAD_CHANNEL_STATE) {
     if (track->encoding == UMH_ENCODING_CONSTANT)
-      return (uint16_t)(4u + (track->target_mode == UMH_TARGET_BITMAP ?
+      return (uint16_t)(2u + (track->target_mode == UMH_TARGET_BITMAP ?
                               UMH_DEVICE_CHANNEL_BITMAP_BYTES : 0u));
     if (track->encoding == UMH_ENCODING_DENSE &&
         track->target_mode != UMH_TARGET_BITMAP && count != 0u) {
-      return (uint16_t)(count * 4u);
+      return (uint16_t)(count * 2u);
     }
   }
   if (track->payload_type == UMH_PAYLOAD_COLOR_RGB8) {

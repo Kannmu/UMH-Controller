@@ -11,9 +11,8 @@
 #define UMH_FRAME_FLAG_EXTENDED   (1u << 3)
 
 typedef struct __attribute__((packed)) {
-  uint16_t phase;
+  uint8_t phase;
   uint8_t level;
-  uint8_t enabled;
 } umh_output_channel_t;
 
 typedef struct __attribute__((packed)) {
@@ -35,7 +34,7 @@ typedef struct __attribute__((packed)) {
   uint8_t extension[32];
 } umh_output_frame_t;
 
-_Static_assert(sizeof(umh_output_frame_t) == 400u, "frame slot wire layout");
+_Static_assert(sizeof(umh_output_frame_t) == 232u, "frame slot wire layout");
 
 typedef struct {
   umh_output_frame_t slots[UMH_DEVICE_FRAME_RING_SLOTS];

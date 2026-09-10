@@ -1,4 +1,5 @@
 #include "spatial_renderer.h"
+#include "cordic.h"
 #include <math.h>
 #include <string.h>
 #include <float.h>
@@ -13,7 +14,7 @@ void spatial_renderer_init(umh_spatial_renderer_t *renderer,
   renderer->carrier_hz = profile != NULL ? profile->carrier_hz : 40000u;
   renderer->sound_speed_um_per_s = profile != NULL && profile->sound_speed_um_per_s != 0u ?
                                    profile->sound_speed_um_per_s : 343000000u;
-  renderer->phase_resolution = 65536u;
+  renderer->phase_resolution = 256u;
   for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
     renderer->calibration[i].gain = 255u;
     renderer->calibration[i].enabled = 1u;
@@ -60,14 +61,14 @@ int spatial_renderer_accumulate_point(const umh_spatial_renderer_t *renderer,
       real_accum == NULL || imag_accum == NULL || renderer->carrier_hz == 0u) return -1;
   if ((renderer->profile->capability_flags & UMH_PROFILE_CAP_GEOMETRY_VALID) == 0u) return -2;
   wavelength = (float)renderer->sound_speed_um_per_s / (float)renderer->carrier_hz;
-  phase_scale = 65536.0f / wavelength;
+  phase_scale = (float)renderer->phase_resolution / wavelength;
   source_level = (float)point->level / 255.0f;
   for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
     float dx = (float)point->x_um - (float)renderer->profile->coordinates[i].x_um;
     float dy = (float)point->y_um - (float)renderer->profile->coordinates[i].y_um;
     float dz = (float)point->z_um - (float)renderer->profile->coordinates[i].z_um;
     float distance = sqrtf(dx * dx + dy * dy + dz * dz);
-    float phase = ((float)point->phase - distance * phase_scale + (float)renderer->calibration[i].phase) * two_pi / 65536.0f;
+    float phase = ((float)point->phase - distance * phase_scale + (float)renderer->calibration[i].phase) * two_pi / (float)renderer->phase_resolution;
     float amplitude = source_level * ((float)renderer->calibration[i].gain / 255.0f);
     real_accum[i] += amplitude * cosf(phase);
     imag_accum[i] += amplitude * sinf(phase);
@@ -87,13 +88,15 @@ int spatial_renderer_finalize(const umh_spatial_renderer_t *renderer,
     float angle;
     int32_t phase;
     if (magnitude > 1.0f) magnitude = 1.0f;
-    angle = atan2f(imag_accum[i], real_accum[i]);
-    phase = (int32_t)(angle * 65536.0f / two_pi);
-    phase %= 65536;
-    if (phase < 0) phase += 65536;
-    frame->channels[i].phase = (uint16_t)phase;
+    if (umh_cordic_phase8(real_accum[i], imag_accum[i], &frame->channels[i].phase) != 0) {
+      angle = atan2f(imag_accum[i], real_accum[i]);
+      phase = (int32_t)(angle * (float)renderer->phase_resolution / two_pi);
+      phase %= (int32_t)renderer->phase_resolution;
+      if (phase < 0) phase += (int32_t)renderer->phase_resolution;
+      frame->channels[i].phase = (uint8_t)phase;
+    }
     frame->channels[i].level = (uint8_t)(magnitude * 255.0f + 0.5f);
-    frame->channels[i].enabled = renderer->calibration[i].enabled != 0u ? 1u : 0u;
+    if (renderer->calibration[i].enabled == 0u) frame->channels[i].level = 0u;
   }
   frame->update_flags |= UMH_FRAME_FLAG_ULTRASOUND;
   return 0;
