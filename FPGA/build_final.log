@@ -7,7 +7,7 @@ Copyright (c) 1995 AT&T Corp.   All rights reserved.
 Copyright (c) 1995-2001 Lucent Technologies Inc.  All rights reserved.
 Copyright (c) 2001 Agere Systems   All rights reserved.
 Copyright (c) 2002-2023 Lattice Semiconductor Corporation,  All rights reserved.
-Fri Sep 11 12:39:52 2026
+Fri Sep 11 12:03:53 2026
 
 
 Command Line:  synthesis -f UMH_7_UMH_7_1_lattice.synproj 
@@ -92,9 +92,8 @@ INFO - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src
 INFO - synthesis: D:/Software/Lattice Diamond/diamond/3.13/ispfpga/userware/NT/SYNTHESIS_HEADERS/machxo2.v(1730): compiling module EHXPLLJ(CLKFB_DIV=16,CLKOP_DIV=4,CLKOP_CPHASE=3,FEEDBK_PATH="INT_DIVA"). VERI-1018
 INFO - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(25): compiling module umh_channel_ram18. VERI-1018
 INFO - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(41): compiling module umh_toggle_ram84. VERI-1018
-INFO - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/ws2812_stream.v(10): compiling module ws2812_stream. VERI-1018
+INFO - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/ws2812_stream.v(3): compiling module ws2812_stream. VERI-1018
 INFO - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/spi_mic_stream.v(5): compiling module spi_mic_stream. VERI-1018
-WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(126): net rgb_values[95] does not have a driver. VDB-1002
 WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(107): input port ENCLKOS is not connected on this instance. VDB-1013
 Last elaborated design is umh_fpga_top()
 Loading NGL library 'D:/Software/Lattice Diamond/diamond/3.13/ispfpga/xo2c00a/data/xo2alib.ngl'...
@@ -120,114 +119,26 @@ WARNING - synthesis: Bit 115 of Register status_hold is stuck at Zero
 WARNING - synthesis: Bit 114 of Register status_hold is stuck at Zero
 WARNING - synthesis: Bit 113 of Register status_hold is stuck at Zero
 WARNING - synthesis: Bit 112 of Register status_hold is stuck at Zero
-######## Missing driver on net rgb_values[95]. Patching with GND.
-######## Missing driver on net rgb_values[94]. Patching with GND.
-######## Missing driver on net rgb_values[93]. Patching with GND.
-######## Missing driver on net rgb_values[92]. Patching with GND.
-######## Missing driver on net rgb_values[91]. Patching with GND.
-######## Missing driver on net rgb_values[90]. Patching with GND.
-######## Missing driver on net rgb_values[89]. Patching with GND.
-######## Missing driver on net rgb_values[88]. Patching with GND.
-######## Missing driver on net rgb_values[87]. Patching with GND.
-######## Missing driver on net rgb_values[86]. Patching with GND.
-######## Missing driver on net rgb_values[85]. Patching with GND.
-######## Missing driver on net rgb_values[84]. Patching with GND.
-######## Missing driver on net rgb_values[83]. Patching with GND.
-######## Missing driver on net rgb_values[82]. Patching with GND.
-######## Missing driver on net rgb_values[81]. Patching with GND.
-######## Missing driver on net rgb_values[80]. Patching with GND.
-######## Missing driver on net rgb_values[79]. Patching with GND.
-######## Missing driver on net rgb_values[78]. Patching with GND.
-######## Missing driver on net rgb_values[77]. Patching with GND.
-######## Missing driver on net rgb_values[76]. Patching with GND.
-######## Missing driver on net rgb_values[75]. Patching with GND.
-######## Missing driver on net rgb_values[74]. Patching with GND.
-######## Missing driver on net rgb_values[73]. Patching with GND.
-######## Missing driver on net rgb_values[72]. Patching with GND.
-######## Missing driver on net rgb_values[71]. Patching with GND.
-######## Missing driver on net rgb_values[70]. Patching with GND.
-######## Missing driver on net rgb_values[69]. Patching with GND.
-######## Missing driver on net rgb_values[68]. Patching with GND.
-######## Missing driver on net rgb_values[67]. Patching with GND.
-######## Missing driver on net rgb_values[66]. Patching with GND.
-######## Missing driver on net rgb_values[65]. Patching with GND.
-######## Missing driver on net rgb_values[64]. Patching with GND.
-######## Missing driver on net rgb_values[63]. Patching with GND.
-######## Missing driver on net rgb_values[62]. Patching with GND.
-######## Missing driver on net rgb_values[61]. Patching with GND.
-######## Missing driver on net rgb_values[60]. Patching with GND.
-######## Missing driver on net rgb_values[59]. Patching with GND.
-######## Missing driver on net rgb_values[58]. Patching with GND.
-######## Missing driver on net rgb_values[57]. Patching with GND.
-######## Missing driver on net rgb_values[56]. Patching with GND.
-######## Missing driver on net rgb_values[55]. Patching with GND.
-######## Missing driver on net rgb_values[54]. Patching with GND.
-######## Missing driver on net rgb_values[53]. Patching with GND.
-######## Missing driver on net rgb_values[52]. Patching with GND.
-######## Missing driver on net rgb_values[51]. Patching with GND.
-######## Missing driver on net rgb_values[50]. Patching with GND.
-######## Missing driver on net rgb_values[49]. Patching with GND.
-######## Missing driver on net rgb_values[48]. Patching with GND.
-######## Missing driver on net rgb_values[47]. Patching with GND.
-######## Missing driver on net rgb_values[46]. Patching with GND.
-######## Missing driver on net rgb_values[45]. Patching with GND.
-######## Missing driver on net rgb_values[44]. Patching with GND.
-######## Missing driver on net rgb_values[43]. Patching with GND.
-######## Missing driver on net rgb_values[42]. Patching with GND.
-######## Missing driver on net rgb_values[41]. Patching with GND.
-######## Missing driver on net rgb_values[40]. Patching with GND.
-######## Missing driver on net rgb_values[39]. Patching with GND.
-######## Missing driver on net rgb_values[38]. Patching with GND.
-######## Missing driver on net rgb_values[37]. Patching with GND.
-######## Missing driver on net rgb_values[36]. Patching with GND.
-######## Missing driver on net rgb_values[35]. Patching with GND.
-######## Missing driver on net rgb_values[34]. Patching with GND.
-######## Missing driver on net rgb_values[33]. Patching with GND.
-######## Missing driver on net rgb_values[32]. Patching with GND.
-######## Missing driver on net rgb_values[31]. Patching with GND.
-######## Missing driver on net rgb_values[30]. Patching with GND.
-######## Missing driver on net rgb_values[29]. Patching with GND.
-######## Missing driver on net rgb_values[28]. Patching with GND.
-######## Missing driver on net rgb_values[27]. Patching with GND.
-######## Missing driver on net rgb_values[26]. Patching with GND.
-######## Missing driver on net rgb_values[25]. Patching with GND.
-######## Missing driver on net rgb_values[24]. Patching with GND.
-######## Missing driver on net rgb_values[23]. Patching with GND.
-######## Missing driver on net rgb_values[22]. Patching with GND.
-######## Missing driver on net rgb_values[21]. Patching with GND.
-######## Missing driver on net rgb_values[20]. Patching with GND.
-######## Missing driver on net rgb_values[19]. Patching with GND.
-######## Missing driver on net rgb_values[18]. Patching with GND.
-######## Missing driver on net rgb_values[17]. Patching with GND.
-######## Missing driver on net rgb_values[16]. Patching with GND.
-######## Missing driver on net rgb_values[15]. Patching with GND.
-######## Missing driver on net rgb_values[14]. Patching with GND.
-######## Missing driver on net rgb_values[13]. Patching with GND.
-######## Missing driver on net rgb_values[12]. Patching with GND.
-######## Missing driver on net rgb_values[11]. Patching with GND.
-######## Missing driver on net rgb_values[10]. Patching with GND.
-######## Missing driver on net rgb_values[9]. Patching with GND.
-######## Missing driver on net rgb_values[8]. Patching with GND.
-######## Missing driver on net n7557. Patching with GND.
-######## Missing driver on net n7559. Patching with GND.
-######## Missing driver on net n7554. Patching with GND.
-######## Missing driver on net n7558. Patching with GND.
-######## Missing driver on net n7571. Patching with GND.
-######## Missing driver on net n7570. Patching with GND.
-######## Missing driver on net n7569. Patching with GND.
-######## Missing driver on net n7568. Patching with GND.
-######## Missing driver on net n7567. Patching with GND.
-######## Missing driver on net n7566. Patching with GND.
-######## Missing driver on net n7565. Patching with GND.
-######## Missing driver on net n7564. Patching with GND.
-######## Missing driver on net n7563. Patching with GND.
-######## Missing driver on net n7562. Patching with GND.
-######## Missing driver on net n7561. Patching with GND.
-######## Missing driver on net n7560. Patching with GND.
-######## Missing driver on net n7556. Patching with GND.
-######## Missing driver on net n7553. Patching with GND.
-######## Missing driver on net n7555. Patching with GND.
-######## Missing driver on net n7552. Patching with GND.
+######## Missing driver on net n7860. Patching with GND.
+######## Missing driver on net n7862. Patching with GND.
+######## Missing driver on net n7857. Patching with GND.
+######## Missing driver on net n7861. Patching with GND.
+######## Missing driver on net n7874. Patching with GND.
+######## Missing driver on net n7873. Patching with GND.
+######## Missing driver on net n7872. Patching with GND.
+######## Missing driver on net n7871. Patching with GND.
+######## Missing driver on net n7870. Patching with GND.
+######## Missing driver on net n7869. Patching with GND.
+######## Missing driver on net n7868. Patching with GND.
+######## Missing driver on net n7867. Patching with GND.
+######## Missing driver on net n7866. Patching with GND.
+######## Missing driver on net n7865. Patching with GND.
+######## Missing driver on net n7864. Patching with GND.
+######## Missing driver on net n7863. Patching with GND.
+######## Missing driver on net n7859. Patching with GND.
+######## Missing driver on net n7856. Patching with GND.
+######## Missing driver on net n7858. Patching with GND.
+######## Missing driver on net n7855. Patching with GND.
 WARNING - synthesis: Bit 72 of Register status_hold is stuck at Zero
 WARNING - synthesis: Bit 111 of Register status_hold is stuck at Zero
 WARNING - synthesis: Bit 110 of Register status_hold is stuck at Zero
@@ -284,30 +195,13 @@ original encoding -> new encoding (gray encoding)
 
 
 
-WARNING - synthesis: Bit 23 of Register rgb_hold is stuck at Zero
-WARNING - synthesis: Bit 22 of Register rgb_hold is stuck at Zero
-WARNING - synthesis: Bit 21 of Register rgb_hold is stuck at Zero
-WARNING - synthesis: Bit 20 of Register rgb_hold is stuck at Zero
-WARNING - synthesis: Bit 19 of Register rgb_hold is stuck at Zero
-WARNING - synthesis: Bit 18 of Register rgb_hold is stuck at Zero
-WARNING - synthesis: Bit 17 of Register rgb_hold is stuck at Zero
-WARNING - synthesis: Bit 16 of Register rgb_hold is stuck at Zero
-WARNING - synthesis: Bit 15 of Register rgb_hold is stuck at Zero
-WARNING - synthesis: Bit 14 of Register rgb_hold is stuck at Zero
-WARNING - synthesis: Bit 13 of Register rgb_hold is stuck at Zero
-WARNING - synthesis: Bit 12 of Register rgb_hold is stuck at Zero
-WARNING - synthesis: Bit 11 of Register rgb_hold is stuck at Zero
-WARNING - synthesis: Bit 10 of Register rgb_hold is stuck at Zero
-WARNING - synthesis: Bit 9 of Register rgb_hold is stuck at Zero
-WARNING - synthesis: Bit 8 of Register rgb_hold is stuck at Zero
 ######## Found 2 RTL RAMs in the design.
 ######## Mapping RTL RAM \event_ram/mem to 5 EBR blocks in PSEUDO_DUAL_PORT Mode
 
 ######## Mapping RTL RAM \staging_ram/mem to 1 EBR blocks in PSEUDO_DUAL_PORT Mode
 
-WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(362): Register spi_expected_length_i16 is stuck at Zero. VDB-5013
+WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(360): Register spi_expected_length_i16 is stuck at Zero. VDB-5013
 WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/spi_mic_stream.v(38): Register \mic_stream_i/shift_register_i0 is stuck at Zero. VDB-5013
-WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/ws2812_stream.v(84): Register \ws2812_i/shift_register_i0_i0 is stuck at Zero. VDB-5013
 Duplicate register/latch removal. spi_rx_shift_i1 is a one-to-one match with spi_rx_shift_rep_6_i1.
 Duplicate register/latch removal. spi_rx_shift_i7 is a one-to-one match with spi_rx_shift_rep_6_i7.
 Duplicate register/latch removal. spi_rx_shift_i6 is a one-to-one match with spi_rx_shift_rep_6_i6.
@@ -315,8 +209,8 @@ Duplicate register/latch removal. spi_rx_shift_i5 is a one-to-one match with spi
 Duplicate register/latch removal. spi_rx_shift_i4 is a one-to-one match with spi_rx_shift_rep_6_i4.
 Duplicate register/latch removal. spi_rx_shift_i3 is a one-to-one match with spi_rx_shift_rep_6_i3.
 Duplicate register/latch removal. spi_rx_shift_i2 is a one-to-one match with spi_rx_shift_rep_6_i2.
-GSR instance connected to net fpga_cs_n_N_2559.
-WARNING - synthesis: Initial value found on instance swap_pending_489 will be ignored.
+GSR instance connected to net fpga_cs_n_N_2661.
+WARNING - synthesis: Initial value found on instance swap_pending_412 will be ignored.
 WARNING - synthesis: Initial value found on instance ev_bit_i0 will be ignored.
 Applying 128.000000 MHz constraint to all clocks
 
@@ -333,20 +227,20 @@ Running DRC...
 DRC complete with no errors or warnings
 
 Design Results:
-   2438 blocks expanded
+   2560 blocks expanded
 completed the first expansion
 All blocks are expanded and NGD expansion is successful.
 Writing NGD file UMH_7_UMH_7_1.ngd.
 
 ################### Begin Area Report (umh_fpga_top)######################
-Number of register bits => 1367 of 2427 (56 % )
+Number of register bits => 1483 of 2427 (61 % )
 CCU2D => 96
 EHXPLLJ => 1
-FD1P3AX => 768
+FD1P3AX => 870
 FD1P3AY => 2
 FD1P3DX => 101
-FD1P3IX => 296
-FD1S3AX => 184
+FD1P3IX => 312
+FD1S3AX => 182
 FD1S3AY => 3
 FD1S3DX => 1
 FD1S3IX => 11
@@ -355,10 +249,10 @@ GSR => 1
 IB => 8
 INV => 2
 L6MUX21 => 12
-LUT4 => 829
+LUT4 => 828
 OB => 88
 PDPW8KC => 6
-PFUMX => 25
+PFUMX => 32
 ################### End Area Report ##################
 
 ################### Begin BlackBox Report ######################
@@ -368,35 +262,35 @@ TSALL => 1
 ################### Begin Clock Report ######################
 Clock Nets
 Number of Clocks: 4
-  Net : pll_clk, loads : 997
-  Net : spi1_sck_c, loads : 274
+  Net : pll_clk, loads : 1026
+  Net : spi1_sck_c, loads : 361
   Net : spi_mic_sck_c, loads : 1
   Net : fpga_clk_8m_c, loads : 1
 Clock Enable Nets
-Number of Clock Enables: 65
+Number of Clock Enables: 64
 Top 10 highest fanout Clock Enables:
-  Net : mic_stream_i/sck_N_3047_enable_101, loads : 101
+  Net : mic_stream_i/sck_N_3149_enable_101, loads : 101
   Net : cs_fall, loads : 68
-  Net : pll_clk_enable_574, loads : 50
-  Net : spi1_sck_c_enable_239, loads : 50
-  Net : pll_clk_enable_280, loads : 50
-  Net : pll_clk_enable_744, loads : 50
-  Net : pll_clk_enable_181, loads : 50
-  Net : pll_clk_enable_437, loads : 50
-  Net : pll_clk_enable_743, loads : 50
-  Net : spi1_sck_c_enable_182, loads : 38
+  Net : pll_clk_enable_244, loads : 50
+  Net : pll_clk_enable_366, loads : 50
+  Net : spi1_sck_c_enable_225, loads : 50
+  Net : pll_clk_enable_523, loads : 50
+  Net : pll_clk_enable_735, loads : 50
+  Net : pll_clk_enable_733, loads : 50
+  Net : pll_clk_enable_143, loads : 50
+  Net : spi1_sck_c_enable_138, loads : 50
 Highest fanout non-clock nets
 Top 10 highest fanout non-clock nets:
-  Net : ev_state_0, loads : 126
+  Net : ev_state_0, loads : 122
   Net : mic_stream_i/n13, loads : 104
   Net : spi_mic_cs_n_c, loads : 103
-  Net : sck_N_3047, loads : 102
-  Net : mic_stream_i/sck_N_3047_enable_101, loads : 101
-  Net : n23889, loads : 96
+  Net : sck_N_3149, loads : 102
+  Net : mic_stream_i/sck_N_3149_enable_101, loads : 101
+  Net : spi1_sck_c_enable_271, loads : 92
+  Net : n23644, loads : 92
   Net : swap_now_s5, loads : 84
-  Net : n14467, loads : 84
-  Net : pll_clk_enable_735, loads : 70
-  Net : pll_clk_enable_314, loads : 68
+  Net : n14897, loads : 84
+  Net : spi1_sck_c_enable_176, loads : 76
 ################### End Clock Report ##################
 
 Timing Report Summary
@@ -409,10 +303,10 @@ create_clock -period 7.812500 -name     |             |             |
 clk2 [get_nets spi_mic_sck_c]           |  128.008 MHz|  150.038 MHz|     4  
                                         |             |             |
 create_clock -period 7.812500 -name     |             |             |
-clk1 [get_nets pll_clk]                 |  128.008 MHz|   94.778 MHz|     6 *
+clk1 [get_nets spi1_sck_c]              |  128.008 MHz|   55.922 MHz|    11 *
                                         |             |             |
 create_clock -period 7.812500 -name     |             |             |
-clk0 [get_nets spi1_sck_c]              |  128.008 MHz|   50.674 MHz|    13 *
+clk0 [get_nets pll_clk]                 |  128.008 MHz|  104.439 MHz|    11 *
                                         |             |             |
 --------------------------------------------------------------------------------
 
@@ -420,10 +314,10 @@ clk0 [get_nets spi1_sck_c]              |  128.008 MHz|   50.674 MHz|    13 *
 2 constraints not met.
 
 
-Peak Memory Usage: 89.977  MB
+Peak Memory Usage: 91.453  MB
 
 --------------------------------------------------------------
-Elapsed CPU time for LSE flow : 0.656  secs
+Elapsed CPU time for LSE flow : 0.703  secs
 --------------------------------------------------------------
 
 map -a "MachXO2" -p LCMXO2-2000HC -t CSBGA132 -s 4 -oc Commercial   "UMH_7_UMH_7_1.ngd" -o "UMH_7_UMH_7_1_map.ncd" -pr "UMH_7_UMH_7_1.prf" -mp "UMH_7_UMH_7_1.mrp" -lpf "D:/Data/OneDrive/Projects/UMH/Software/UMH Controller/FPGA/UMH_7_1/UMH_7_UMH_7_1.lpf" -lpf "D:/Data/OneDrive/Projects/UMH/Software/UMH Controller/FPGA/UMH_7.lpf"  -c 0           
@@ -461,15 +355,15 @@ WARNING - map: EHXPLLJ 'fpga_pll_i' cannot obtain FREQUENCY_PIN_CLKOP=-1.000 whe
 
 
 Design Summary:
-   Number of registers:   1367 out of  2427 (56%)
-      PFU registers:         1367 out of  2112 (65%)
+   Number of registers:   1483 out of  2427 (61%)
+      PFU registers:         1483 out of  2112 (70%)
       PIO registers:            0 out of   315 (0%)
-   Number of SLICEs:       730 out of  1056 (69%)
-      SLICEs as Logic/ROM:    730 out of  1056 (69%)
+   Number of SLICEs:       809 out of  1056 (77%)
+      SLICEs as Logic/ROM:    809 out of  1056 (77%)
       SLICEs as RAM:            0 out of   792 (0%)
       SLICEs as Carry:         96 out of  1056 (9%)
-   Number of LUT4s:        1018 out of  2112 (48%)
-      Number used as logic LUTs:        826
+   Number of LUT4s:        1017 out of  2112 (48%)
+      Number used as logic LUTs:        825
       Number used as distributed RAM:     0
       Number used as ripple logic:      192
       Number used as shift registers:     0
@@ -497,111 +391,109 @@ Design Summary:
       1. Total number of LUT4s = (Number of logic LUT4s) + 2*(Number of distributed RAMs) + 2*(Number of ripple logic)
       2. Number of logic LUT4s does not include count of distributed RAM and ripple logic.
    Number of clocks:  4
-     Net spi1_sck_c: 145 loads, 141 rising, 4 falling (Driver: PIO spi1_sck )
+     Net pll_clk: 552 loads, 552 rising, 0 falling (Driver: fpga_pll_i )
      Net fpga_clk_8m_c: 1 loads, 1 rising, 0 falling (Driver: PIO fpga_clk_8m )
-     Net pll_clk: 524 loads, 524 rising, 0 falling (Driver: fpga_pll_i )
+     Net spi1_sck_c: 188 loads, 184 rising, 4 falling (Driver: PIO spi1_sck )
      Net spi_mic_sck_c: 52 loads, 0 rising, 52 falling (Driver: PIO spi_mic_sck )
-   Number of Clock Enables:  65
-     Net spi1_sck_c_enable_239: 25 loads, 25 LSLICEs
-     Net spi1_sck_c_enable_88: 4 loads, 4 LSLICEs
-     Net pll_clk_enable_10: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_3: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_737: 17 loads, 17 LSLICEs
-     Net spi1_sck_c_enable_117: 4 loads, 4 LSLICEs
-     Net pll_clk_enable_744: 25 loads, 25 LSLICEs
-     Net spi1_sck_c_enable_110: 4 loads, 4 LSLICEs
-     Net spi1_sck_c_enable_103: 1 loads, 1 LSLICEs
-     Net spi1_sck_c_enable_102: 4 loads, 4 LSLICEs
-     Net spi1_sck_c_enable_95: 4 loads, 4 LSLICEs
-     Net spi1_sck_c_enable_63: 4 loads, 4 LSLICEs
-     Net spi1_sck_c_enable_38: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_25: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_483: 1 loads, 1 LSLICEs
-     Net spi1_sck_c_enable_197: 9 loads, 9 LSLICEs
+   Number of Clock Enables:  64
+     Net pll_clk_enable_733: 25 loads, 25 LSLICEs
+     Net spi1_sck_c_enable_99: 4 loads, 4 LSLICEs
+     Net spi1_sck_c_enable_92: 4 loads, 4 LSLICEs
+     Net pll_clk_enable_735: 35 loads, 35 LSLICEs
+     Net spi1_sck_c_enable_85: 1 loads, 1 LSLICEs
+     Net spi1_sck_c_enable_84: 4 loads, 4 LSLICEs
+     Net spi1_sck_c_enable_77: 4 loads, 4 LSLICEs
+     Net spi1_sck_c_enable_45: 4 loads, 4 LSLICEs
+     Net spi1_sck_c_enable_138: 25 loads, 25 LSLICEs
+     Net spi1_sck_c_enable_225: 25 loads, 25 LSLICEs
+     Net spi1_sck_c_enable_286: 9 loads, 9 LSLICEs
+     Net pll_clk_enable_143: 25 loads, 25 LSLICEs
+     Net pll_clk_enable_670: 17 loads, 17 LSLICEs
+     Net pll_clk_enable_773: 17 loads, 17 LSLICEs
+     Net pll_clk_enable_244: 25 loads, 25 LSLICEs
      Net cs_fall: 34 loads, 34 LSLICEs
-     Net pll_clk_enable_730: 4 loads, 4 LSLICEs
-     Net pll_clk_enable_5: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_109: 16 loads, 16 LSLICEs
-     Net phase_step_s1: 5 loads, 5 LSLICEs
-     Net pll_clk_enable_27: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_117: 5 loads, 5 LSLICEs
-     Net pll_clk_enable_360: 16 loads, 16 LSLICEs
-     Net pll_clk_enable_181: 25 loads, 25 LSLICEs
      Net pll_clk_enable_11: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_231: 9 loads, 9 LSLICEs
-     Net pll_clk_enable_280: 25 loads, 25 LSLICEs
-     Net pll_clk_enable_345: 17 loads, 17 LSLICEs
-     Net pll_clk_enable_16: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_735: 18 loads, 18 LSLICEs
-     Net pll_clk_enable_437: 25 loads, 25 LSLICEs
-     Net spi1_sck_c_enable_29: 8 loads, 8 LSLICEs
-     Net spi1_sck_c_enable_199: 1 loads, 1 LSLICEs
-     Net spi1_sck_c_enable_238: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_726: 5 loads, 5 LSLICEs
-     Net pll_clk_enable_43: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_22: 1 loads, 1 LSLICEs
-     Net spi1_sck_c_enable_43: 4 loads, 4 LSLICEs
-     Net pll_clk_enable_739: 17 loads, 17 LSLICEs
-     Net spi1_sck_c_enable_35: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_574: 25 loads, 25 LSLICEs
-     Net pll_clk_enable_215: 17 loads, 17 LSLICEs
+     Net pll_clk_enable_30: 1 loads, 1 LSLICEs
+     Net phase_step_s1: 5 loads, 5 LSLICEs
+     Net pll_clk_enable_568: 17 loads, 17 LSLICEs
+     Net pll_clk_enable_286: 5 loads, 5 LSLICEs
+     Net pll_clk_enable_446: 16 loads, 16 LSLICEs
+     Net pll_clk_enable_14: 1 loads, 1 LSLICEs
+     Net pll_clk_enable_15: 1 loads, 1 LSLICEs
+     Net pll_clk_enable_317: 9 loads, 9 LSLICEs
+     Net pll_clk_enable_366: 25 loads, 25 LSLICEs
+     Net pll_clk_enable_431: 17 loads, 17 LSLICEs
+     Net pll_clk_enable_20: 1 loads, 1 LSLICEs
+     Net pll_clk_enable_742: 18 loads, 18 LSLICEs
+     Net pll_clk_enable_523: 25 loads, 25 LSLICEs
+     Net spi1_sck_c_enable_317: 16 loads, 16 LSLICEs
+     Net spi1_sck_c_enable_27: 8 loads, 8 LSLICEs
+     Net spi1_sck_c_enable_70: 4 loads, 4 LSLICEs
+     Net pll_clk_enable_734: 5 loads, 5 LSLICEs
+     Net pll_clk_enable_728: 23 loads, 23 LSLICEs
+     Net spi1_sck_c_enable_176: 19 loads, 19 LSLICEs
+     Net spi1_sck_c_enable_271: 23 loads, 23 LSLICEs
      Net spi_write: 1 loads, 0 LSLICEs
-     Net spi1_sck_c_enable_230: 16 loads, 16 LSLICEs
-     Net spi1_sck_c_enable_71: 4 loads, 4 LSLICEs
-     Net spi1_sck_c_enable_80: 4 loads, 4 LSLICEs
-     Net spi1_sck_c_enable_236: 4 loads, 4 LSLICEs
-     Net spi1_sck_N_416_enable_7: 4 loads, 4 LSLICEs
-     Net pll_clk_enable_639: 17 loads, 17 LSLICEs
-     Net spi1_sck_c_enable_182: 19 loads, 19 LSLICEs
-     Net pll_clk_enable_743: 25 loads, 25 LSLICEs
-     Net pll_clk_enable_474: 3 loads, 3 LSLICEs
-     Net spi1_sck_c_enable_237: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_728: 3 loads, 3 LSLICEs
-     Net pll_clk_enable_314: 17 loads, 17 LSLICEs
-     Net pll_clk_enable_451: 7 loads, 7 LSLICEs
-     Net mic_stream_i/sck_N_3047_enable_101: 51 loads, 51 LSLICEs
-     Net pll_clk_enable_608: 17 loads, 17 LSLICEs
+     Net pll_clk_enable_32: 1 loads, 1 LSLICEs
+     Net spi1_sck_c_enable_37: 1 loads, 1 LSLICEs
+     Net spi1_sck_c_enable_38: 1 loads, 1 LSLICEs
+     Net spi1_sck_c_enable_53: 4 loads, 4 LSLICEs
+     Net spi1_sck_c_enable_61: 4 loads, 4 LSLICEs
+     Net spi1_sck_c_enable_326: 1 loads, 1 LSLICEs
+     Net spi1_sck_c_enable_325: 4 loads, 4 LSLICEs
+     Net spi1_sck_N_457_enable_7: 4 loads, 4 LSLICEs
+     Net pll_clk_enable_93: 12 loads, 12 LSLICEs
+     Net pll_clk_enable_622: 2 loads, 2 LSLICEs
+     Net ws2812_enable_N_2670: 1 loads, 1 LSLICEs
+     Net pll_clk_enable_177: 17 loads, 17 LSLICEs
+     Net pll_clk_enable_278: 17 loads, 17 LSLICEs
+     Net pll_clk_enable_400: 17 loads, 17 LSLICEs
+     Net pll_clk_enable_537: 7 loads, 7 LSLICEs
+     Net mic_stream_i/sck_N_3149_enable_101: 51 loads, 51 LSLICEs
+     Net spi1_sck_c_enable_319: 1 loads, 1 LSLICEs
+     Net pll_clk_enable_674: 1 loads, 1 LSLICEs
+     Net pll_clk_enable_621: 3 loads, 3 LSLICEs
+     Net pll_clk_enable_736: 1 loads, 1 LSLICEs
      Net ev_we: 5 loads, 0 LSLICEs
-     Net ws2812_i/pll_clk_enable_473: 7 loads, 7 LSLICEs
-     Net ws2812_i/pll_clk_enable_729: 8 loads, 8 LSLICEs
-     Net ws2812_i/pll_clk_enable_459: 2 loads, 2 LSLICEs
-     Net ws2812_i/pll_clk_enable_731: 1 loads, 1 LSLICEs
-     Net ws2812_i/pll_clk_enable_657: 4 loads, 4 LSLICEs
-   Number of LSRs:  22
-     Net pll_clk_enable_3: 3 loads, 3 LSLICEs
-     Net n20277: 4 loads, 4 LSLICEs
-     Net n13591: 1 loads, 1 LSLICEs
-     Net n23910: 1 loads, 1 LSLICEs
-     Net n15512: 17 loads, 17 LSLICEs
-     Net n24237: 25 loads, 25 LSLICEs
-     Net n11583: 2 loads, 2 LSLICEs
+     Net ws2812_i/pll_clk_enable_192: 5 loads, 5 LSLICEs
+     Net ws2812_i/pll_clk_enable_195: 2 loads, 2 LSLICEs
+     Net ws2812_i/pll_clk_enable_737: 8 loads, 8 LSLICEs
+     Net ws2812_i/pll_clk_enable_631: 13 loads, 13 LSLICEs
+     Net ws2812_i/pll_clk_enable_738: 1 loads, 1 LSLICEs
+   Number of LSRs:  21
+     Net n23957: 25 loads, 25 LSLICEs
+     Net n15996: 25 loads, 25 LSLICEs
+     Net n23961: 25 loads, 25 LSLICEs
+     Net n15881: 17 loads, 17 LSLICEs
+     Net n23959: 33 loads, 33 LSLICEs
+     Net pll_clk_enable_30: 15 loads, 15 LSLICEs
+     Net ws2812_enable: 1 loads, 1 LSLICEs
      Net phase_step_s1: 1 loads, 1 LSLICEs
-     Net n24239: 25 loads, 25 LSLICEs
+     Net n14212: 1 loads, 1 LSLICEs
      Net mic_tick: 4 loads, 4 LSLICEs
-     Net n9817: 17 loads, 17 LSLICEs
-     Net ws2812_enable: 2 loads, 2 LSLICEs
-     Net n15620: 17 loads, 17 LSLICEs
-     Net spi1_sck_c_enable_236: 1 loads, 1 LSLICEs
+     Net n23634: 1 loads, 1 LSLICEs
+     Net n15877: 5 loads, 5 LSLICEs
+     Net n12263: 2 loads, 2 LSLICEs
+     Net spi1_sck_c_enable_325: 1 loads, 1 LSLICEs
+     Net n22896: 1 loads, 1 LSLICEs
      Net spi_mic_cs_n_c: 52 loads, 52 LSLICEs
-     Net n24241: 25 loads, 25 LSLICEs
-     Net n20303: 3 loads, 3 LSLICEs
-     Net n15703: 5 loads, 5 LSLICEs
-     Net n23035: 1 loads, 1 LSLICEs
-     Net ws2812_i/n23894: 3 loads, 3 LSLICEs
-     Net ws2812_i/pll_clk_enable_657: 5 loads, 5 LSLICEs
-     Net ws2812_i/n22528: 1 loads, 1 LSLICEs
+     Net n10485: 17 loads, 17 LSLICEs
+     Net n15977: 3 loads, 3 LSLICEs
+     Net ws2812_i/pll_clk_enable_631: 5 loads, 5 LSLICEs
+     Net ws2812_i/n15963: 3 loads, 3 LSLICEs
+     Net ws2812_i/n22767: 1 loads, 1 LSLICEs
    Number of nets driven by tri-state buffers:  0
    Top 10 highest fanout non-clock nets:
-     Net ev_state_0: 126 loads
+     Net ev_state_0: 122 loads
      Net mic_stream_i/n13: 104 loads
-     Net n23889: 96 loads
-     Net n14467: 84 loads
+     Net n23644: 92 loads
+     Net n14897: 84 loads
      Net swap_now_s5: 84 loads
      Net spi_mic_cs_n_c: 53 loads
-     Net mic_stream_i/sck_N_3047_enable_101: 51 loads
+     Net mic_stream_i/sck_N_3149_enable_101: 51 loads
+     Net state_1: 45 loads
+     Net ev_state_1: 37 loads
      Net status_bit_index_0: 37 loads
-     Net ws2812_toggle_sync: 37 loads
-     Net ws2812_toggle_seen: 36 loads
  
 
    Number of warnings:  1
@@ -611,7 +503,7 @@ Design Summary:
 
 Total CPU Time: 0 secs  
 Total REAL Time: 0 secs  
-Peak Memory Usage: 57 MB
+Peak Memory Usage: 58 MB
 
 Dumping design to file UMH_7_UMH_7_1_map.ncd.
 
@@ -627,7 +519,7 @@ WARNING - mpartrce: Unable to remove old design directory.
 Running par. Please wait . . .
 
 Lattice Place and Route Report for Design "UMH_7_UMH_7_1_map.ncd"
-Fri Sep 11 12:39:56 2026
+Fri Sep 11 12:03:57 2026
 
 PAR: Place And Route Diamond (64-bit) 3.13.0.56.2.
 Command Line: par -w -l 5 -i 6 -t 1 -c 0 -e 0 -exp parUseNBR=1:parCDP=0:parCDR=0:parPathBased=OFF:parASE=1 UMH_7_UMH_7_1_map.ncd UMH_7_UMH_7_1.dir/5_1.ncd UMH_7_UMH_7_1.prf
@@ -654,35 +546,35 @@ Device utilization summary:
    PIO (prelim)   96+4(JTAG)/216     46% used
                   96+4(JTAG)/105     95% bonded
 
-   SLICE            730/1056         69% used
+   SLICE            809/1056         76% used
 
    GSR                1/1           100% used
    EBR                6/8            75% used
    PLL                1/1           100% used
 
 
-Number of Signals: 2535
-Number of Connections: 6356
+Number of Signals: 2643
+Number of Connections: 6570
 
 Pin Constraint Summary:
    96 out of 96 pins locked (100% locked).
 
 The following 3 signals are selected to use the primary clock routing resources:
-    pll_clk (driver: fpga_pll_i, clk load #: 524)
-    spi1_sck_c (driver: spi1_sck, clk load #: 145)
+    pll_clk (driver: fpga_pll_i, clk load #: 552)
+    spi1_sck_c (driver: spi1_sck, clk load #: 188)
     spi_mic_sck_c (driver: spi_mic_sck, clk load #: 52)
 
 WARNING - par: Signal "spi_mic_sck_c" is selected to use Primary clock resources. However, its driver comp "spi_mic_sck" is located at "D1", which is not a dedicated pin for connecting to Primary clock resources. General routing has to be used to route this signal, and it might suffer from excessive delay or skew.
 
 The following 8 signals are selected to use the secondary clock routing resources:
     spi_mic_cs_n_c (driver: spi_mic_cs_n, clk load #: 0, sr load #: 52, ce load #: 0)
-    mic_stream_i/sck_N_3047_enable_101 (driver: SLICE_767, clk load #: 0, sr load #: 0, ce load #: 51)
-    cs_fall (driver: SLICE_678, clk load #: 0, sr load #: 0, ce load #: 34)
-    spi1_sck_c_enable_239 (driver: SLICE_774, clk load #: 0, sr load #: 0, ce load #: 25)
-    pll_clk_enable_744 (driver: SLICE_906, clk load #: 0, sr load #: 0, ce load #: 25)
-    n24237 (driver: SLICE_817, clk load #: 0, sr load #: 25, ce load #: 0)
-    pll_clk_enable_181 (driver: SLICE_787, clk load #: 0, sr load #: 0, ce load #: 25)
-    n24239 (driver: SLICE_854, clk load #: 0, sr load #: 25, ce load #: 0)
+    mic_stream_i/sck_N_3149_enable_101 (driver: SLICE_844, clk load #: 0, sr load #: 0, ce load #: 51)
+    pll_clk_enable_735 (driver: SLICE_921, clk load #: 0, sr load #: 0, ce load #: 35)
+    cs_fall (driver: SLICE_752, clk load #: 0, sr load #: 0, ce load #: 34)
+    n23959 (driver: SLICE_927, clk load #: 0, sr load #: 33, ce load #: 0)
+    pll_clk_enable_733 (driver: SLICE_878, clk load #: 0, sr load #: 0, ce load #: 25)
+    n23957 (driver: SLICE_843, clk load #: 0, sr load #: 25, ce load #: 0)
+    n15996 (driver: SLICE_921, clk load #: 0, sr load #: 25, ce load #: 0)
 
 WARNING - par: Signal "spi_mic_cs_n_c" is selected to use Secondary clock resources. However, its driver comp "spi_mic_cs_n" is located at "B1", which is not a dedicated pin for connecting to Secondary clock resources. General routing has to be used to route this signal, and it might suffer from excessive delay or skew.
 Signal fpga_cs_n_c is selected as Global Set/Reset.
@@ -691,13 +583,13 @@ Starting Placer Phase 0.
 Finished Placer Phase 0.  REAL time: 0 secs 
 
 Starting Placer Phase 1.
-.....................
-Placer score = 417826.
-Finished Placer Phase 1.  REAL time: 4 secs 
+......................
+Placer score = 446061.
+Finished Placer Phase 1.  REAL time: 3 secs 
 
 Starting Placer Phase 2.
 .
-Placer score =  414116
+Placer score =  440065
 Finished Placer Phase 2.  REAL time: 4 secs 
 
 
@@ -711,17 +603,17 @@ Global Clock Resources:
   DCC        : 0 out of 8 (0%)
 
 Global Clocks:
-  PRIMARY "pll_clk" from CLKOP on comp "fpga_pll_i" on PLL site "LPLL", clk load = 524
-  PRIMARY "spi1_sck_c" from comp "spi1_sck" on CLK_PIN site "K1 (PL12A)", clk load = 145
+  PRIMARY "pll_clk" from CLKOP on comp "fpga_pll_i" on PLL site "LPLL", clk load = 552
+  PRIMARY "spi1_sck_c" from comp "spi1_sck" on CLK_PIN site "K1 (PL12A)", clk load = 188
   PRIMARY "spi_mic_sck_c" from comp "spi_mic_sck" on PIO site "D1 (PL3B)", clk load = 52
   SECONDARY "spi_mic_cs_n_c" from comp "spi_mic_cs_n" on PIO site "B1 (PL1A)", clk load = 0, ce load = 0, sr load = 52
-  SECONDARY "mic_stream_i/sck_N_3047_enable_101" from F0 on comp "SLICE_767" on site "R9C13B", clk load = 0, ce load = 51, sr load = 0
-  SECONDARY "cs_fall" from F1 on comp "SLICE_678" on site "R9C15D", clk load = 0, ce load = 34, sr load = 0
-  SECONDARY "spi1_sck_c_enable_239" from F1 on comp "SLICE_774" on site "R9C15B", clk load = 0, ce load = 25, sr load = 0
-  SECONDARY "pll_clk_enable_744" from F1 on comp "SLICE_906" on site "R9C15A", clk load = 0, ce load = 25, sr load = 0
-  SECONDARY "n24237" from F1 on comp "SLICE_817" on site "R9C13C", clk load = 0, ce load = 0, sr load = 25
-  SECONDARY "pll_clk_enable_181" from F1 on comp "SLICE_787" on site "R9C13D", clk load = 0, ce load = 25, sr load = 0
-  SECONDARY "n24239" from F1 on comp "SLICE_854" on site "R9C15C", clk load = 0, ce load = 0, sr load = 25
+  SECONDARY "mic_stream_i/sck_N_3149_enable_101" from F0 on comp "SLICE_844" on site "R9C15A", clk load = 0, ce load = 51, sr load = 0
+  SECONDARY "pll_clk_enable_735" from F1 on comp "SLICE_921" on site "R9C15B", clk load = 0, ce load = 35, sr load = 0
+  SECONDARY "cs_fall" from F1 on comp "SLICE_752" on site "R9C15D", clk load = 0, ce load = 34, sr load = 0
+  SECONDARY "n23959" from F0 on comp "SLICE_927" on site "R9C13B", clk load = 0, ce load = 0, sr load = 33
+  SECONDARY "pll_clk_enable_733" from F1 on comp "SLICE_878" on site "R9C13D", clk load = 0, ce load = 25, sr load = 0
+  SECONDARY "n23957" from F0 on comp "SLICE_843" on site "R9C13C", clk load = 0, ce load = 0, sr load = 25
+  SECONDARY "n15996" from F0 on comp "SLICE_921" on site "R9C15B", clk load = 0, ce load = 0, sr load = 25
 
   PRIMARY  : 3 out of 8 (37%)
   SECONDARY: 8 out of 8 (100%)
@@ -754,13 +646,13 @@ Total placer CPU time: 1 secs
 
 Dumping design to file UMH_7_UMH_7_1.dir/5_1.ncd.
 
-0 connections routed; 6356 unrouted.
+0 connections routed; 6570 unrouted.
 Starting router resource preassignment
 WARNING - par: The driver of primary clock net spi_mic_sck_c is not placed on one of the sites dedicated for primary clocks. This primary clock will be routed to an H-spine through general routing resource and might suffer from excessive delay or skew.
 
-Completed router resource preassignment. Real time: 7 secs 
+Completed router resource preassignment. Real time: 6 secs 
 
-Start NBR router at 12:40:03 09/11/26
+Start NBR router at 12:04:03 09/11/26
 
 *****************************************************************
 Info: NBR allows conflicts(one node used by more than one signal)
@@ -775,193 +667,161 @@ Note: NBR uses a different method to calculate timing slacks. The
       your design.                                               
 *****************************************************************
 
-Start NBR special constraint process at 12:40:03 09/11/26
+Start NBR special constraint process at 12:04:03 09/11/26
 
-Start NBR section for initial routing at 12:40:03 09/11/26
+Start NBR section for initial routing at 12:04:03 09/11/26
 Level 1, iteration 1
-59(0.05%) conflicts; 4558(71.71%) untouched conns; 1252 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.184ns/-1.252ns; real time: 7 secs 
+31(0.02%) conflicts; 4722(71.87%) untouched conns; 1929 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: -0.690ns/-1.929ns; real time: 7 secs 
 Level 2, iteration 1
-153(0.12%) conflicts; 3752(59.03%) untouched conns; 1555 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.184ns/-1.555ns; real time: 8 secs 
+143(0.11%) conflicts; 3925(59.74%) untouched conns; 2522 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: -0.690ns/-2.523ns; real time: 7 secs 
 Level 3, iteration 1
-182(0.14%) conflicts; 2480(39.02%) untouched conns; 2140 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.230ns/-2.140ns; real time: 8 secs 
+134(0.10%) conflicts; 2636(40.12%) untouched conns; 3104 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: -0.762ns/-3.105ns; real time: 8 secs 
 Level 4, iteration 1
-285(0.22%) conflicts; 0(0.00%) untouched conn; 2876 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.240ns/-2.876ns; real time: 9 secs 
+285(0.22%) conflicts; 0(0.00%) untouched conn; 8812 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: -0.762ns/-8.812ns; real time: 9 secs 
 
 Info: Initial congestion level at 75% usage is 0
-Info: Initial congestion area  at 75% usage is 10 (3.08%)
+Info: Initial congestion area  at 75% usage is 11 (3.38%)
 
-Start NBR section for normal routing at 12:40:05 09/11/26
+Start NBR section for normal routing at 12:04:06 09/11/26
 Level 1, iteration 1
-104(0.08%) conflicts; 248(3.90%) untouched conns; 1626 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.184ns/-1.626ns; real time: 9 secs 
+57(0.04%) conflicts; 291(4.43%) untouched conns; 2806 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: -0.690ns/-2.806ns; real time: 9 secs 
 Level 1, iteration 2
-74(0.06%) conflicts; 280(4.41%) untouched conns; 1626 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.184ns/-1.626ns; real time: 9 secs 
-Level 1, iteration 3
-67(0.05%) conflicts; 351(5.52%) untouched conns; 1707 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.184ns/-1.708ns; real time: 9 secs 
-Level 1, iteration 4
-47(0.04%) conflicts; 356(5.60%) untouched conns; 1707 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.184ns/-1.708ns; real time: 9 secs 
-Level 1, iteration 5
-37(0.03%) conflicts; 365(5.74%) untouched conns; 2567 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.230ns/-2.567ns; real time: 9 secs 
+55(0.04%) conflicts; 300(4.57%) untouched conns; 2623 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: -0.762ns/-2.623ns; real time: 9 secs 
 Level 2, iteration 1
-48(0.04%) conflicts; 339(5.33%) untouched conns; 2656 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.240ns/-2.656ns; real time: 10 secs 
+41(0.03%) conflicts; 293(4.46%) untouched conns; 2796 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: -0.762ns/-2.796ns; real time: 10 secs 
 Level 2, iteration 2
-41(0.03%) conflicts; 345(5.43%) untouched conns; 3168 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.240ns/-3.168ns; real time: 10 secs 
-Level 2, iteration 3
-37(0.03%) conflicts; 358(5.63%) untouched conns; 2919 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.230ns/-2.919ns; real time: 10 secs 
-Level 2, iteration 4
-35(0.03%) conflicts; 368(5.79%) untouched conns; 2919 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.230ns/-2.919ns; real time: 10 secs 
-Level 2, iteration 5
-30(0.02%) conflicts; 371(5.84%) untouched conns; 3262 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.240ns/-3.262ns; real time: 10 secs 
+33(0.03%) conflicts; 298(4.54%) untouched conns; 2683 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: -0.762ns/-2.683ns; real time: 10 secs 
 Level 3, iteration 1
-78(0.06%) conflicts; 247(3.89%) untouched conns; 2776 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.230ns/-2.776ns; real time: 10 secs 
+48(0.04%) conflicts; 271(4.12%) untouched conns; 2625 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: -0.762ns/-2.625ns; real time: 10 secs 
 Level 3, iteration 2
-51(0.04%) conflicts; 250(3.93%) untouched conns; 3282 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.240ns/-3.282ns; real time: 11 secs 
+37(0.03%) conflicts; 276(4.20%) untouched conns; 3082 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: -0.762ns/-3.082ns; real time: 10 secs 
+Level 3, iteration 3
+37(0.03%) conflicts; 277(4.22%) untouched conns; 3072 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: -0.762ns/-3.072ns; real time: 10 secs 
 Level 4, iteration 1
-138(0.11%) conflicts; 0(0.00%) untouched conn; 2762 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.230ns/-2.762ns; real time: 11 secs 
+143(0.11%) conflicts; 0(0.00%) untouched conn; 3036 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: -0.762ns/-3.036ns; real time: 11 secs 
 Level 4, iteration 2
-67(0.05%) conflicts; 0(0.00%) untouched conn; 3648 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.448ns/-3.648ns; real time: 11 secs 
+87(0.07%) conflicts; 0(0.00%) untouched conn; 3394 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: -0.762ns/-3.394ns; real time: 11 secs 
 Level 4, iteration 3
-45(0.03%) conflicts; 0(0.00%) untouched conn; 3739 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.448ns/-3.739ns; real time: 11 secs 
+54(0.04%) conflicts; 0(0.00%) untouched conn; 2952 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: -0.762ns/-2.952ns; real time: 11 secs 
 Level 4, iteration 4
-30(0.02%) conflicts; 0(0.00%) untouched conn; 3739 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.448ns/-3.739ns; real time: 11 secs 
+33(0.03%) conflicts; 0(0.00%) untouched conn; 2952 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: -0.762ns/-2.952ns; real time: 11 secs 
 Level 4, iteration 5
-13(0.01%) conflicts; 0(0.00%) untouched conn; 4931 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.486ns/-4.932ns; real time: 12 secs 
+22(0.02%) conflicts; 0(0.00%) untouched conn; 3318 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: -0.762ns/-3.318ns; real time: 12 secs 
 Level 4, iteration 6
-17(0.01%) conflicts; 0(0.00%) untouched conn; 4931 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.486ns/-4.932ns; real time: 12 secs 
+19(0.01%) conflicts; 0(0.00%) untouched conn; 3318 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: -0.762ns/-3.318ns; real time: 12 secs 
 Level 4, iteration 7
-10(0.01%) conflicts; 0(0.00%) untouched conn; 4452 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.486ns/-4.452ns; real time: 12 secs 
+13(0.01%) conflicts; 0(0.00%) untouched conn; 3373 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: -0.762ns/-3.373ns; real time: 12 secs 
 Level 4, iteration 8
-11(0.01%) conflicts; 0(0.00%) untouched conn; 4452 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.486ns/-4.452ns; real time: 12 secs 
+18(0.01%) conflicts; 0(0.00%) untouched conn; 3373 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: -0.762ns/-3.373ns; real time: 12 secs 
 Level 4, iteration 9
-8(0.01%) conflicts; 0(0.00%) untouched conn; 3852 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.486ns/-3.852ns; real time: 12 secs 
+7(0.01%) conflicts; 0(0.00%) untouched conn; 3397 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: -0.762ns/-3.397ns; real time: 12 secs 
 Level 4, iteration 10
-5(0.00%) conflicts; 0(0.00%) untouched conn; 3852 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.486ns/-3.852ns; real time: 12 secs 
+5(0.00%) conflicts; 0(0.00%) untouched conn; 3397 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: -0.762ns/-3.397ns; real time: 12 secs 
 Level 4, iteration 11
-2(0.00%) conflicts; 0(0.00%) untouched conn; 4437 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.486ns/-4.437ns; real time: 12 secs 
+3(0.00%) conflicts; 0(0.00%) untouched conn; 3409 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: -0.762ns/-3.409ns; real time: 12 secs 
 Level 4, iteration 12
-6(0.00%) conflicts; 0(0.00%) untouched conn; 4437 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.486ns/-4.437ns; real time: 12 secs 
+6(0.00%) conflicts; 0(0.00%) untouched conn; 3409 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: -0.762ns/-3.409ns; real time: 12 secs 
 Level 4, iteration 13
-3(0.00%) conflicts; 0(0.00%) untouched conn; 4279 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.486ns/-4.279ns; real time: 12 secs 
+4(0.00%) conflicts; 0(0.00%) untouched conn; 3368 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: -0.762ns/-3.368ns; real time: 12 secs 
 Level 4, iteration 14
-2(0.00%) conflicts; 0(0.00%) untouched conn; 4279 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.486ns/-4.279ns; real time: 12 secs 
+4(0.00%) conflicts; 0(0.00%) untouched conn; 3368 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: -0.762ns/-3.368ns; real time: 12 secs 
 Level 4, iteration 15
-1(0.00%) conflict; 0(0.00%) untouched conn; 4378 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.486ns/-4.378ns; real time: 12 secs 
+3(0.00%) conflicts; 0(0.00%) untouched conn; 3082 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: -0.762ns/-3.082ns; real time: 12 secs 
 Level 4, iteration 16
-3(0.00%) conflicts; 0(0.00%) untouched conn; 4378 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.486ns/-4.378ns; real time: 12 secs 
+3(0.00%) conflicts; 0(0.00%) untouched conn; 3082 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: -0.762ns/-3.082ns; real time: 12 secs 
 Level 4, iteration 17
-3(0.00%) conflicts; 0(0.00%) untouched conn; 3946 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.486ns/-3.946ns; real time: 13 secs 
+1(0.00%) conflict; 0(0.00%) untouched conn; 3368 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: -0.762ns/-3.368ns; real time: 12 secs 
 Level 4, iteration 18
-1(0.00%) conflict; 0(0.00%) untouched conn; 3946 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.486ns/-3.946ns; real time: 13 secs 
+3(0.00%) conflicts; 0(0.00%) untouched conn; 3368 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: -0.762ns/-3.368ns; real time: 12 secs 
 Level 4, iteration 19
-1(0.00%) conflict; 0(0.00%) untouched conn; 4026 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.486ns/-4.026ns; real time: 13 secs 
+2(0.00%) conflicts; 0(0.00%) untouched conn; 3082 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: -0.762ns/-3.082ns; real time: 12 secs 
 Level 4, iteration 20
-3(0.00%) conflicts; 0(0.00%) untouched conn; 4026 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.486ns/-4.026ns; real time: 13 secs 
+3(0.00%) conflicts; 0(0.00%) untouched conn; 3082 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: -0.762ns/-3.082ns; real time: 12 secs 
 Level 4, iteration 21
-1(0.00%) conflict; 0(0.00%) untouched conn; 3922 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.486ns/-3.922ns; real time: 13 secs 
+1(0.00%) conflict; 0(0.00%) untouched conn; 3273 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: -0.762ns/-3.273ns; real time: 12 secs 
 Level 4, iteration 22
-0(0.00%) conflict; 0(0.00%) untouched conn; 3922 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.486ns/-3.922ns; real time: 13 secs 
+0(0.00%) conflict; 0(0.00%) untouched conn; 3273 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: -0.762ns/-3.273ns; real time: 12 secs 
 
-Start NBR section for performance tuning (iteration 1) at 12:40:09 09/11/26
+Start NBR section for performance tuning (iteration 1) at 12:04:09 09/11/26
 Level 4, iteration 1
-4(0.00%) conflicts; 0(0.00%) untouched conn; 3559 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.240ns/-3.559ns; real time: 13 secs 
-Level 4, iteration 2
-1(0.00%) conflict; 0(0.00%) untouched conn; 3653 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.240ns/-3.653ns; real time: 13 secs 
-Level 4, iteration 3
-1(0.00%) conflict; 0(0.00%) untouched conn; 3653 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.240ns/-3.653ns; real time: 13 secs 
-Level 4, iteration 4
-0(0.00%) conflict; 0(0.00%) untouched conn; 3653 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.240ns/-3.653ns; real time: 13 secs 
+0(0.00%) conflict; 0(0.00%) untouched conn; 3138 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: -0.762ns/-3.138ns; real time: 12 secs 
 
-Start NBR section for performance tuning (iteration 2) at 12:40:09 09/11/26
+Start NBR section for re-routing at 12:04:09 09/11/26
 Level 4, iteration 1
-8(0.01%) conflicts; 0(0.00%) untouched conn; 2446 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.230ns/-2.446ns; real time: 13 secs 
-Level 4, iteration 2
-2(0.00%) conflicts; 0(0.00%) untouched conn; 4346 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.464ns/-4.346ns; real time: 13 secs 
+0(0.00%) conflict; 0(0.00%) untouched conn; 3138 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: -0.762ns/-3.138ns; real time: 13 secs 
 
-Start NBR section for re-routing at 12:40:09 09/11/26
-Level 4, iteration 1
-0(0.00%) conflict; 0(0.00%) untouched conn; 3653 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: -0.240ns/-3.653ns; real time: 13 secs 
-
-Start NBR section for post-routing at 12:40:09 09/11/26
+Start NBR section for post-routing at 12:04:10 09/11/26
 
 End NBR router with 0 unrouted connection
 
 NBR Summary
 -----------
   Number of unrouted connections : 0 (0.00%)
-  Number of connections with timing violations : 40 (0.63%)
-  Estimated worst slack<setup> : -0.240ns
-  Timing score<setup> : 1950
+  Number of connections with timing violations : 23 (0.35%)
+  Estimated worst slack<setup> : -0.762ns
+  Timing score<setup> : 3138
 -----------
 Notes: The timing info is calculated for SETUP only and all PAR_ADJs are ignored.
 
 
 
-Total CPU time 4 secs 
-Total REAL time: 14 secs 
+Total CPU time 3 secs 
+Total REAL time: 13 secs 
 Completely routed.
-End of route.  6356 routed (100.00%); 0 unrouted.
+End of route.  6570 routed (100.00%); 0 unrouted.
 
 Hold time timing score: 0, hold timing errors: 0
 
-Timing score: 1950 
+Timing score: 3138 
 
 Dumping design to file UMH_7_UMH_7_1.dir/5_1.ncd.
 
 
 PAR_SUMMARY::Run status = Completed
 PAR_SUMMARY::Number of unrouted conns = 0
-PAR_SUMMARY::Worst  slack<setup/<ns>> = -0.240
-PAR_SUMMARY::Timing score<setup/<ns>> = 1.950
-PAR_SUMMARY::Worst  slack<hold /<ns>> = 0.206
+PAR_SUMMARY::Worst  slack<setup/<ns>> = -0.762
+PAR_SUMMARY::Timing score<setup/<ns>> = 3.138
+PAR_SUMMARY::Worst  slack<hold /<ns>> = 0.261
 PAR_SUMMARY::Timing score<hold /<ns>> = 0.000
 PAR_SUMMARY::Number of errors = 0
 
-Total CPU  time to completion: 4 secs 
-Total REAL time to completion: 14 secs 
+Total CPU  time to completion: 3 secs 
+Total REAL time to completion: 13 secs 
 
 par done!
 
@@ -998,7 +858,7 @@ Setup and Hold Report
 
 --------------------------------------------------------------------------------
 Lattice TRACE Report - Setup, Version Diamond (64-bit) 3.13.0.56.2
-Fri Sep 11 12:40:10 2026
+Fri Sep 11 12:04:11 2026
 
 Copyright (c) 1991-1994 by NeoCAD Inc. All rights reserved.
 Copyright (c) 1995 AT&T Corp.   All rights reserved.
@@ -1024,14 +884,14 @@ BLOCK RESETPATHS
 Timing summary (Setup):
 ---------------
 
-Timing errors: 23  Score: 1950
-Cumulative negative slack: 1950
+Timing errors: 23  Score: 3138
+Cumulative negative slack: 3138
 
-Constraints cover 21908 paths, 4 nets, and 5425 connections (85.35% coverage)
+Constraints cover 23047 paths, 4 nets, and 5622 connections (85.57% coverage)
 
 --------------------------------------------------------------------------------
 Lattice TRACE Report - Hold, Version Diamond (64-bit) 3.13.0.56.2
-Fri Sep 11 12:40:11 2026
+Fri Sep 11 12:04:11 2026
 
 Copyright (c) 1991-1994 by NeoCAD Inc. All rights reserved.
 Copyright (c) 1995 AT&T Corp.   All rights reserved.
@@ -1060,7 +920,7 @@ Timing summary (Hold):
 Timing errors: 0  Score: 0
 Cumulative negative slack: 0
 
-Constraints cover 21908 paths, 4 nets, and 5425 connections (85.35% coverage)
+Constraints cover 23047 paths, 4 nets, and 5622 connections (85.57% coverage)
 
 
 
@@ -1068,15 +928,15 @@ Timing summary (Setup and Hold):
 ---------------
 
 Timing errors: 23 (setup), 0 (hold)
-Score: 1950 (setup), 0 (hold)
-Cumulative negative slack: 1950 (1950+0)
+Score: 3138 (setup), 0 (hold)
+Cumulative negative slack: 3138 (3138+0)
 --------------------------------------------------------------------------------
 
 --------------------------------------------------------------------------------
 
 Total CPU Time: 0 secs 
 Total REAL Time: 0 secs 
-Peak Memory Usage: 63 MB
+Peak Memory Usage: 64 MB
 
 
 tmcheck -par "UMH_7_UMH_7_1.par" 
@@ -1158,7 +1018,7 @@ Bitstream Status: Final           Version 1.95.
 Saving bit stream in "UMH_7_UMH_7_1.bit".
 Total CPU Time: 0 secs 
 Total REAL Time: 0 secs 
-Peak Memory Usage: 265 MB
+Peak Memory Usage: 266 MB
 
 tmcheck -par "UMH_7_UMH_7_1.par" 
 
@@ -1250,10 +1110,10 @@ Initialized UFM Pages:                     0 Page.
 =========
 Padding summary
 =========
-Padded 276736 bits for this design
+Padded 270464 bits for this design
 
 
 Total CPU Time: 0 secs 
-Total REAL Time: 2 secs 
-Peak Memory Usage: 265 MB
+Total REAL Time: 0 secs 
+Peak Memory Usage: 266 MB
 UMH_7_1 Diamond build completed

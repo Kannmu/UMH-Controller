@@ -20,7 +20,7 @@ static void number(char *out, size_t size, uint32_t value);
 static const char *page_title(device_gui_page_t page)
 {
   static const char *const titles[DEVICE_GUI_PAGE_COUNT] = {
-    "STATUS", "PLAYBACK", "DEVICE", "CALIB", "STORAGE", "DEBUG", "SYSTEM", "DEMOS", "CONTROL"
+    "STATUS", "PLAYBACK", "DEVICE", "CALIB", "STORAGE", "DEBUG", "SYSTEM", "DEMOS", "CONTROL", "LED TEST"
   };
   return page < DEVICE_GUI_PAGE_COUNT ? titles[page] : "UMH-84";
 }
@@ -37,6 +37,7 @@ static uint8_t page_item_count(const device_gui_t *gui)
     case DEVICE_GUI_SYSTEM: return (uint8_t)(4u + uxTaskGetNumberOfTasks());
     case DEVICE_GUI_DEMOS: return (uint8_t)(gui->demo_count + 1u);
     case DEVICE_GUI_CONTROL: return 4u;
+    case DEVICE_GUI_WS2812_TEST: return 5u;
     default: return 0u;
   }
 }
@@ -317,6 +318,16 @@ static void render_control(device_gui_t *gui)
   line(gui, 3u, "TRIGGER", "WAIT");
 }
 
+static void render_ws2812_test(device_gui_t *gui)
+{
+  const char *modes[] = {"OFF", "RED", "GREEN", "BLUE", "WHITE"};
+  line(gui, 0u, "MODE", modes[gui->ws2812_mode]);
+  line(gui, 1u, "STATUS", gui->ws2812_active ? "ACTIVE" : "IDLE");
+  line(gui, 2u, "ACTIVATE", "PRESS OK");
+  line(gui, 3u, "CLEAR", "PRESS OK");
+  line(gui, 4u, "INFO", "4 LED TEST");
+}
+
 void device_gui_init(device_gui_t *gui, oled_ssd1315_t *oled,
                      const umh_device_profile_t *profile,
                      umh_system_status_t *status,
@@ -329,6 +340,7 @@ void device_gui_init(device_gui_t *gui, oled_ssd1315_t *oled,
                      device_gui_action_t clear,
                      device_gui_action_t trigger,
                      device_gui_action_t demo,
+                     device_gui_action_t ws2812_set,
                      uint8_t demo_count,
                      void *action_context)
 {
@@ -337,9 +349,11 @@ void device_gui_init(device_gui_t *gui, oled_ssd1315_t *oled,
   gui->oled = oled; gui->profile = profile; gui->status = status; gui->plan = plan;
   gui->fpga = fpga; gui->flash = flash; gui->eeprom = eeprom;
   gui->start = start; gui->stop = stop; gui->clear = clear; gui->trigger = trigger;
-  gui->demo = demo; gui->demo_count = demo_count;
+  gui->demo = demo; gui->ws2812_set = ws2812_set; gui->demo_count = demo_count;
   gui->action_context = action_context; gui->page = DEVICE_GUI_HOME;
   gui->cursor_y = GUI_BODY_Y + 1u;
+  gui->ws2812_mode = 0u;
+  gui->ws2812_active = 0u;
 }
 
 static void select_page(device_gui_t *gui, device_gui_page_t page)
@@ -404,7 +418,27 @@ void device_gui_handle_event(device_gui_t *gui, const input_event_t *event)
   }
   if (event->key != INPUT_KEY1) return;
 
-  if (gui->page == DEVICE_GUI_CONTROL && gui->row < 4u) {
+  if (gui->page == DEVICE_GUI_WS2812_TEST && gui->row < 4u) {
+    int result = -1;
+    if (gui->row == 0u) {
+      /* Cycle through modes */
+      gui->ws2812_mode = (gui->ws2812_mode + 1u) % 5u;
+      result = 0;
+    } else if (gui->row == 2u && gui->ws2812_set != NULL) {
+      /* Activate selected mode */
+      result = gui->ws2812_set(gui->action_context);
+      if (result == 0) gui->ws2812_active = 1u;
+    } else if (gui->row == 3u && gui->ws2812_set != NULL) {
+      /* Clear - turn off all LEDs */
+      gui->ws2812_mode = 0u;
+      result = gui->ws2812_set(gui->action_context);
+      if (result == 0) gui->ws2812_active = 0u;
+    }
+    if (gui->row != 1u && gui->row != 4u) {
+      gui->action_message = result == 0 ? 1u : 2u;
+      gui->message_until = HAL_GetTick() + GUI_MESSAGE_MS;
+    }
+  } else if (gui->page == DEVICE_GUI_CONTROL && gui->row < 4u) {
     int result = -1;
     if (gui->row == 0u && gui->start != NULL) result = gui->start(gui->action_context);
     else if (gui->row == 1u && gui->stop != NULL) result = gui->stop(gui->action_context);
@@ -436,6 +470,7 @@ void device_gui_render(device_gui_t *gui, uint32_t now_ms)
     case DEVICE_GUI_SYSTEM: render_system(gui); break;
     case DEVICE_GUI_DEMOS: render_demos(gui); break;
     case DEVICE_GUI_CONTROL: render_control(gui); break;
+    case DEVICE_GUI_WS2812_TEST: render_ws2812_test(gui); break;
     default: break;
   }
   draw_cursor(gui);

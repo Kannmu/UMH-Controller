@@ -190,6 +190,29 @@ int fpga_link_safe_stop(fpga_link_t *link)
   return 0;
 }
 
+int fpga_link_set_ws2812(fpga_link_t *link, uint8_t r, uint8_t g, uint8_t b)
+{
+  uint16_t length;
+  umh_output_frame_t frame;
+  if (link == NULL || link->mutex == NULL) return -1;
+  if (osMutexAcquire(link->mutex, osWaitForever) != osOK) return -1;
+
+  memset(&frame, 0, sizeof(frame));
+  frame.update_flags = UMH_FRAME_FLAG_RGB;
+  frame.rgb[0].red = r;    frame.rgb[0].green = g;    frame.rgb[0].blue = b;  /* LED 0 */
+  frame.rgb[1].red = r;    frame.rgb[1].green = g;    frame.rgb[1].blue = b;  /* LED 1 */
+  frame.rgb[2].red = r;    frame.rgb[2].green = g;    frame.rgb[2].blue = b;  /* LED 2 */
+  frame.rgb[3].red = r;    frame.rgb[3].green = g;    frame.rgb[3].blue = b;  /* LED 3 */
+
+  length = pack_common(link, FPGA_CMD_WS2812, &frame);
+  if (length == 0u) { osMutexRelease(link->mutex); return -2; }
+  if (exchange(link, length) != 0) { osMutexRelease(link->mutex); return -3; }
+  if (unpack_status(link) != 0) { osMutexRelease(link->mutex); return -4; }
+
+  osMutexRelease(link->mutex);
+  return 0;
+}
+
 const fpga_status_wire_t *fpga_link_status(const fpga_link_t *link)
 {
   return link != NULL ? &link->status : NULL;

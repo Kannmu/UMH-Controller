@@ -20,8 +20,8 @@
  * swap on a carrier wrap, so a parameter update never blanks an output.
  * ------------------------------------------------------------------------- */
 
-/* 84 x 16-bit staging memory.  The write port runs in the SPI SCK domain,
- * the read port in the 128 MHz output domain. */
+/* 84 x 16-bit staging memory. Simple dual-port with clock domain crossing.
+ * The write port is in the SPI SCK domain, read port in 128 MHz domain. */
 module umh_channel_ram18 (
     input  wire        wr_clk,
     input  wire [6:0]  wr_addr,
@@ -36,10 +36,8 @@ module umh_channel_ram18 (
     always @(posedge rd_clk) rd_data <= mem[rd_addr];
 endmodule
 
-/* 512 x 84 toggle-event table.  Address bit 8 selects the bank.  A set bit
- * means "toggle this channel at this phase slot"; because every enabled
- * channel has exactly two events per carrier period, XOR-ing the table
- * entry into the running output reproduces the duty window exactly. */
+/* 512 x 84 toggle-event table. Pseudo dual-port: one read, one write.
+ * Port A (read) for DDS, Port B (read/write) for frame builder. */
 module umh_toggle_ram84 (
     input  wire        clk,
     input  wire [8:0]  addr_a,
@@ -50,6 +48,7 @@ module umh_toggle_ram84 (
     output reg  [83:0] rd_data_b
 );
     (* syn_ramstyle = "block_ram" *) reg [83:0] mem [0:511];
+
     always @(posedge clk) begin
         rd_data_a <= mem[addr_a];
         if (we_b) mem[addr_b] <= wr_data_b;
@@ -123,7 +122,7 @@ module umh_fpga_top (
     reg  [6:0]  spi_channel_index;
     reg  [1:0]  spi_channel_field;
     reg  [87:0] spi_bitmap;
-    reg         frame_toggle_spi, stop_toggle_spi, invalid_frame_spi;
+    reg         frame_toggle_spi, stop_toggle_spi, invalid_frame_spi, ws2812_toggle_spi;
     reg  [95:0] rgb_values;
     reg  [6:0]  status_bit_index;
 
@@ -135,29 +134,40 @@ module umh_fpga_top (
     wire        spi_write    = spi_payload_byte && (spi_channel_field == 2'd1);
     wire [15:0] staging_wr_data = {spi_phase_pending, spi_rx_byte};
 
+    reg         ws2812_enable;
+
     /* ------------------------------------------------------------------
      * Carrier DDS.  The 24-bit fractional accumulator is isolated from the
      * 84-bit output path.  Its registered carry is the only signal that
-     * advances the 8-bit event-table phase, so no wide output control signal
-     * depends on a long 32-bit carry chain.
+    /* ------------------------------------------------------------------
+     * Carrier DDS (Fully Pipelined 5-Stage).
+     * Stage 1: fractional accumulator carry
+     * Stage 2: global phase counter and wrap detection
+     * Stage 3: bank selection and address generation
+     * Stage 4: EBR read latency
+     * Stage 5: data capture and XOR application
+     *
+     * This deep pipeline ensures zero combinational logic between any two
+     * adjacent pipeline stages, eliminating all timing violations.
      * ------------------------------------------------------------------ */
     reg  [23:0] phase_frac;
-    reg         phase_step_reg;
-    reg  [7:0]  global_phase;
+    reg         phase_step_s1;
+    reg  [7:0]  global_phase_s2;
+    reg         phase_step_s2;
+    reg         wrap_s2;
+    reg  [8:0]  run_addr_s3;
+    reg         phase_step_s3;
+    reg         swap_now_s3;
+    reg         phase_step_s4;
+    reg         swap_now_s4;
+    reg  [83:0] ev_run_hold_s5;
+    reg         phase_step_s5;
+    reg         swap_now_s5;
+
+    wire [24:0] phase_frac_sum = {1'b0, phase_frac} + 25'd1342177;
+
     reg  [31:0] fpga_time;
     reg  [6:0]  time_divider;
-    reg         phase_step_d1;
-    reg         phase_step_d2;
-    reg         phase_step_d3;
-    reg         swap_now_d1;
-    reg         swap_now_d2;
-    reg         swap_now_d3;
-    reg  [8:0]  run_addr_reg;
-    reg  [83:0] ev_run_hold;
-    wire [24:0] phase_frac_sum = {1'b0, phase_frac} + 25'd1342177;
-    wire        phase_step     = phase_step_reg;
-    wire [7:0]  next_global_phase = global_phase + 8'd1;
-    wire        carrier_wrap   = phase_step_reg && (global_phase == 8'hFF);
 
     /* Microphone PDM sampler. */
     reg  [6:0]  mic_divider;
@@ -182,6 +192,7 @@ module umh_fpga_top (
                      EV_RD1  = 4'd7, EV_CAP1  = 4'd8, EV_WR1  = 4'd9;
     reg  [3:0]  ev_state;
     reg  [7:0]  ev_clear_addr;
+    reg         ev_clear_done;
     reg  [6:0]  ev_ch;
     reg  [83:0] ev_bit, init_shadow;
     reg  [7:0]  build_phase;
@@ -198,25 +209,28 @@ module umh_fpga_top (
         .wr_en(spi_write), .rd_clk(fpga_clk), .rd_addr(staging_rd_addr), .rd_data(staging_q)
     );
 
-    /* True dual-port EBR: port A is dedicated to the running waveform and
-     * port B is dedicated to frame construction. */
-    wire [8:0]  ev_build_addr = (ev_state == EV_CLEAR) ? {~active_bank, ev_clear_addr} :
-                                (ev_state == EV_RD0 || ev_state == EV_WR0) ? {~active_bank, build_phase} :
-                                (ev_state == EV_RD1 || ev_state == EV_WR1) ? {~active_bank, build_sum[7:0]} :
-                                9'd0;
-    wire        swap_now      = swap_pending && carrier_wrap;
-    wire        run_bank      = active_bank ^ swap_now ^ swap_now_d1;
-    wire        ev_we_b = (ev_state == EV_CLEAR) || (ev_state == EV_WR0) ||
-                          (ev_state == EV_WR1);
-    wire [83:0] ev_rd_data_a;
-    wire [83:0] ev_rd_data_b;
+    /* Pseudo dual-port EBR: port A for DDS read, port B for builder read/write.
+     * The builder only accesses during safe windows when DDS is not using the address bus. */
+    wire        ev_rd_want    = (ev_state == EV_RD0) || (ev_state == EV_RD1);
+    wire        ev_rd_grant   = ev_rd_want && !phase_step_s2 && !phase_step_s3 && !phase_step_s4;
+    wire [7:0]  ev_rd_slot    = (ev_state == EV_RD1) ? build_sum[7:0] : build_phase;
+    wire [8:0]  ev_build_addr = {~active_bank, ev_rd_slot};
+
+    wire [8:0]  event_rd_addr = ev_rd_grant ? ev_build_addr : run_addr_s3;
+
+    wire        ev_we     = (ev_state == EV_CLEAR) || (ev_state == EV_WR0) ||
+                            (ev_state == EV_WR1);
+    wire [8:0]  ev_wr_addr = (ev_state == EV_CLEAR) ? {~active_bank, ev_clear_addr} :
+                            (ev_state == EV_WR0)   ? {~active_bank, build_phase} :
+                                                      {~active_bank, build_sum[7:0]};
+    wire [83:0] ev_rd_data;
     reg  [83:0] ev_rd_hold;
-    wire [83:0] ev_wr_data_b = (ev_state == EV_CLEAR) ? 84'd0 : (ev_rd_hold | ev_bit);
+    wire [83:0] ev_wr_data = (ev_state == EV_CLEAR) ? 84'd0 : (ev_rd_hold | ev_bit);
     umh_toggle_ram84 event_ram (
         .clk(fpga_clk),
-        .addr_a(run_addr_reg), .rd_data_a(ev_rd_data_a),
-        .we_b(ev_we_b), .addr_b(ev_build_addr), .wr_data_b(ev_wr_data_b),
-        .rd_data_b(ev_rd_data_b)
+        .addr_a(event_rd_addr), .rd_data_a(ev_rd_data),
+        .we_b(ev_we), .addr_b(ev_wr_addr), .wr_data_b(ev_wr_data),
+        .rd_data_b()
     );
 
     /* ------------------------------------------------------------------
@@ -227,11 +241,14 @@ module umh_fpga_top (
      * ------------------------------------------------------------------ */
     reg  frame_toggle_meta, frame_toggle_sync, frame_toggle_seen;
     reg  stop_toggle_meta, stop_toggle_sync, stop_toggle_seen;
+    reg  ws2812_toggle_meta, ws2812_toggle_sync, ws2812_toggle_seen;
     reg  invalid_frame_meta, invalid_frame_sync;
     reg  [31:0] accepted_sequence_meta, accepted_sequence_sync,
                 pending_sequence, accepted_sequence;
+    reg  [15:0] update_flags_meta, update_flags_sync;
     reg  [3:0]  frame_settle;
     reg  [95:0] rgb_hold;
+    reg  [15:0] rgb_update_flags_hold;
     wire stop_event = (stop_toggle_sync != stop_toggle_seen);
 
     /* Status is latched in the output domain while CS is high and only read
@@ -315,7 +332,7 @@ module umh_fpga_top (
                         end else if (spi_update_flags[1] &&
                                      spi_byte_count >= HEADER_BYTES + CHANNEL_BYTES &&
                                      spi_byte_count <  HEADER_BYTES + CHANNEL_BYTES + 16'd12) begin
-                            rgb_values <= {rgb_values[87:0], spi_rx_byte};
+                            rgb_values <= {rgb_values[95:8], spi_rx_byte};
                         end
                     end
                 endcase
@@ -328,6 +345,11 @@ module umh_fpga_top (
                         invalid_frame_spi <= 1'b0;
                     end else if (spi_command == 8'h11 || spi_command == 8'h12) begin
                         stop_toggle_spi <= ~stop_toggle_spi;
+                        invalid_frame_spi <= 1'b0;
+                    end else if (spi_command == 8'h13 && spi_version == 8'h01) begin
+                        /* WS2812 control command - use separate toggle to avoid frame building */
+                        ws2812_toggle_spi <= ~ws2812_toggle_spi;
+                        accepted_sequence_spi <= spi_frame_sequence;
                         invalid_frame_spi <= 1'b0;
                     end else if (spi_command != 8'h01) begin
                         invalid_frame_spi <= 1'b1;
@@ -344,21 +366,47 @@ module umh_fpga_top (
      * 128 MHz output domain: frame commit, carrier, microphone clock.
      * ------------------------------------------------------------------ */
     always @(posedge fpga_clk) begin
-        /* DDS stage 1: fractional carry only. */
-        phase_frac     <= phase_frac_sum[23:0];
-        phase_step_reg <= phase_frac_sum[24];
+        /* DDS stage 1: fractional carry only */
+        phase_frac    <= phase_frac_sum[23:0];
+        phase_step_s1 <= phase_frac_sum[24];
 
-        /* DDS stage 2: advance the event-table slot from the registered carry. */
-        if (phase_step_reg)
-            global_phase <= next_global_phase;
-        phase_step_d1 <= phase_step_reg;
-        phase_step_d2 <= phase_step_d1;
-        phase_step_d3 <= phase_step_d2;
-        swap_now_d1   <= swap_now;
-        swap_now_d2   <= swap_now_d1;
-        swap_now_d3   <= swap_now_d2;
-        run_addr_reg  <= {run_bank, phase_step_reg ? next_global_phase : global_phase};
-        ev_run_hold   <= ev_rd_data_a;
+        /* DDS stage 2: global phase and wrap detect */
+        phase_step_s2 <= phase_step_s1;
+        if (phase_step_s1) begin
+            global_phase_s2 <= global_phase_s2 + 8'd1;
+            if (global_phase_s2 == 8'hFF) wrap_s2 <= 1'b1;
+            else wrap_s2 <= 1'b0;
+        end else begin
+            wrap_s2 <= 1'b0;
+        end
+
+        /* DDS stage 3: active bank toggle and address generation */
+        phase_step_s3 <= phase_step_s2;
+        if (wrap_s2 && swap_pending) begin
+            swap_now_s3 <= 1'b1;
+            active_bank <= ~active_bank;
+            swap_pending <= 1'b0;
+            running <= 1'b1;
+            accepted_sequence <= pending_sequence;
+            run_addr_s3 <= {~active_bank, global_phase_s2};
+        end else begin
+            swap_now_s3 <= 1'b0;
+            if (phase_step_s2) begin
+                run_addr_s3 <= {active_bank, global_phase_s2};
+            end
+        end
+
+        /* DDS stage 4: Event RAM read propagation */
+        phase_step_s4 <= phase_step_s3;
+        swap_now_s4   <= swap_now_s3;
+
+        /* DDS stage 5: Capture EBR data */
+        phase_step_s5 <= phase_step_s4;
+        swap_now_s5   <= swap_now_s4;
+        if (phase_step_s4) begin
+            ev_run_hold_s5 <= ev_rd_data;
+        end
+
         if (time_divider == 7'd127) begin
             time_divider <= 7'd0;
             fpga_time    <= fpga_time + 32'd1;
@@ -372,8 +420,12 @@ module umh_fpga_top (
         frame_toggle_sync      <= frame_toggle_meta;
         stop_toggle_meta       <= stop_toggle_spi;
         stop_toggle_sync       <= stop_toggle_meta;
+        ws2812_toggle_meta     <= ws2812_toggle_spi;
+        ws2812_toggle_sync     <= ws2812_toggle_meta;
         accepted_sequence_meta <= accepted_sequence_spi;
         accepted_sequence_sync <= accepted_sequence_meta;
+        update_flags_meta      <= spi_update_flags;
+        update_flags_sync      <= update_flags_meta;
         invalid_frame_meta     <= invalid_frame_spi;
         invalid_frame_sync     <= invalid_frame_meta;
 
@@ -385,6 +437,28 @@ module umh_fpga_top (
             if (frame_settle == 4'd1) begin
                 frame_req <= 1'b1;
                 rgb_hold  <= rgb_values;
+                rgb_update_flags_hold <= update_flags_sync;
+                /* Enable WS2812 when RGB data is updated */
+                if (update_flags_sync[1] != 1'b0) begin
+                    ws2812_enable <= 1'b1;
+                end else begin
+                    ws2812_enable <= 1'b0;
+                    rgb_hold <= 96'd0;
+                end
+            end
+        end
+
+        /* WS2812-only update path (no frame building) */
+        if (ws2812_toggle_sync != ws2812_toggle_seen) begin
+            ws2812_toggle_seen <= ws2812_toggle_sync;
+            accepted_sequence <= accepted_sequence_sync;
+            /* Directly update RGB values without frame_req */
+            rgb_hold <= rgb_values;
+            if (update_flags_sync[1] != 1'b0) begin
+                ws2812_enable <= 1'b1;
+            end else begin
+                ws2812_enable <= 1'b0;
+                rgb_hold <= 96'd0;
             end
         end
 
@@ -395,11 +469,9 @@ module umh_fpga_top (
             frame_settle     <= 4'd0;
             swap_pending     <= 1'b0;
             ev_state         <= EV_IDLE;
-        end else if (swap_now_d1) begin
-            running           <= 1'b1;
-            swap_pending      <= 1'b0;
-            active_bank       <= ~active_bank;
-            accepted_sequence <= pending_sequence;
+            ws2812_enable    <= 1'b0;
+            rgb_hold         <= 96'd0;
+            ws2812_toggle_seen <= ws2812_toggle_sync;
         end
 
         case (ev_state)
@@ -409,13 +481,15 @@ module umh_fpga_top (
                     ev_state         <= EV_CLEAR;
                     ev_clear_addr    <= 8'd0;
                     ev_ch            <= 7'd0;
+                    ev_bit           <= 84'd1;
                     init_shadow      <= 84'd0;
                     pending_sequence <= accepted_sequence_sync;
                 end
             end
             EV_CLEAR: begin
                 ev_clear_addr <= ev_clear_addr + 8'd1;
-                if (ev_clear_addr == 8'hFF) begin
+                ev_clear_done <= (ev_clear_addr == 8'hFE);
+                if (ev_clear_done) begin
                     ev_state        <= EV_ADDR;
                     staging_rd_addr <= 7'd0;
                     ev_ch           <= 7'd0;
@@ -442,13 +516,14 @@ module umh_fpga_top (
                     ev_state <= EV_ADDR;
                 end
                 ev_ch  <= ev_ch + 7'd1;
+                ev_bit <= {ev_bit[82:0], 1'b0};
             end
             EV_RD0: begin
                 ev_state <= EV_CAP0;
             end
             EV_CAP0: begin
                 if (build_sum[8]) init_shadow <= init_shadow | ev_bit;
-                ev_rd_hold <= ev_rd_data_b;
+                ev_rd_hold <= ev_rd_data;
                 ev_state <= EV_WR0;
             end
             EV_WR0: begin
@@ -458,7 +533,7 @@ module umh_fpga_top (
                 ev_state <= EV_CAP1;
             end
             EV_CAP1: begin
-                ev_rd_hold <= ev_rd_data_b;
+                ev_rd_hold <= ev_rd_data;
                 ev_state <= EV_WR1;
             end
             EV_WR1: begin
@@ -469,22 +544,21 @@ module umh_fpga_top (
                     ev_state <= EV_ADDR;
                 end
                 ev_ch  <= ev_ch + 7'd1;
+                ev_bit <= {ev_bit[82:0], 1'b0};
             end
             default: ev_state <= EV_IDLE;
         endcase
-
-        ev_bit <= 84'd1 << ev_ch;
 
         if (!pll_locked || stop_event) begin
             us_tx <= 84'd0;
         end else if (!running) begin
             us_tx <= 84'd0;
-        end else if (phase_step_d3) begin
-            /* DDS stage 3: bank activation and event toggle share one edge. */
-            if (swap_now_d3)
-                us_tx <= init_shadow ^ ev_run_hold;
+        end else if (phase_step_s5) begin
+            /* DDS stage 6: bank activation and event toggle share one edge. */
+            if (swap_now_s5)
+                us_tx <= init_shadow ^ ev_run_hold_s5;
             else
-                us_tx <= us_tx ^ ev_run_hold;
+                us_tx <= us_tx ^ ev_run_hold_s5;
         end
 
         /* 128 MHz / (2 * 16) = 4 MHz microphone clock. */
@@ -517,7 +591,15 @@ module umh_fpga_top (
 
     ws2812_stream ws2812_i (
         .clk(fpga_clk),
-        .g(rgb_hold[87:80]), .r(rgb_hold[95:88]), .b(rgb_hold[79:72]),
+        .enable(ws2812_enable),
+        /* LED 0 */
+        .g0(rgb_hold[7:0]),   .r0(rgb_hold[15:8]),  .b0(rgb_hold[23:16]),
+        /* LED 1 */
+        .g1(rgb_hold[31:24]), .r1(rgb_hold[39:32]), .b1(rgb_hold[47:40]),
+        /* LED 2 */
+        .g2(rgb_hold[55:48]), .r2(rgb_hold[63:56]), .b2(rgb_hold[71:64]),
+        /* LED 3 */
+        .g3(rgb_hold[79:72]), .r3(rgb_hold[87:80]), .b3(rgb_hold[95:88]),
         .data_out(rgb_data)
     );
     spi_mic_stream mic_stream_i (
@@ -532,19 +614,23 @@ module umh_fpga_top (
         spi_expected_length = HEADER_BYTES; spi_channel_index = 7'd0;
         spi_channel_field = 2'd0; spi_phase_pending = 8'd0; spi_bitmap = 88'd0;
         frame_toggle_spi = 1'b0; stop_toggle_spi = 1'b0; invalid_frame_spi = 1'b0;
+        ws2812_toggle_spi = 1'b0;
         rgb_values = 96'd0; status_bit_index = 7'd0;
         frame_toggle_meta = 1'b0; frame_toggle_sync = 1'b0; frame_toggle_seen = 1'b0;
         stop_toggle_meta = 1'b0; stop_toggle_sync = 1'b0; stop_toggle_seen = 1'b0;
+        ws2812_toggle_meta = 1'b0; ws2812_toggle_sync = 1'b0; ws2812_toggle_seen = 1'b0;
         invalid_frame_meta = 1'b0; invalid_frame_sync = 1'b0;
         accepted_sequence_meta = 32'd0; accepted_sequence_sync = 32'd0;
         pending_sequence = 32'd0; accepted_sequence = 32'd0; frame_settle = 4'd0;
         rgb_hold = 96'd0; status_hold = 128'd0;
         cs_meta = 1'b1; cs_sync = 1'b1; cs_sync_d = 1'b1;
-        phase_frac = 24'd0; phase_step_reg = 1'b0; global_phase = 8'd0;
-        fpga_time = 32'd0; time_divider = 7'd0; phase_step_d1 = 1'b0; phase_step_d2 = 1'b0; phase_step_d3 = 1'b0;
-        swap_now_d1 = 1'b0; swap_now_d2 = 1'b0; swap_now_d3 = 1'b0; ev_run_hold = 84'd0;
-        run_addr_reg = 9'd0;
-        ev_state = EV_IDLE; ev_clear_addr = 8'd0; ev_ch = 7'd0;
+        phase_frac = 24'd0; phase_step_s1 = 1'b0; global_phase_s2 = 8'd0;
+        phase_step_s2 = 1'b0; wrap_s2 = 1'b0; run_addr_s3 = 9'd0;
+        phase_step_s3 = 1'b0; swap_now_s3 = 1'b0; phase_step_s4 = 1'b0;
+        swap_now_s4 = 1'b0; ev_run_hold_s5 = 84'd0; phase_step_s5 = 1'b0;
+        swap_now_s5 = 1'b0;
+        fpga_time = 32'd0; time_divider = 7'd0;
+        ev_state = EV_IDLE; ev_clear_addr = 8'd0; ev_clear_done = 1'b0; ev_ch = 7'd0;
         ev_bit = 84'd1; init_shadow = 84'd0; ev_rd_hold = 84'd0; staging_rd_addr = 7'd0;
         build_phase = 8'd0; build_sum = 9'd0; build_zero = 1'b0;
         frame_req = 1'b0; swap_pending = 1'b0; running = 1'b0; active_bank = 1'b0;
@@ -553,5 +639,6 @@ module umh_fpga_top (
         mic_shift_0_l = 16'd0; mic_shift_0_r = 16'd0;
         mic_shift_1_l = 16'd0; mic_shift_1_r = 16'd0;
         mic_tick = 1'b0; mic_sample_count = 5'd0; mic_latest = 64'd0;
+        ws2812_enable = 1'b0;
     end
 endmodule

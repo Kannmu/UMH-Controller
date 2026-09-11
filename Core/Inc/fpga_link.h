@@ -21,7 +21,8 @@ typedef enum {
   FPGA_CMD_STATUS = 0x01u,
   FPGA_CMD_FRAME = 0x10u,
   FPGA_CMD_STOP = 0x11u,
-  FPGA_CMD_RESET = 0x12u
+  FPGA_CMD_RESET = 0x12u,
+  FPGA_CMD_WS2812 = 0x13u
 } fpga_command_t;
 
 typedef struct __attribute__((packed)) {
@@ -54,6 +55,7 @@ void fpga_link_init(fpga_link_t *link, SPI_HandleTypeDef *spi);
 int fpga_link_submit(fpga_link_t *link, const umh_output_frame_t *frame);
 int fpga_link_poll_status(fpga_link_t *link);
 int fpga_link_safe_stop(fpga_link_t *link);
+int fpga_link_set_ws2812(fpga_link_t *link, uint8_t r, uint8_t g, uint8_t b);
 const fpga_status_wire_t *fpga_link_status(const fpga_link_t *link);
 void fpga_link_spi_txrx_complete(fpga_link_t *link);
 void fpga_link_spi_error(fpga_link_t *link);

@@ -1,0 +1,25 @@
+Lattice Programmer Diamond (64-bit) 3.13.0.56.2 Command Line
+Argument check - OK
+Loading Programmer Device Database... Done.
+Writing log file to C:/Users/14623/AppData/Roaming/LatticeSemi/programmer.log
+Opening XCF file... Done.
+Programming XCF Contents... Connected to Lattice Cable Server.
+INFO - Check configuration setup: Start.
+
+WARNING - File D:/Data/OneDrive/Projects/UMH/Software/UMH Controller/FPGA/UMH_7_1/UMH_7_UMH_7_1.jed
+has been modified since last check.Default using the modified file.
+
+INFO - JTAG Chain Verification. No Errors.
+
+INFO - Check configuration setup: Successful.
+
+INFO - Device1 LCMXO2-2000HC: FLASH Erase,Program,Verify
+
+INFO - Operation Done. No errors.
+
+INFO - Elapsed time: 00 min : 18 sec
+
+INFO - Operation: successful.
+
+Done.
+Lattice Diamond Programmer has exited successfully.

@@ -1,0 +1,5 @@
+
+
+-g RamCfg:Reset
+
+-path "D:/Data/OneDrive/Projects/UMH/Software/UMH Controller/FPGA"  

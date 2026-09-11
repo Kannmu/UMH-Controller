@@ -1,0 +1,80 @@
+
+synthesis -f "UMH_7_UMH_7_1_lattice.synproj"
+synthesis:  version Diamond (64-bit) 3.13.0.56.2
+
+Copyright (c) 1991-1994 by NeoCAD Inc. All rights reserved.
+Copyright (c) 1995 AT&T Corp.   All rights reserved.
+Copyright (c) 1995-2001 Lucent Technologies Inc.  All rights reserved.
+Copyright (c) 2001 Agere Systems   All rights reserved.
+Copyright (c) 2002-2023 Lattice Semiconductor Corporation,  All rights reserved.
+Fri Sep 11 12:03:24 2026
+
+
+Command Line:  synthesis -f UMH_7_UMH_7_1_lattice.synproj 
+
+INFO - synthesis: Lattice Synthesis Engine Launched.
+Synthesis options:
+The -a option is MachXO2.
+The -s option is 4.
+The -t option is CSBGA132.
+The -d option is LCMXO2-2000HC.
+Using package CSBGA132.
+Using performance grade 4.
+                                                          
+
+##########################################################
+
+### Lattice Family : MachXO2
+
+### Device  : LCMXO2-2000HC
+
+### Package : CSBGA132
+
+### Speed   : 4
+
+##########################################################
+
+                                                          
+
+INFO - synthesis: User-Selected Strategy Settings
+Optimization goal = Balanced
+The -top option is not used.
+Target frequency = 128.000000 MHz.
+Maximum fanout = 1000.
+Timing path count = 3
+BRAM utilization = 100.000000 %
+DSP usage = true
+DSP utilization = 100.000000 %
+fsm_encoding_style = auto
+resolve_mixed_drivers = 0
+fix_gated_clocks = 1
+
+Mux style = Auto
+Use Carry Chain = true
+carry_chain_length = 0
+Loop Limit = 1950.
+Use IO Insertion = TRUE
+Use IO Reg = AUTO
+
+Resource Sharing = TRUE
+Propagate Constants = TRUE
+Remove Duplicate Registers = TRUE
+force_gsr = auto
+ROM style = auto
+RAM style = auto
+The -comp option is FALSE.
+The -syn option is FALSE.
+-p D:/Data/OneDrive/Projects/UMH/Software/UMH Controller/FPGA (searchpath added)
+-p D:/Software/Lattice Diamond/diamond/3.13/ispfpga/xo2c00/data (searchpath added)
+-p D:/Data/OneDrive/Projects/UMH/Software/UMH Controller/FPGA/UMH_7_1 (searchpath added)
+-p D:/Data/OneDrive/Projects/UMH/Software/UMH Controller/FPGA (searchpath added)
+Verilog design file = D:/Data/OneDrive/Projects/UMH/Software/UMH Controller/FPGA/src/umh_fpga_top.v
+Verilog design file = D:/Data/OneDrive/Projects/UMH/Software/UMH Controller/FPGA/src/ws2812_stream.v
+Verilog design file = D:/Data/OneDrive/Projects/UMH/Software/UMH Controller/FPGA/src/spi_mic_stream.v
+NGD file = UMH_7_UMH_7_1.ngd
+-sdc option: SDC file input not used.
+-lpf option: Output file option is ON.
+Hardtimer checking is enabled (default). The -dt option is not used.
+The -r option is OFF. [ Remove LOC Properties is OFF. ]
+ERROR - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(438): syntax error near u. VERI-1137
+ERROR: Synthesis failed: Running milestone "Synthesis" failed

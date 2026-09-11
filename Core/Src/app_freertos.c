@@ -178,6 +178,43 @@ static int gui_demo(void *context)
   return 0;
 }
 
+static int gui_ws2812_set(void *context)
+{
+  uint8_t r = 0u, g = 0u, b = 0u;
+  int result;
+  (void)context;
+
+  switch (device_gui.ws2812_mode) {
+    case 0u: /* OFF */
+      r = 0u; g = 0u; b = 0u;
+      break;
+    case 1u: /* RED */
+      r = 255u; g = 0u; b = 0u;
+      break;
+    case 2u: /* GREEN */
+      r = 0u; g = 255u; b = 0u;
+      break;
+    case 3u: /* BLUE */
+      r = 0u; g = 0u; b = 255u;
+      break;
+    case 4u: /* WHITE */
+      r = 255u; g = 255u; b = 255u;
+      break;
+    default:
+      r = 0u; g = 0u; b = 0u;
+      break;
+  }
+
+  result = fpga_link_set_ws2812(&fpga_link, r, g, b);
+
+  /* Log error details to system status for debugging */
+  if (result != 0) {
+    system_status_fault(UMH_FAULT_FPGA_OUTPUT, (uint32_t)(-result), UMH_FAULT_WARNING);
+  }
+
+  return result;
+}
+
 static void send_result(const umh_protocol_frame_t *request, umh_status_t status,
                         const void *payload, uint16_t length)
 {
@@ -656,7 +693,7 @@ static void application_init(void)
   device_gui_init(&device_gui, &oled, &device_profile, system_status_get(),
                   &playback_plan, &fpga_link, &flash_store, &eeprom_profile,
                   gui_start, gui_stop, gui_clear, gui_trigger, gui_demo,
-                  demo_engine_count(), NULL);
+                  gui_ws2812_set, demo_engine_count(), NULL);
   {
     const osMessageQueueAttr_t storage_queue_attributes = {
       .name = "storage", .cb_mem = &storage_queue_cb, .cb_size = sizeof(storage_queue_cb),
