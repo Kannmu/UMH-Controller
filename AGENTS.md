@@ -4,3 +4,6 @@
 
 - 你只需要给我完善的开发调试项目，不用给我写文档，不要创建指南。需要告诉我下一步怎么做的时候直接在你的聊天回复中告诉我就行，不要创建多余的文件。
 
+ARM_GCC_PATH = D:\SOFTWARE\GCC-ARM-NONE-EABI-10.3-2021.10\BIN
+OPENOCD = D:\Software\OpenOCD\bin\openocd.exe
+

@@ -275,7 +275,9 @@ module umh_fpga_top (
         accepted_sequence[7:0], accepted_sequence[15:8],
         accepted_sequence[23:16], accepted_sequence[31:24]
     };
-    assign spi1_miso = fpga_cs_n ? 1'b0 : status_hold[7'd127 - status_bit_index];
+    /* MISO is a shared SPI return line and must be released while CS is
+     * inactive. */
+    assign spi1_miso = fpga_cs_n ? 1'bz : status_hold[7'd127 - status_bit_index];
 
     always @(negedge spi1_sck or posedge fpga_cs_n) begin
         if (fpga_cs_n) status_bit_index <= 7'd0;
@@ -414,7 +416,10 @@ module umh_fpga_top (
             time_divider <= time_divider + 7'd1;
         end
 
-        if (cs_fall) status_hold <= status_word;
+        /* Refresh the response only while CS is inactive.  At the next
+         * transaction it is already valid before the first SCK edge; once
+         * CS goes low it remains constant for the whole SPI frame. */
+        if (fpga_cs_n) status_hold <= status_word;
 
         frame_toggle_meta      <= frame_toggle_spi;
         frame_toggle_sync      <= frame_toggle_meta;

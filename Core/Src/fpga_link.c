@@ -39,35 +39,30 @@ void fpga_link_init(fpga_link_t *link, SPI_HandleTypeDef *spi)
 
 static int exchange(fpga_link_t *link, uint16_t length)
 {
-  uint32_t start;
+  static uint32_t last_report;
   if (link == NULL || link->spi == NULL || length == 0u || length > FPGA_TX_BUFFER_SIZE) return -1;
-  link->dma_done = 0u;
-  link->dma_error = 0u;
   link->tx_length = length;
   cs_low();
-  if (HAL_SPI_TransmitReceive_DMA(link->spi, link->tx, link->rx, length) != HAL_OK) {
+  /* FPGA transactions are short (status: 36 bytes, frame: <=252 bytes).
+   * Use the peripheral's blocking full-duplex path here.  The former DMA
+   * path could leave SPI BUSY with both CNDTR counters at zero when an
+   * interrupt was masked by the RTOS, making every exchange hit the timeout
+   * even though the wire transfer had completed. */
+  HAL_StatusTypeDef spi_result = HAL_SPI_TransmitReceive(link->spi, link->tx, link->rx, length, 20u);
+  if (spi_result != HAL_OK) {
     cs_high();
     mark_link_fault(link);
-    system_status_fault(UMH_FAULT_FPGA_SPI_START, HAL_SPI_GetError(link->spi), UMH_FAULT_CRITICAL);
-    return -2;
-  }
-  start = HAL_GetTick();
-  while (link->dma_done == 0u && link->dma_error == 0u) {
-    if ((HAL_GetTick() - start) > 100u) {
-      (void)HAL_SPI_Abort(link->spi);
-      cs_high();
-      mark_link_fault(link);
-      system_status_fault(UMH_FAULT_FPGA_SPI_TIMEOUT, 100u, UMH_FAULT_CRITICAL);
-      return -3;
+    /* A missing FPGA clock/MISO must not turn the render task into a fault
+     * storm.  Report at most once per second and classify HAL timeout as a
+     * timeout rather than a misleading SPI-start error. */
+    if ((HAL_GetTick() - last_report) >= 1000u) {
+      last_report = HAL_GetTick();
+      system_status_fault(spi_result == HAL_TIMEOUT ? UMH_FAULT_FPGA_SPI_TIMEOUT : UMH_FAULT_FPGA_SPI_START,
+                          HAL_SPI_GetError(link->spi), UMH_FAULT_CRITICAL);
     }
-    osDelay(1u);
+    return spi_result == HAL_TIMEOUT ? -3 : -2;
   }
   cs_high();
-  if (link->dma_error != 0u) {
-    mark_link_fault(link);
-    system_status_fault(UMH_FAULT_FPGA_SPI_DMA, HAL_SPI_GetError(link->spi), UMH_FAULT_CRITICAL);
-    return -4;
-  }
   return 0;
 }
 

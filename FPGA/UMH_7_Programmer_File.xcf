@@ -20,8 +20,8 @@
 				<BScanVal>0</BScanVal>
 			</Bypass>
 			<File>D:/Data/OneDrive/Projects/UMH/Software/UMH Controller/FPGA/UMH_7_1/UMH_7_UMH_7_1.jed</File>
-			<FileTime>09/10/26 22:02:26</FileTime>
-			<JedecChecksum>0x1485</JedecChecksum>
+			<FileTime>09/14/26 18:31:54</FileTime>
+			<JedecChecksum>0x1E3E</JedecChecksum>
 			<Operation>FLASH Erase,Program,Verify</Operation>
 			<Option>
 				<SVFVendor>JTAG STANDARD</SVFVendor>
@@ -29,6 +29,7 @@
 				<PreloadLength>424</PreloadLength>
 				<IOVectorData>0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF</IOVectorData>
 				<TCKFrequency>1.000000 MHz</TCKFrequency>
+				<SVFProcessor>SVF Processor</SVFProcessor>
 				<Usercode>0x00000000</Usercode>
 				<AccessMode>FLASH</AccessMode>
 			</Option>
@@ -46,6 +47,6 @@
 	<CableOptions>
 		<CableName>USB</CableName>
 		<PortAdd>EzUSB-0</PortAdd>
-		<USBID>\\?\usb#vid_1134&amp;amp;pid_8001#5&amp;amp;2ffde795&amp;amp;0&amp;amp;3#</USBID>
+		<USBID>\\?\usb#vid_1134&amp;amp;pid_8001#5&amp;amp;2ffde795&amp;amp;0&amp;amp;7#</USBID>
 	</CableOptions>
 </ispXCF>

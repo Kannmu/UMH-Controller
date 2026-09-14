@@ -6,7 +6,7 @@ Performance Grade:      4
 PACKAGE:          CSBGA132
 Package Status:                     Final          Version 1.44
 
-Fri Sep 11 12:40:00 2026
+Mon Sep 14 18:31:38 2026
 
 Pinout by Port Name:
 +--------------+----------+--------------+-------+-----------+-----------+--------------------------------------+
@@ -18,7 +18,7 @@ Pinout by Port Name:
 | mic_data_0   | K2/3     | LVCMOS33_IN  | PL11B |           |           | PULL:DOWN CLAMP:ON HYSTERESIS:SMALL  |
 | mic_data_1   | F2/5     | LVCMOS33_IN  | PL5B  |           |           | PULL:DOWN CLAMP:ON HYSTERESIS:SMALL  |
 | rgb_data     | J3/3     | LVCMOS33_OUT | PL11A |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
-| spi1_miso    | J1/4     | LVCMOS33_OUT | PL10A |           |           | DRIVE:4mA PULL:DOWN SLEW:SLOW        |
+| spi1_miso    | J1/4     | LVCMOS33_OUT | PL10A |           |           | DRIVE:4mA PULL:UP SLEW:SLOW          |
 | spi1_mosi    | H1/4     | LVCMOS33_IN  | PL9A  |           |           | PULL:DOWN CLAMP:ON HYSTERESIS:SMALL  |
 | spi1_sck     | K1/3     | LVCMOS33_IN  | PL12A |           |           | PULL:DOWN CLAMP:ON HYSTERESIS:SMALL  |
 | spi_mic_cs_n | B1/5     | LVCMOS33_IN  | PL1A  |           |           | PULL:UP CLAMP:ON HYSTERESIS:SMALL    |
@@ -475,5 +475,5 @@ Copyright (c) 1995 AT&T Corp.   All rights reserved.
 Copyright (c) 1995-2001 Lucent Technologies Inc.  All rights reserved.
 Copyright (c) 2001 Agere Systems   All rights reserved.
 Copyright (c) 2002-2023 Lattice Semiconductor Corporation,  All rights reserved.
-Fri Sep 11 12:40:02 2026
+Mon Sep 14 18:31:40 2026
 

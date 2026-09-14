@@ -5,7 +5,7 @@ Copyright (c) 1995 AT&T Corp.   All rights reserved.
 Copyright (c) 1995-2001 Lucent Technologies Inc.  All rights reserved.
 Copyright (c) 2001 Agere Systems   All rights reserved.
 Copyright (c) 2002-2023 Lattice Semiconductor Corporation,  All rights reserved.
-Fri Sep 11 12:39:52 2026
+Mon Sep 14 18:31:29 2026
 
 
 Command Line:  synthesis -f UMH_7_UMH_7_1_lattice.synproj 
@@ -204,10 +204,13 @@ WARNING - synthesis: Bit 112 of Register status_hold is stuck at Zero
 ######## Missing driver on net rgb_values[10]. Patching with GND.
 ######## Missing driver on net rgb_values[9]. Patching with GND.
 ######## Missing driver on net rgb_values[8]. Patching with GND.
+######## Missing driver on net n7560. Patching with GND.
+######## Missing driver on net n7562. Patching with GND.
 ######## Missing driver on net n7557. Patching with GND.
-######## Missing driver on net n7559. Patching with GND.
-######## Missing driver on net n7554. Patching with GND.
-######## Missing driver on net n7558. Patching with GND.
+######## Missing driver on net n7561. Patching with GND.
+######## Missing driver on net n7574. Patching with GND.
+######## Missing driver on net n7573. Patching with GND.
+######## Missing driver on net n7572. Patching with GND.
 ######## Missing driver on net n7571. Patching with GND.
 ######## Missing driver on net n7570. Patching with GND.
 ######## Missing driver on net n7569. Patching with GND.
@@ -217,13 +220,10 @@ WARNING - synthesis: Bit 112 of Register status_hold is stuck at Zero
 ######## Missing driver on net n7565. Patching with GND.
 ######## Missing driver on net n7564. Patching with GND.
 ######## Missing driver on net n7563. Patching with GND.
-######## Missing driver on net n7562. Patching with GND.
-######## Missing driver on net n7561. Patching with GND.
-######## Missing driver on net n7560. Patching with GND.
+######## Missing driver on net n7559. Patching with GND.
 ######## Missing driver on net n7556. Patching with GND.
-######## Missing driver on net n7553. Patching with GND.
+######## Missing driver on net n7558. Patching with GND.
 ######## Missing driver on net n7555. Patching with GND.
-######## Missing driver on net n7552. Patching with GND.
 WARNING - synthesis: Bit 72 of Register status_hold is stuck at Zero
 WARNING - synthesis: Bit 111 of Register status_hold is stuck at Zero
 WARNING - synthesis: Bit 110 of Register status_hold is stuck at Zero
@@ -301,7 +301,7 @@ WARNING - synthesis: Bit 8 of Register rgb_hold is stuck at Zero
 
 ######## Mapping RTL RAM \staging_ram/mem to 1 EBR blocks in PSEUDO_DUAL_PORT Mode
 
-WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(362): Register spi_expected_length_i16 is stuck at Zero. VDB-5013
+WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(364): Register spi_expected_length_i16 is stuck at Zero. VDB-5013
 WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/spi_mic_stream.v(38): Register \mic_stream_i/shift_register_i0 is stuck at Zero. VDB-5013
 WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/ws2812_stream.v(84): Register \ws2812_i/shift_register_i0_i0 is stuck at Zero. VDB-5013
 Duplicate register/latch removal. spi_rx_shift_i1 is a one-to-one match with spi_rx_shift_rep_6_i1.
@@ -311,8 +311,8 @@ Duplicate register/latch removal. spi_rx_shift_i5 is a one-to-one match with spi
 Duplicate register/latch removal. spi_rx_shift_i4 is a one-to-one match with spi_rx_shift_rep_6_i4.
 Duplicate register/latch removal. spi_rx_shift_i3 is a one-to-one match with spi_rx_shift_rep_6_i3.
 Duplicate register/latch removal. spi_rx_shift_i2 is a one-to-one match with spi_rx_shift_rep_6_i2.
-GSR instance connected to net fpga_cs_n_N_2559.
-WARNING - synthesis: Initial value found on instance swap_pending_489 will be ignored.
+GSR instance connected to net fpga_cs_n_N_2521.
+WARNING - synthesis: Initial value found on instance swap_pending_493 will be ignored.
 WARNING - synthesis: Initial value found on instance ev_bit_i0 will be ignored.
 Applying 128.000000 MHz constraint to all clocks
 
@@ -326,7 +326,7 @@ All blocks are expanded and NGD expansion is successful.
 Writing NGD file UMH_7_UMH_7_1.ngd.
 
 ################### Begin Area Report (umh_fpga_top)######################
-Number of register bits => 1367 of 2427 (56 % )
+Number of register bits => 1364 of 2427 (56 % )
 CCU2D => 96
 EHXPLLJ => 1
 FD1P3AX => 768
@@ -334,7 +334,6 @@ FD1P3AY => 2
 FD1P3DX => 101
 FD1P3IX => 296
 FD1S3AX => 184
-FD1S3AY => 3
 FD1S3DX => 1
 FD1S3IX => 11
 FD1S3JX => 1
@@ -342,10 +341,11 @@ GSR => 1
 IB => 8
 INV => 2
 L6MUX21 => 12
-LUT4 => 829
-OB => 88
+LUT4 => 825
+OB => 87
+OBZ => 1
 PDPW8KC => 6
-PFUMX => 25
+PFUMX => 23
 ################### End Area Report ##################
 
 ################### Begin BlackBox Report ######################
@@ -355,35 +355,35 @@ TSALL => 1
 ################### Begin Clock Report ######################
 Clock Nets
 Number of Clocks: 4
-  Net : pll_clk, loads : 997
+  Net : pll_clk, loads : 994
   Net : spi1_sck_c, loads : 274
   Net : spi_mic_sck_c, loads : 1
   Net : fpga_clk_8m_c, loads : 1
 Clock Enable Nets
-Number of Clock Enables: 65
+Number of Clock Enables: 66
 Top 10 highest fanout Clock Enables:
-  Net : mic_stream_i/sck_N_3047_enable_101, loads : 101
-  Net : cs_fall, loads : 68
-  Net : pll_clk_enable_574, loads : 50
-  Net : spi1_sck_c_enable_239, loads : 50
-  Net : pll_clk_enable_280, loads : 50
+  Net : mic_stream_i/sck_N_3045_enable_101, loads : 101
+  Net : fpga_cs_n_c, loads : 74
+  Net : pll_clk_enable_576, loads : 50
+  Net : pll_clk_enable_282, loads : 50
   Net : pll_clk_enable_744, loads : 50
-  Net : pll_clk_enable_181, loads : 50
-  Net : pll_clk_enable_437, loads : 50
+  Net : spi1_sck_c_enable_239, loads : 50
   Net : pll_clk_enable_743, loads : 50
+  Net : pll_clk_enable_183, loads : 50
+  Net : pll_clk_enable_439, loads : 50
   Net : spi1_sck_c_enable_182, loads : 38
 Highest fanout non-clock nets
 Top 10 highest fanout non-clock nets:
-  Net : ev_state_0, loads : 126
-  Net : mic_stream_i/n13, loads : 104
+  Net : ev_state_0, loads : 131
+  Net : mic_stream_i/n23689, loads : 104
   Net : spi_mic_cs_n_c, loads : 103
-  Net : sck_N_3047, loads : 102
-  Net : mic_stream_i/sck_N_3047_enable_101, loads : 101
-  Net : n23889, loads : 96
+  Net : sck_N_3045, loads : 102
+  Net : mic_stream_i/sck_N_3045_enable_101, loads : 101
+  Net : n23687, loads : 95
   Net : swap_now_s5, loads : 84
-  Net : n14467, loads : 84
-  Net : pll_clk_enable_735, loads : 70
-  Net : pll_clk_enable_314, loads : 68
+  Net : n14465, loads : 84
+  Net : fpga_cs_n_c, loads : 74
+  Net : pll_clk_enable_736, loads : 70
 ################### End Clock Report ##################
 
 Timing Report Summary
@@ -396,10 +396,10 @@ create_clock -period 7.812500 -name     |             |             |
 clk2 [get_nets spi_mic_sck_c]           |  128.008 MHz|  150.038 MHz|     4  
                                         |             |             |
 create_clock -period 7.812500 -name     |             |             |
-clk1 [get_nets pll_clk]                 |  128.008 MHz|   94.778 MHz|     6 *
+clk1 [get_nets pll_clk]                 |  128.008 MHz|  103.040 MHz|     5 *
                                         |             |             |
 create_clock -period 7.812500 -name     |             |             |
-clk0 [get_nets spi1_sck_c]              |  128.008 MHz|   50.674 MHz|    13 *
+clk0 [get_nets spi1_sck_c]              |  128.008 MHz|   59.291 MHz|    11 *
                                         |             |             |
 --------------------------------------------------------------------------------
 
@@ -407,8 +407,8 @@ clk0 [get_nets spi1_sck_c]              |  128.008 MHz|   50.674 MHz|    13 *
 2 constraints not met.
 
 
-Peak Memory Usage: 89.977  MB
+Peak Memory Usage: 90.707  MB
 
 --------------------------------------------------------------
-Elapsed CPU time for LSE flow : 0.656  secs
+Elapsed CPU time for LSE flow : 0.469  secs
 --------------------------------------------------------------
