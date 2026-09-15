@@ -5,6 +5,7 @@
 - 只维护可运行的开发调试工程，不创建额外指南文件。
 - 不要使用Computer Use，全部通过CLI命令行工具来进行。
 - 不要使用SubAgents
+- PA9 是对外输出的触发信号，用于连接LDV等等外部仪器的时序触发，和超声发射部分没有关系。
 
 ARM_GCC_PATH = D:\SOFTWARE\GCC-ARM-NONE-EABI-10.3-2021.10\BIN
 OPENOCD = D:\Software\OpenOCD\bin\openocd.exe
