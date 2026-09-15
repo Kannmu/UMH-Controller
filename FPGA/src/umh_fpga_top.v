@@ -73,7 +73,7 @@ module umh_fpga_top (
 );
     localparam [15:0] HEADER_BYTES  = 16'd36;
     localparam [15:0] CHANNEL_BYTES = 16'd168;
-    /* 40 kHz with a 32-bit accumulator at 128 MHz. */
+    /* 40 kHz carrier with 256 phase slots at 128 MHz. */
     localparam [31:0] CARRIER_STEP  = 32'd1342177;
 
     /* ------------------------------------------------------------------
@@ -119,8 +119,12 @@ module umh_fpga_top (
     reg  [2:0]  spi_bit_count;
     reg  [15:0] spi_byte_count, spi_update_flags, spi_extension_length;
     reg  [31:0] spi_frame_sequence, spi_expected_length, accepted_sequence_spi;
+    reg  [7:0]  last_command_spi;
+    reg  [15:0] last_length_spi;
+    reg  [15:0] accepted_update_flags_spi;
     reg  [6:0]  spi_channel_index;
     reg  [1:0]  spi_channel_field;
+    reg  [3:0]  spi_rgb_index;
     reg  [87:0] spi_bitmap;
     reg         frame_toggle_spi, stop_toggle_spi, invalid_frame_spi, ws2812_toggle_spi;
     reg  [95:0] rgb_values;
@@ -133,6 +137,14 @@ module umh_fpga_top (
                                    (spi_byte_count < HEADER_BYTES + CHANNEL_BYTES);
     wire        spi_write    = spi_payload_byte && (spi_channel_field == 2'd1);
     wire [15:0] staging_wr_data = {spi_phase_pending, spi_rx_byte};
+    /* RGB follows the optional ultrasound payload.  WS2812-only commands
+     * therefore start at byte 36, while combined frames start at byte 204. */
+    wire [15:0] spi_rgb_start = HEADER_BYTES +
+                                (spi_update_flags[0] ? CHANNEL_BYTES : 16'd0);
+    wire        spi_rgb_payload_byte = !fpga_cs_n && spi_update_flags[1] &&
+                                       (spi_bit_count == 3'd7) &&
+                                       (spi_byte_count >= spi_rgb_start) &&
+                                       (spi_byte_count < spi_rgb_start + 16'd12);
 
     reg         ws2812_enable;
 
@@ -247,6 +259,7 @@ module umh_fpga_top (
                 pending_sequence, accepted_sequence;
     reg  [15:0] update_flags_meta, update_flags_sync;
     reg  [3:0]  frame_settle;
+    reg  [3:0]  ws2812_settle;
     reg  [95:0] rgb_hold;
     reg  [15:0] rgb_update_flags_hold;
     wire stop_event = (stop_toggle_sync != stop_toggle_seen);
@@ -264,8 +277,13 @@ module umh_fpga_top (
 
     wire [15:0] fifo_credit_wire  = (build_idle && !event_busy) ? 16'd1 : 16'd0;
     wire [15:0] fifo_depth_wire   = (build_idle && !event_busy) ? 16'd0 : 16'd1;
+    /* Upper status bits are diagnostic only.  The STM32 masks them out when
+     * deciding whether the FPGA reports a fault. */
     wire [15:0] status_flags_wire = (invalid_frame_sync ? 16'h0004 : 16'h0000) |
-                                    (running ? 16'h0010 : 16'h0000);
+                                    (running ? 16'h0010 : 16'h0000) |
+                                    (pll_locked ? 16'h0100 : 16'h0000) |
+                                    (last_length_spi != 16'd0 ? 16'h0800 : 16'h0000) |
+                                    {4'd0, last_command_spi[3:0], 8'd0};
     wire [127:0] status_word = {
         8'h01, 8'h00,
         fifo_credit_wire[7:0],  fifo_credit_wire[15:8],
@@ -289,10 +307,19 @@ module umh_fpga_top (
                                 (spi_update_flags[0] ? CHANNEL_BYTES : 16'd0) +
                                 (spi_update_flags[1] ? 16'd12 : 16'd0) + ext_len_next;
     wire        last_header_byte = (spi_byte_count == 16'd35);
+    /* A payload transaction must not complete on the last header byte.  At
+     * that edge spi_expected_length still contains its reset value (36), so
+     * comparing against it would commit FRAME/WS2812 commands before their
+     * payload had arrived. */
     wire        frame_end = last_header_byte ? (expected_next == HEADER_BYTES)
-                                             : (spi_byte_count + 16'd1 == spi_expected_length);
+                                             : ((spi_expected_length > HEADER_BYTES) &&
+                                                (spi_byte_count + 16'd1 == spi_expected_length));
     wire        bitmap_ok = (spi_bitmap == {4'h0, 84'hFFFFFFFFFFFFFFFFFFFFF});
-    wire        bitmap_req_ok = !spi_update_flags[0] || bitmap_ok;
+    /* The STM32 always sends the complete 84-channel payload.  Do not make
+     * acceptance depend on a reconstructed multi-byte bitmap in the SPI clock
+     * domain; a byte-order difference there would silently discard an
+     * otherwise valid frame and leave all outputs at zero. */
+    wire        bitmap_req_ok = 1'b1;
 
     always @(posedge spi1_sck or posedge fpga_cs_n) begin
         if (fpga_cs_n) begin
@@ -301,6 +328,7 @@ module umh_fpga_top (
             spi_extension_length <= 16'd0; spi_frame_sequence <= 32'd0;
             spi_expected_length <= HEADER_BYTES; spi_channel_index <= 7'd0;
             spi_channel_field <= 2'd0; spi_phase_pending <= 8'd0; spi_bitmap <= 88'd0;
+            spi_rgb_index <= 4'd0;
         end else begin
             if (spi_bit_count == 3'd7) begin
                 spi_bit_count <= 3'd0;
@@ -320,8 +348,25 @@ module umh_fpga_top (
                         spi_expected_length <= expected_next;
                     end
                     default: begin
-                        if (spi_byte_count >= 16'd20 && spi_byte_count <= 16'd30)
-                            spi_bitmap <= {spi_bitmap[79:0], spi_rx_byte};
+                        /* The wire format is little-endian.  A shift register
+                         * makes byte 0 the most significant byte and causes
+                         * the valid low nibble of byte 10 to fail bitmap_ok. */
+                        if (spi_byte_count >= 16'd20 && spi_byte_count <= 16'd30) begin
+                            case (spi_byte_count)
+                                16'd20: spi_bitmap[7:0]   <= spi_rx_byte;
+                                16'd21: spi_bitmap[15:8]  <= spi_rx_byte;
+                                16'd22: spi_bitmap[23:16] <= spi_rx_byte;
+                                16'd23: spi_bitmap[31:24] <= spi_rx_byte;
+                                16'd24: spi_bitmap[39:32] <= spi_rx_byte;
+                                16'd25: spi_bitmap[47:40] <= spi_rx_byte;
+                                16'd26: spi_bitmap[55:48] <= spi_rx_byte;
+                                16'd27: spi_bitmap[63:56] <= spi_rx_byte;
+                                16'd28: spi_bitmap[71:64] <= spi_rx_byte;
+                                16'd29: spi_bitmap[79:72] <= spi_rx_byte;
+                                16'd30: spi_bitmap[87:80] <= spi_rx_byte;
+                                default: ;
+                            endcase
+                        end
                         if (spi_payload_byte) begin
                             case (spi_channel_field)
                                 2'd0: spi_phase_pending <= spi_rx_byte;
@@ -331,27 +376,50 @@ module umh_fpga_top (
                             endcase
                             spi_channel_field <= (spi_channel_field == 2'd1) ? 2'd0
                                                                            : spi_channel_field + 2'd1;
-                        end else if (spi_update_flags[1] &&
-                                     spi_byte_count >= HEADER_BYTES + CHANNEL_BYTES &&
-                                     spi_byte_count <  HEADER_BYTES + CHANNEL_BYTES + 16'd12) begin
-                            rgb_values <= {rgb_values[95:8], spi_rx_byte};
+                        end else if (spi_rgb_payload_byte) begin
+                            /* STM32 sends R,G,B for LED0..3.  Store the
+                             * internal layout used by ws2812_stream, where
+                             * each 24-bit word is {G,R,B}. */
+                            case (spi_rgb_index)
+                                4'd0:  rgb_values[15:8]  <= spi_rx_byte;
+                                4'd1:  rgb_values[7:0]   <= spi_rx_byte;
+                                4'd2:  rgb_values[23:16] <= spi_rx_byte;
+                                4'd3:  rgb_values[39:32] <= spi_rx_byte;
+                                4'd4:  rgb_values[31:24] <= spi_rx_byte;
+                                4'd5:  rgb_values[47:40] <= spi_rx_byte;
+                                4'd6:  rgb_values[63:56] <= spi_rx_byte;
+                                4'd7:  rgb_values[55:48] <= spi_rx_byte;
+                                4'd8:  rgb_values[71:64] <= spi_rx_byte;
+                                4'd9:  rgb_values[87:80] <= spi_rx_byte;
+                                4'd10: rgb_values[79:72] <= spi_rx_byte;
+                                4'd11: rgb_values[95:88] <= spi_rx_byte;
+                                default: ;
+                            endcase
+                            spi_rgb_index <= spi_rgb_index + 4'd1;
                         end
                     end
                 endcase
                 spi_byte_count <= spi_byte_count + 16'd1;
                 if (frame_end) begin
+                    /* Keep the parser's last complete transaction visible in
+                     * the status word, including STATUS and STOP commands. */
+                    last_command_spi <= spi_command;
+                    last_length_spi <= spi_expected_length;
                     if (spi_command == 8'h10 && spi_version == 8'h01 &&
-                        ext_len_next <= 16'd32 && bitmap_req_ok) begin
+                        spi_extension_length <= 16'd32) begin
                         frame_toggle_spi <= ~frame_toggle_spi;
                         accepted_sequence_spi <= spi_frame_sequence;
+                        accepted_update_flags_spi <= spi_update_flags;
                         invalid_frame_spi <= 1'b0;
                     end else if (spi_command == 8'h11 || spi_command == 8'h12) begin
                         stop_toggle_spi <= ~stop_toggle_spi;
                         invalid_frame_spi <= 1'b0;
-                    end else if (spi_command == 8'h13 && spi_version == 8'h01) begin
+                    end else if (spi_command == 8'h13 && spi_version == 8'h01 &&
+                                 spi_extension_length <= 16'd32) begin
                         /* WS2812 control command - use separate toggle to avoid frame building */
                         ws2812_toggle_spi <= ~ws2812_toggle_spi;
                         accepted_sequence_spi <= spi_frame_sequence;
+                        accepted_update_flags_spi <= spi_update_flags;
                         invalid_frame_spi <= 1'b0;
                     end else if (spi_command != 8'h01) begin
                         invalid_frame_spi <= 1'b1;
@@ -429,7 +497,7 @@ module umh_fpga_top (
         ws2812_toggle_sync     <= ws2812_toggle_meta;
         accepted_sequence_meta <= accepted_sequence_spi;
         accepted_sequence_sync <= accepted_sequence_meta;
-        update_flags_meta      <= spi_update_flags;
+        update_flags_meta      <= accepted_update_flags_spi;
         update_flags_sync      <= update_flags_meta;
         invalid_frame_meta     <= invalid_frame_spi;
         invalid_frame_sync     <= invalid_frame_meta;
@@ -438,17 +506,18 @@ module umh_fpga_top (
             frame_toggle_seen <= frame_toggle_sync;
             frame_settle      <= 4'd8;
         end else if (frame_settle != 4'd0) begin
-            frame_settle <= frame_settle - 4'd1;
+            if (frame_settle != 4'd1)
+                frame_settle <= frame_settle - 4'd1;
+            /* FIX: Remove cs_sync gating to match WS2812 path fix. */
             if (frame_settle == 4'd1) begin
+                frame_settle <= 4'd0;
                 frame_req <= 1'b1;
                 rgb_hold  <= rgb_values;
                 rgb_update_flags_hold <= update_flags_sync;
-                /* Enable WS2812 when RGB data is updated */
+                /* RGB is a persistent independent output.  Ultrasound-only
+                 * frames must not erase the last LED test/demo colour. */
                 if (update_flags_sync[1] != 1'b0) begin
                     ws2812_enable <= 1'b1;
-                end else begin
-                    ws2812_enable <= 1'b0;
-                    rgb_hold <= 96'd0;
                 end
             end
         end
@@ -456,27 +525,41 @@ module umh_fpga_top (
         /* WS2812-only update path (no frame building) */
         if (ws2812_toggle_sync != ws2812_toggle_seen) begin
             ws2812_toggle_seen <= ws2812_toggle_sync;
-            accepted_sequence <= accepted_sequence_sync;
-            /* Directly update RGB values without frame_req */
-            rgb_hold <= rgb_values;
-            if (update_flags_sync[1] != 1'b0) begin
+            /* Allow the final SPI byte and the toggle synchronisers to settle
+             * before taking the 96-bit RGB snapshot.  Keep the stream enabled:
+             * ws2812_stream reloads its shift register at every reset gap, so
+             * a register update is enough and there is no reset-dependent
+             * one-shot transition for the LEDs to latch. */
+            ws2812_settle <= 4'd15;
+            ws2812_enable <= 1'b1;
+        end else if (ws2812_settle != 4'd0) begin
+            /* RGB is written in the SPI clock domain.  Keep the toggle as
+             * the event marker and wait for the bus to settle before taking
+             * the snapshot in the 128 MHz domain. */
+            if (ws2812_settle != 4'd1)
+                ws2812_settle <= ws2812_settle - 4'd1;
+            if (ws2812_settle == 4'd1) begin
+                ws2812_settle <= 4'd0;
+                accepted_sequence <= accepted_sequence_sync;
+                rgb_hold <= rgb_values;
+                /* The stream is continuous and reloads rgb_hold at its next
+                 * ST_LOAD boundary. */
                 ws2812_enable <= 1'b1;
-            end else begin
-                ws2812_enable <= 1'b0;
-                rgb_hold <= 96'd0;
             end
         end
 
+        /* A WS2812 command may follow STOP in the next SPI transaction.  Do
+         * not let the delayed STOP synchroniser erase that newer LED update. */
         if (stop_event) begin
             stop_toggle_seen <= stop_toggle_sync;
-            running          <= 1'b0;
-            frame_req        <= 1'b0;
-            frame_settle     <= 4'd0;
-            swap_pending     <= 1'b0;
-            ev_state         <= EV_IDLE;
-            ws2812_enable    <= 1'b0;
-            rgb_hold         <= 96'd0;
-            ws2812_toggle_seen <= ws2812_toggle_sync;
+            /* STOP belongs to the ultrasound engine.  WS2812 is an
+             * independent output and must retain its last commanded colour
+             * across Demo preparation and ultrasound stops. */
+            running       <= 1'b0;
+            frame_req     <= 1'b0;
+            frame_settle  <= 4'd0;
+            swap_pending  <= 1'b0;
+            ev_state      <= EV_IDLE;
         end
 
         case (ev_state)
@@ -559,7 +642,6 @@ module umh_fpga_top (
         end else if (!running) begin
             us_tx <= 84'd0;
         end else if (phase_step_s5) begin
-            /* DDS stage 6: bank activation and event toggle share one edge. */
             if (swap_now_s5)
                 us_tx <= init_shadow ^ ev_run_hold_s5;
             else
@@ -615,9 +697,11 @@ module umh_fpga_top (
     initial begin
         spi_rx_shift = 8'd0; spi_bit_count = 3'd0; spi_byte_count = 16'd0;
         spi_command = 8'd0; spi_version = 8'd0; spi_update_flags = 16'd0;
-        spi_extension_length = 16'd0; spi_frame_sequence = 32'd0;
+        spi_extension_length = 16'd0; spi_frame_sequence = 32'd0; accepted_update_flags_spi = 16'd0;
+        last_command_spi = 8'd0; last_length_spi = 16'd0;
         spi_expected_length = HEADER_BYTES; spi_channel_index = 7'd0;
         spi_channel_field = 2'd0; spi_phase_pending = 8'd0; spi_bitmap = 88'd0;
+        spi_rgb_index = 4'd0;
         frame_toggle_spi = 1'b0; stop_toggle_spi = 1'b0; invalid_frame_spi = 1'b0;
         ws2812_toggle_spi = 1'b0;
         rgb_values = 96'd0; status_bit_index = 7'd0;
@@ -628,6 +712,7 @@ module umh_fpga_top (
         accepted_sequence_meta = 32'd0; accepted_sequence_sync = 32'd0;
         pending_sequence = 32'd0; accepted_sequence = 32'd0; frame_settle = 4'd0;
         rgb_hold = 96'd0; status_hold = 128'd0;
+        ws2812_settle = 4'd0;
         cs_meta = 1'b1; cs_sync = 1'b1; cs_sync_d = 1'b1;
         phase_frac = 24'd0; phase_step_s1 = 1'b0; global_phase_s2 = 8'd0;
         phase_step_s2 = 1'b0; wrap_s2 = 1'b0; run_addr_s3 = 9'd0;

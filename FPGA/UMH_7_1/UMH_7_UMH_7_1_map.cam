@@ -1,79 +1,121 @@
 [ START MERGED ]
-spi1_miso_N_2513_1 status_bit_index_1
-spi1_sck_N_416 spi1_sck_c
-n15587 phase_step_s1
-spi1_miso_N_2513_5 status_bit_index_5
-fpga_cs_n_N_2521 fpga_cs_n_c
-sck_N_3045 spi_mic_sck_c
-ws2812_i/n14700 ws2812_enable
+n26080 status_bit_index_1
+spi1_sck_N_413 spi1_sck_c
+n18604 phase_step_s1
+n17658 ws2812_enable
+spi1_miso_N_2715_5 status_bit_index_5
+sck_N_3271 spi_mic_sck_c
+fpga_cs_n_N_2723 fpga_cs_n_c
 [ END MERGED ]
 [ START CLIPPED ]
 GND_net
 VCC_net
-equal_1861_0/S1
-equal_1861_0/S0
-equal_1861_0/CI
+equal_1981_0/S1
+equal_1981_0/S0
+equal_1981_0/CI
 ws2812_i/add_15_1/S0
 ws2812_i/add_15_1/CI
 ws2812_i/add_15_9/S1
 ws2812_i/add_15_9/CO
-ws2812_i/add_1078_1/S0
-ws2812_i/add_1078_1/CI
-ws2812_i/add_1078_13/CO
-expected_next_15__I_0_647_15/S1
-expected_next_15__I_0_647_15/CO
-spi_channel_index_1254_add_4_1/S0
-spi_channel_index_1254_add_4_1/CI
-add_164_17/CO
-equal_1861_13/S1
-equal_1861_13/S0
-equal_1861_11/S1
-equal_1861_11/S0
-equal_1861_15/S1
-equal_1861_15/S0
-add_652_cout/S1
-add_652_cout/CO
-add_652_2/S0
-add_652_2/CI
-equal_1861_17_13440/S1
-equal_1861_17_13440/S0
-equal_1861_17/S1
-equal_1861_17/CO
-add_328_1/S0
-add_328_1/CI
-add_650_25/CO
-spi_channel_index_1254_add_4_7/CO
-add_164_1/S0
-add_164_1/CI
-add_328_9/S1
-add_328_9/CO
-add_650_1/S0
-add_650_1/CI
-time_divider_1259_add_4_1/S0
-time_divider_1259_add_4_1/CI
-fpga_time_1258_add_4_33/S1
-fpga_time_1258_add_4_33/CO
-global_phase_s2_1257_add_4_1/S0
-global_phase_s2_1257_add_4_1/CI
-time_divider_1259_add_4_7/CO
-status_bit_index_1253_add_4_1/S0
-status_bit_index_1253_add_4_1/CI
-global_phase_s2_1257_add_4_9/S1
-global_phase_s2_1257_add_4_9/CO
-expected_next_15__I_0_647_1/S0
-expected_next_15__I_0_647_1/CI
-mic_divider_1261_add_4_1/S0
-mic_divider_1261_add_4_1/CI
-status_bit_index_1253_add_4_7/CO
-mic_divider_1261_add_4_7/CO
-fpga_time_1258_add_4_1/S0
-fpga_time_1258_add_4_1/CI
+ws2812_i/add_1194_1/S0
+ws2812_i/add_1194_1/CI
+ws2812_i/add_1194_13/CO
+sub_1246_add_2_cout/S1
+sub_1246_add_2_cout/CO
+equal_1981_13/S1
+equal_1981_13/S0
+equal_1981_11/S1
+equal_1981_11/S0
+equal_1981_15/S1
+equal_1981_15/S0
+expected_next_15__I_0_632_1/S0
+expected_next_15__I_0_632_1/CI
+equal_1981_17_13291/S1
+equal_1981_17_13291/S0
+equal_1981_17/S1
+equal_1981_17/CO
+sub_1246_add_2_3/S1
+sub_1246_add_2_3/S0
+add_636_2/S0
+add_636_2/CI
+sub_1246_add_2_1/S1
+sub_1246_add_2_1/S0
+sub_1246_add_2_1/CI
+expected_next_15__I_0_632_15/S1
+expected_next_15__I_0_632_15/CO
+add_636_cout/S1
+add_636_cout/CO
+add_166_1/S0
+add_166_1/CI
+time_divider_1413_add_4_7/CO
+add_13292_1/S1
+add_13292_1/S0
+add_13292_1/CI
+add_13292_3/S1
+add_13292_3/S0
+add_634_25/CO
+add_166_17/CO
+add_13292_5/S1
+add_13292_5/S0
+add_13292_7/S0
+add_13292_7/CO
+add_13291_1/S1
+add_13291_1/S0
+add_13291_1/CI
+add_13291_3/S1
+add_13291_3/S0
+add_13291_5/S1
+add_13291_5/S0
+add_13291_7/S1
+add_13291_7/S0
+add_13291_9/S1
+add_13291_9/S0
+add_13291_11/S1
+add_13291_11/S0
+add_13291_13/S1
+add_13291_13/S0
+add_13291_15/S1
+add_13291_15/S0
+add_13291_17/S1
+add_13291_17/S0
+add_13291_cout/S1
+add_13291_cout/CO
+add_340_1/S0
+add_340_1/CI
+fpga_time_1412_add_4_33/S1
+fpga_time_1412_add_4_33/CO
+status_bit_index_1406_add_4_1/S0
+status_bit_index_1406_add_4_1/CI
+status_bit_index_1406_add_4_7/CO
+global_phase_s2_1411_add_4_1/S0
+global_phase_s2_1411_add_4_1/CI
+spi_channel_index_1407_add_4_1/S0
+spi_channel_index_1407_add_4_1/CI
+global_phase_s2_1411_add_4_9/S1
+global_phase_s2_1411_add_4_9/CO
+mic_divider_1415_add_4_1/S0
+mic_divider_1415_add_4_1/CI
+add_340_9/S1
+add_340_9/CO
+sub_1246_add_2_5/S1
+sub_1246_add_2_5/S0
+add_634_1/S0
+add_634_1/CI
+mic_divider_1415_add_4_7/CO
+sub_1246_add_2_7/S1
+sub_1246_add_2_7/S0
+spi_channel_index_1407_add_4_7/CO
+fpga_time_1412_add_4_1/S0
+fpga_time_1412_add_4_1/CI
+time_divider_1413_add_4_1/S0
+time_divider_1413_add_4_1/CI
 [ END CLIPPED ]
 [ START DESIGN PREFS ]
 SCHEMATIC START ;
-# map:  version Diamond (64-bit) 3.13.0.56.2 -- WARNING: Map write only section -- Mon Sep 14 18:31:33 2026
+# map:  version Diamond (64-bit) 3.13.0.56.2 -- WARNING: Map write only section -- Tue Sep 15 22:11:35 2026
 
 SYSCONFIG SDM_PORT=DISABLE SLAVE_SPI_PORT=DISABLE I2C_PORT=DISABLE MASTER_SPI_PORT=DISABLE COMPRESS_CONFIG=ON CONFIGURATION=CFG MY_ASSP=OFF ONE_TIME_PROGRAM=OFF CONFIG_SECURE=OFF MCCLK_FREQ=2.08 JTAG_PORT=ENABLE ENABLE_TRANSFR=DISABLE SHAREDEBRINIT=DISABLE MUX_CONFIGURATION_PORTS=DISABLE BACKGROUND_RECONFIG=OFF INBUF=ON ;
+LOCATE COMP "us_tx[76]" SITE "P4" ;
 LOCATE COMP "us_tx[77]" SITE "N5" ;
 LOCATE COMP "us_tx[78]" SITE "P7" ;
 LOCATE COMP "us_tx[79]" SITE "P9" ;
@@ -82,7 +124,6 @@ LOCATE COMP "us_tx[81]" SITE "P6" ;
 LOCATE COMP "us_tx[82]" SITE "N7" ;
 LOCATE COMP "us_tx[83]" SITE "P8" ;
 LOCATE COMP "spi1_miso" SITE "J1" ;
-LOCATE COMP "us_tx[76]" SITE "P4" ;
 LOCATE COMP "us_tx[75]" SITE "M2" ;
 LOCATE COMP "us_tx[74]" SITE "M3" ;
 LOCATE COMP "us_tx[73]" SITE "N2" ;

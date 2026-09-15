@@ -58,31 +58,18 @@ static uint8_t glyph_column(char character, uint8_t column)
 
 static int send(oled_ssd1315_t *oled, uint8_t control, const uint8_t *data, uint16_t length)
 {
-  uint32_t start;
-  uint32_t error;
   if (oled == NULL || oled->i2c == NULL || length > OLED_WIDTH) return -1;
   oled->tx_buffer[0] = control;
   if (length != 0u && data != NULL) memcpy(&oled->tx_buffer[1], data, length);
   if (i2c_bus_lock(100u) != 0) return -1;
-  if (HAL_I2C_Master_Transmit_DMA(oled->i2c, OLED_I2C_ADDRESS, oled->tx_buffer,
-                                 (uint16_t)(length + 1u)) != HAL_OK) {
-    i2c_bus_unlock();
-    return -1;
-  }
-  start = HAL_GetTick();
-  while (HAL_I2C_GetState(oled->i2c) != HAL_I2C_STATE_READY) {
-    if ((HAL_GetTick() - start) > 100u) {
-      /* Stop DMA synchronously before releasing the shared bus/buffer. */
-      (void)HAL_I2C_DeInit(oled->i2c);
-      (void)HAL_I2C_Init(oled->i2c);
-      i2c_bus_unlock();
-      return -1;
-    }
-    if (osKernelGetState() == osKernelRunning) osDelay(1u);
-  }
-  error = HAL_I2C_GetError(oled->i2c);
+  /* OLED transfers are short and periodic.  A blocking transaction keeps the
+   * shared tx buffer and I2C state machine atomic and avoids an IRQ storm
+   * when a DMA completion races with the next page refresh. */
+  HAL_StatusTypeDef result = HAL_I2C_Master_Transmit(oled->i2c, OLED_I2C_ADDRESS,
+                                                     oled->tx_buffer,
+                                                     (uint16_t)(length + 1u), 100u);
   i2c_bus_unlock();
-  return error == HAL_I2C_ERROR_NONE ? 0 : -1;
+  return result == HAL_OK ? 0 : -1;
 }
 
 void oled_ssd1315_init(oled_ssd1315_t *oled, I2C_HandleTypeDef *i2c)

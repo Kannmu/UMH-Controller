@@ -47,6 +47,15 @@ typedef struct {
   uint32_t transaction_sequence;
   fpga_status_wire_t status;
   uint8_t running;
+  volatile uint32_t debug_transactions;
+  volatile uint8_t debug_last_command;
+  volatile uint8_t debug_last_result;
+  volatile uint16_t debug_last_length;
+  volatile uint16_t debug_last_update_flags;
+  volatile uint32_t debug_last_sequence;
+  volatile uint8_t debug_last_phase0;
+  volatile uint8_t debug_last_level0;
+  volatile uint16_t debug_last_nonzero_channels;
   osMutexId_t mutex;
   StaticSemaphore_t mutex_memory;
 } fpga_link_t;

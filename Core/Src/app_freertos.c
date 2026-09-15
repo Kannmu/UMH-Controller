@@ -56,6 +56,7 @@ static eeprom_profile_record_t eeprom_pending;
 static uint8_t eeprom_pending_valid;
 static uint8_t block_stream_active;
 static uint32_t block_stream_expected_sequence;
+static volatile uint8_t demo_building;
 
 static umh_fault_code_t fault_code_for_status(umh_status_t status, uint8_t message_type)
 {
@@ -83,7 +84,10 @@ static const osThreadAttr_t input_task_attributes = {
   .stack_mem = input_task_stack, .stack_size = sizeof(input_task_stack),
   .priority = osPriorityNormal
 };
-static StackType_t protocol_task_stack[1024], render_task_stack[512], storage_task_stack[512], ui_task_stack[384], health_task_stack[256];
+/* The demo renderer uses floating point temporaries through a deep call chain.
+ * Keep those temporaries out of the small UI stack so selecting a demo cannot
+ * corrupt the scheduler state. */
+static StackType_t protocol_task_stack[1024], render_task_stack[1024], storage_task_stack[512], ui_task_stack[1024], health_task_stack[256];
 static const osThreadAttr_t protocol_task_attributes = {
   .name = "protocol", .cb_mem = &protocol_task_cb, .cb_size = sizeof(protocol_task_cb),
   .stack_mem = protocol_task_stack, .stack_size = sizeof(protocol_task_stack),
@@ -114,68 +118,86 @@ static void send_response(const umh_protocol_frame_t *request, uint8_t type,
                           const void *payload, uint16_t length);
 static void application_init(void);
 
+static void debug_put16(uint8_t *p, uint16_t value)
+{
+  p[0] = (uint8_t)value;
+  p[1] = (uint8_t)(value >> 8);
+}
+
+static void debug_put32(uint8_t *p, uint32_t value)
+{
+  p[0] = (uint8_t)value;
+  p[1] = (uint8_t)(value >> 8);
+  p[2] = (uint8_t)(value >> 16);
+  p[3] = (uint8_t)(value >> 24);
+}
+
+/* Unsolicited diagnostic record for field debugging.  The record is carried
+ * inside the normal v7 frame so a host can log it without a second parser. */
+static void emit_debug_record(void)
+{
+  static uint32_t record_sequence;
+  uint8_t payload[64] = {0};
+  const umh_system_status_t *s = system_status_get();
+  const fpga_status_wire_t *f = fpga_link_status(&fpga_link);
+  const umh_output_frame_t *frame = frame_ring_peek_read(&frame_ring);
+  uint16_t nonzero = 0u;
+  uint16_t i;
+
+  payload[0] = 'D'; payload[1] = 'B'; payload[2] = 'G'; payload[3] = '7';
+  debug_put32(&payload[4], ++record_sequence);
+  debug_put32(&payload[8], HAL_GetTick());
+  debug_put32(&payload[12], s->flags);
+  debug_put32(&payload[16], s->fpga_errors);
+  debug_put32(&payload[20], s->parser_errors);
+  debug_put32(&payload[24], s->usb_dropped);
+  debug_put16(&payload[28], s->frame_count);
+  debug_put16(&payload[30], s->frame_free);
+  payload[32] = f != NULL ? f->protocol_version : 0u;
+  payload[33] = f != NULL ? f->reserved : 0u;
+  debug_put16(&payload[34], f != NULL ? f->fifo_credit : 0u);
+  debug_put16(&payload[36], f != NULL ? f->fifo_depth : 0u);
+  debug_put16(&payload[38], f != NULL ? f->status_flags : 0u);
+  debug_put32(&payload[40], f != NULL ? f->fpga_time : 0u);
+  debug_put32(&payload[44], f != NULL ? f->accepted_sequence : 0u);
+  payload[48] = fpga_link.debug_last_command;
+  payload[49] = fpga_link.debug_last_result;
+  debug_put16(&payload[50], fpga_link.debug_last_length);
+  debug_put16(&payload[52], fpga_link.debug_last_update_flags);
+  debug_put32(&payload[54], fpga_link.debug_last_sequence);
+  payload[58] = fpga_link.debug_last_phase0;
+  payload[59] = fpga_link.debug_last_level0;
+  if (frame != NULL) {
+    for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i)
+      if (frame->channels[i].level != 0u) ++nonzero;
+  }
+  debug_put16(&payload[60], nonzero);
+  debug_put16(&payload[62], fpga_link.debug_last_nonzero_channels);
+  send_response(NULL, UMH_MSG_DEBUG, payload, sizeof(payload));
+}
+
 static uint32_t read_u32(const uint8_t *p)
 {
   return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
          ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
 }
 
-static int gui_start(void *context)
-{
-  (void)context;
-  if (playback_plan.configured == 0u || frame_ring_count(&frame_ring) == 0u ||
-      playback_plan.wire.block_id != block_parser.block.header.block_id) {
-    system_status_fault(UMH_FAULT_PLAN_START, 1u, UMH_FAULT_CRITICAL);
-    return -1;
-  }
-  if (playback_plan_start(&playback_plan, system_time_us(), frame_ring_count(&frame_ring),
-                          block_parser.block.header.start_time) != 0) {
-    system_status_fault(UMH_FAULT_PLAN_START, 2u, UMH_FAULT_CRITICAL);
-    return -1;
-  }
-  return 0;
-}
-
-static int gui_stop(void *context)
-{
-  (void)context;
-  playback_plan_stop(&playback_plan);
-  return fpga_link_safe_stop(&fpga_link);
-}
-
-static int gui_clear(void *context)
-{
-  int result;
-  (void)context;
-  playback_plan_stop(&playback_plan);
-  result = fpga_link_safe_stop(&fpga_link);
-  playback_plan_clear(&playback_plan);
-  block_parser_cancel(&block_parser);
-  block_stream_active = 0u;
-  frame_ring_init(&frame_ring);
-  return result;
-}
-
-static int gui_trigger(void *context)
-{
-  (void)context;
-  playback_plan_notify_trigger(&playback_plan);
-  return 0;
-}
-
 static int gui_demo(void *context)
 {
   const umh_demo_descriptor_t *descriptor;
+  int result;
   (void)context;
   descriptor = demo_engine_descriptor(device_gui.selected_demo);
   if (descriptor == NULL) return -1;
+  demo_building = 1u;
   playback_plan_stop(&playback_plan);
   (void)fpga_link_safe_stop(&fpga_link);
   block_parser_cancel(&block_parser);
   block_stream_active = 0u;
-  if (demo_engine_build(device_gui.selected_demo, &renderer, &frame_ring,
-                        system_time_us(), &playback_plan) != 0) return -1;
-  return 0;
+  result = demo_engine_build(device_gui.selected_demo, &renderer, &frame_ring,
+                             system_time_us(), &playback_plan);
+  demo_building = 0u;
+  return result == 0 ? 0 : -1;
 }
 
 static int gui_ws2812_set(void *context)
@@ -485,6 +507,7 @@ static void protocol_task(void *argument)
   uint32_t previous_parser_errors = 0u;
   uint32_t previous_rx_dropped = 0u;
   uint32_t previous_frame_dropped = 0u;
+  uint32_t next_debug_ms = 0u;
   (void)argument;
   /* Peripheral startup uses mutexes, DMA interrupts and the HAL tick. */
   application_init();
@@ -510,6 +533,10 @@ static void protocol_task(void *argument)
       system_status_fault(UMH_FAULT_PROTOCOL_PARSE, previous_parser_errors, UMH_FAULT_WARNING);
     }
     umh_usb_tx_service();
+    if ((int32_t)(HAL_GetTick() - next_debug_ms) >= 0) {
+      next_debug_ms = HAL_GetTick() + 1000u;
+      emit_debug_record();
+    }
   }
 }
 
@@ -522,6 +549,10 @@ static void render_task(void *argument)
   uint16_t previous_fpga_flags = 0u;
   (void)argument;
   for (;;) {
+    if (demo_building != 0u) {
+      osDelay(1u);
+      continue;
+    }
     now_us = system_time_us();
     elapsed_us = now_us - last_time_us;
     if (elapsed_us > UINT32_MAX) elapsed_us = UINT32_MAX;
@@ -569,15 +600,23 @@ static void render_task(void *argument)
     }
     {
       uint16_t fpga_flags = fpga_link_status(&fpga_link)->status_flags;
-      if (fpga_flags != 0u) system_status_set(UMH_SYSTEM_ERROR);
-      if (fpga_flags != 0u && fpga_flags != previous_fpga_flags) {
-        umh_fault_code_t code = (fpga_flags & FPGA_STATUS_OUTPUT_FAULT) != 0u ? UMH_FAULT_FPGA_OUTPUT :
-                                 (fpga_flags & FPGA_STATUS_INVALID_FRAME) != 0u ? UMH_FAULT_FPGA_INVALID_FRAME :
-                                 (fpga_flags & FPGA_STATUS_OVERFLOW) != 0u ? UMH_FAULT_FPGA_OVERFLOW :
+      /* Bit 4 is the normal RUNNING indication.  Only bits 0..3 are
+       * fault conditions; treating any nonzero word as an error made a
+       * healthy running FPGA appear as "FPGA UNDERRU, ARG=16". */
+      uint16_t fpga_fault_flags = (uint16_t)(fpga_flags &
+                                             (FPGA_STATUS_UNDERRUN |
+                                              FPGA_STATUS_OVERFLOW |
+                                              FPGA_STATUS_INVALID_FRAME |
+                                              FPGA_STATUS_OUTPUT_FAULT));
+      if (fpga_fault_flags != 0u) system_status_set(UMH_SYSTEM_ERROR);
+      if (fpga_fault_flags != 0u && fpga_fault_flags != previous_fpga_flags) {
+        umh_fault_code_t code = (fpga_fault_flags & FPGA_STATUS_OUTPUT_FAULT) != 0u ? UMH_FAULT_FPGA_OUTPUT :
+                                 (fpga_fault_flags & FPGA_STATUS_INVALID_FRAME) != 0u ? UMH_FAULT_FPGA_INVALID_FRAME :
+                                 (fpga_fault_flags & FPGA_STATUS_OVERFLOW) != 0u ? UMH_FAULT_FPGA_OVERFLOW :
                                  UMH_FAULT_FPGA_UNDERRUN;
-        system_status_fault(code, fpga_flags, UMH_FAULT_CRITICAL);
+        system_status_fault(code, fpga_fault_flags, UMH_FAULT_CRITICAL);
       }
-      previous_fpga_flags = fpga_flags;
+      previous_fpga_flags = fpga_fault_flags;
     }
     system_status_get()->fpga_credit = fpga_link_status(&fpga_link)->fifo_credit;
     system_status_get()->fpga_depth = fpga_link_status(&fpga_link)->fifo_depth;
@@ -623,7 +662,9 @@ static void ui_task(void *argument)
     if (oled.initialized != 0u && oled_ssd1315_refresh(&oled) != 0) {
       oled.initialized = 0u;
       last_oled_attempt = HAL_GetTick();
-      system_status_fault(UMH_FAULT_HAL_INIT, 1u, UMH_FAULT_CRITICAL);
+      /* A display/I2C fault must not disable the FPGA output path.  Keep it
+       * visible in diagnostics while allowing the render task to continue. */
+      system_status_fault(UMH_FAULT_HAL_INIT, 1u, UMH_FAULT_WARNING);
     }
     /* Keep the display and cursor animation responsive while input scanning
      * remains independent at 10 ms. */
@@ -658,6 +699,12 @@ static void application_init(void)
   block_parser_init(&block_parser, &renderer, &frame_ring);
   playback_plan_clear(&playback_plan);
   fpga_link_init(&fpga_link, &hspi1);
+  /* Establish the FPGA link before accepting UI/demo commands.  Without an
+   * initial status transaction the link retains its optimistic default credit
+   * and a failed SPI slave is only discovered after the first output frame. */
+  if (fpga_link_poll_status(&fpga_link) != 0) {
+    system_status_fault(UMH_FAULT_FPGA_SPI_TIMEOUT, 1u, UMH_FAULT_CRITICAL);
+  }
   flash_nor_init(&hspi3);
   flash_store_init(&flash_store);
   {
@@ -672,6 +719,7 @@ static void application_init(void)
   if (eeprom_profile_load(&eeprom_profile) == 0) {
     umh_channel_calibration_t calibration[UMH_DEVICE_CHANNEL_COUNT];
     uint16_t i;
+    uint16_t enabled_count = 0u;
     const eeprom_profile_record_t *record = eeprom_profile_current(&eeprom_profile);
     for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
       /* EEPROM v7 keeps the historical 16-bit phase word.  The renderer and
@@ -679,6 +727,13 @@ static void application_init(void)
       calibration[i].phase = (uint8_t)(record->phase[i] >> 8);
       calibration[i].gain = record->gain[i];
       calibration[i].enabled = (uint8_t)((record->enabled[i / 8u] >> (i % 8u)) & 1u);
+      if (calibration[i].enabled != 0u) ++enabled_count;
+    }
+    /* A blank or legacy EEPROM can contain a valid CRC with an all-zero
+     * enable bitmap.  Treat that state as an uncalibrated profile; otherwise
+     * every rendered demo is silently converted to 84 zero-level channels. */
+    if (enabled_count == 0u) {
+      for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) calibration[i].enabled = 1u;
     }
     spatial_renderer_set_calibration(&renderer, calibration, UMH_DEVICE_CHANNEL_COUNT);
     spatial_renderer_set_rgb_calibration(&renderer, record->rgb_gain);
@@ -688,12 +743,11 @@ static void application_init(void)
     system_status_set(UMH_SYSTEM_CALIBRATION_VALID);
   } else system_status_fault(UMH_FAULT_EEPROM_IO, 1u, UMH_FAULT_WARNING);
   oled_ssd1315_init(&oled, &hi2c1);
-  if (oled.initialized == 0u) system_status_fault(UMH_FAULT_HAL_INIT, 1u, UMH_FAULT_CRITICAL);
+  if (oled.initialized == 0u) system_status_fault(UMH_FAULT_HAL_INIT, 1u, UMH_FAULT_WARNING);
   input_events_init();
   device_gui_init(&device_gui, &oled, &device_profile, system_status_get(),
                   &playback_plan, &fpga_link, &flash_store, &eeprom_profile,
-                  gui_start, gui_stop, gui_clear, gui_trigger, gui_demo,
-                  gui_ws2812_set, demo_engine_count(), NULL);
+                  gui_demo, gui_ws2812_set, demo_engine_count(), NULL);
   {
     const osMessageQueueAttr_t storage_queue_attributes = {
       .name = "storage", .cb_mem = &storage_queue_cb, .cb_size = sizeof(storage_queue_cb),

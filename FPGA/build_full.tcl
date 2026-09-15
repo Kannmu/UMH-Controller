@@ -1,4 +1,5 @@
-if {[catch {prj_project open "D:/Data/OneDrive/Projects/UMH/Software/UMH Controller/FPGA/UMH_7.ldf"} err]} {
+set project_file [file normalize [file join [pwd] UMH_7.ldf]]
+if {[catch {prj_project open $project_file} err]} {
     puts "ERROR: project open failed: $err"
     exit 1
 }

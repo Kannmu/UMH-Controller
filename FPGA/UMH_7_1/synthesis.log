@@ -5,7 +5,7 @@ Copyright (c) 1995 AT&T Corp.   All rights reserved.
 Copyright (c) 1995-2001 Lucent Technologies Inc.  All rights reserved.
 Copyright (c) 2001 Agere Systems   All rights reserved.
 Copyright (c) 2002-2023 Lattice Semiconductor Corporation,  All rights reserved.
-Mon Sep 14 18:31:29 2026
+Tue Sep 15 22:11:30 2026
 
 
 Command Line:  synthesis -f UMH_7_UMH_7_1_lattice.synproj 
@@ -80,7 +80,7 @@ Analyzing Verilog file D:/Software/Lattice Diamond/diamond/3.13/ispfpga/userware
 Compile design.
 Compile Design Begin
 Analyzing Verilog file d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v. VERI-1482
-WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(142): /* in comment. VERI-1049
+WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(154): /* in comment. VERI-1049
 Analyzing Verilog file d:/data/onedrive/projects/umh/software/umh controller/fpga/src/ws2812_stream.v. VERI-1482
 Analyzing Verilog file d:/data/onedrive/projects/umh/software/umh controller/fpga/src/spi_mic_stream.v. VERI-1482
 Analyzing Verilog file D:/Software/Lattice Diamond/diamond/3.13/ispfpga/userware/NT/SYNTHESIS_HEADERS/machxo2.v. VERI-1482
@@ -89,9 +89,9 @@ INFO - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src
 INFO - synthesis: D:/Software/Lattice Diamond/diamond/3.13/ispfpga/userware/NT/SYNTHESIS_HEADERS/machxo2.v(1730): compiling module EHXPLLJ(CLKFB_DIV=16,CLKOP_DIV=4,CLKOP_CPHASE=3,FEEDBK_PATH="INT_DIVA"). VERI-1018
 INFO - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(25): compiling module umh_channel_ram18. VERI-1018
 INFO - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(41): compiling module umh_toggle_ram84. VERI-1018
+WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(407): expression size 32 truncated to fit in target size 16. VERI-1209
 INFO - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/ws2812_stream.v(10): compiling module ws2812_stream. VERI-1018
 INFO - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/spi_mic_stream.v(5): compiling module spi_mic_stream. VERI-1018
-WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(126): net rgb_values[95] does not have a driver. VDB-1002
 WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(107): input port ENCLKOS is not connected on this instance. VDB-1013
 Loading NGL library 'D:/Software/Lattice Diamond/diamond/3.13/ispfpga/xo2c00a/data/xo2alib.ngl'...
 Loading NGL library 'D:/Software/Lattice Diamond/diamond/3.13/ispfpga/xo2c00/data/xo2clib.ngl'...
@@ -116,114 +116,26 @@ WARNING - synthesis: Bit 115 of Register status_hold is stuck at Zero
 WARNING - synthesis: Bit 114 of Register status_hold is stuck at Zero
 WARNING - synthesis: Bit 113 of Register status_hold is stuck at Zero
 WARNING - synthesis: Bit 112 of Register status_hold is stuck at Zero
-######## Missing driver on net rgb_values[95]. Patching with GND.
-######## Missing driver on net rgb_values[94]. Patching with GND.
-######## Missing driver on net rgb_values[93]. Patching with GND.
-######## Missing driver on net rgb_values[92]. Patching with GND.
-######## Missing driver on net rgb_values[91]. Patching with GND.
-######## Missing driver on net rgb_values[90]. Patching with GND.
-######## Missing driver on net rgb_values[89]. Patching with GND.
-######## Missing driver on net rgb_values[88]. Patching with GND.
-######## Missing driver on net rgb_values[87]. Patching with GND.
-######## Missing driver on net rgb_values[86]. Patching with GND.
-######## Missing driver on net rgb_values[85]. Patching with GND.
-######## Missing driver on net rgb_values[84]. Patching with GND.
-######## Missing driver on net rgb_values[83]. Patching with GND.
-######## Missing driver on net rgb_values[82]. Patching with GND.
-######## Missing driver on net rgb_values[81]. Patching with GND.
-######## Missing driver on net rgb_values[80]. Patching with GND.
-######## Missing driver on net rgb_values[79]. Patching with GND.
-######## Missing driver on net rgb_values[78]. Patching with GND.
-######## Missing driver on net rgb_values[77]. Patching with GND.
-######## Missing driver on net rgb_values[76]. Patching with GND.
-######## Missing driver on net rgb_values[75]. Patching with GND.
-######## Missing driver on net rgb_values[74]. Patching with GND.
-######## Missing driver on net rgb_values[73]. Patching with GND.
-######## Missing driver on net rgb_values[72]. Patching with GND.
-######## Missing driver on net rgb_values[71]. Patching with GND.
-######## Missing driver on net rgb_values[70]. Patching with GND.
-######## Missing driver on net rgb_values[69]. Patching with GND.
-######## Missing driver on net rgb_values[68]. Patching with GND.
-######## Missing driver on net rgb_values[67]. Patching with GND.
-######## Missing driver on net rgb_values[66]. Patching with GND.
-######## Missing driver on net rgb_values[65]. Patching with GND.
-######## Missing driver on net rgb_values[64]. Patching with GND.
-######## Missing driver on net rgb_values[63]. Patching with GND.
-######## Missing driver on net rgb_values[62]. Patching with GND.
-######## Missing driver on net rgb_values[61]. Patching with GND.
-######## Missing driver on net rgb_values[60]. Patching with GND.
-######## Missing driver on net rgb_values[59]. Patching with GND.
-######## Missing driver on net rgb_values[58]. Patching with GND.
-######## Missing driver on net rgb_values[57]. Patching with GND.
-######## Missing driver on net rgb_values[56]. Patching with GND.
-######## Missing driver on net rgb_values[55]. Patching with GND.
-######## Missing driver on net rgb_values[54]. Patching with GND.
-######## Missing driver on net rgb_values[53]. Patching with GND.
-######## Missing driver on net rgb_values[52]. Patching with GND.
-######## Missing driver on net rgb_values[51]. Patching with GND.
-######## Missing driver on net rgb_values[50]. Patching with GND.
-######## Missing driver on net rgb_values[49]. Patching with GND.
-######## Missing driver on net rgb_values[48]. Patching with GND.
-######## Missing driver on net rgb_values[47]. Patching with GND.
-######## Missing driver on net rgb_values[46]. Patching with GND.
-######## Missing driver on net rgb_values[45]. Patching with GND.
-######## Missing driver on net rgb_values[44]. Patching with GND.
-######## Missing driver on net rgb_values[43]. Patching with GND.
-######## Missing driver on net rgb_values[42]. Patching with GND.
-######## Missing driver on net rgb_values[41]. Patching with GND.
-######## Missing driver on net rgb_values[40]. Patching with GND.
-######## Missing driver on net rgb_values[39]. Patching with GND.
-######## Missing driver on net rgb_values[38]. Patching with GND.
-######## Missing driver on net rgb_values[37]. Patching with GND.
-######## Missing driver on net rgb_values[36]. Patching with GND.
-######## Missing driver on net rgb_values[35]. Patching with GND.
-######## Missing driver on net rgb_values[34]. Patching with GND.
-######## Missing driver on net rgb_values[33]. Patching with GND.
-######## Missing driver on net rgb_values[32]. Patching with GND.
-######## Missing driver on net rgb_values[31]. Patching with GND.
-######## Missing driver on net rgb_values[30]. Patching with GND.
-######## Missing driver on net rgb_values[29]. Patching with GND.
-######## Missing driver on net rgb_values[28]. Patching with GND.
-######## Missing driver on net rgb_values[27]. Patching with GND.
-######## Missing driver on net rgb_values[26]. Patching with GND.
-######## Missing driver on net rgb_values[25]. Patching with GND.
-######## Missing driver on net rgb_values[24]. Patching with GND.
-######## Missing driver on net rgb_values[23]. Patching with GND.
-######## Missing driver on net rgb_values[22]. Patching with GND.
-######## Missing driver on net rgb_values[21]. Patching with GND.
-######## Missing driver on net rgb_values[20]. Patching with GND.
-######## Missing driver on net rgb_values[19]. Patching with GND.
-######## Missing driver on net rgb_values[18]. Patching with GND.
-######## Missing driver on net rgb_values[17]. Patching with GND.
-######## Missing driver on net rgb_values[16]. Patching with GND.
-######## Missing driver on net rgb_values[15]. Patching with GND.
-######## Missing driver on net rgb_values[14]. Patching with GND.
-######## Missing driver on net rgb_values[13]. Patching with GND.
-######## Missing driver on net rgb_values[12]. Patching with GND.
-######## Missing driver on net rgb_values[11]. Patching with GND.
-######## Missing driver on net rgb_values[10]. Patching with GND.
-######## Missing driver on net rgb_values[9]. Patching with GND.
-######## Missing driver on net rgb_values[8]. Patching with GND.
-######## Missing driver on net n7560. Patching with GND.
-######## Missing driver on net n7562. Patching with GND.
-######## Missing driver on net n7557. Patching with GND.
-######## Missing driver on net n7561. Patching with GND.
-######## Missing driver on net n7574. Patching with GND.
-######## Missing driver on net n7573. Patching with GND.
-######## Missing driver on net n7572. Patching with GND.
-######## Missing driver on net n7571. Patching with GND.
-######## Missing driver on net n7570. Patching with GND.
-######## Missing driver on net n7569. Patching with GND.
-######## Missing driver on net n7568. Patching with GND.
-######## Missing driver on net n7567. Patching with GND.
-######## Missing driver on net n7566. Patching with GND.
-######## Missing driver on net n7565. Patching with GND.
-######## Missing driver on net n7564. Patching with GND.
-######## Missing driver on net n7563. Patching with GND.
-######## Missing driver on net n7559. Patching with GND.
-######## Missing driver on net n7556. Patching with GND.
-######## Missing driver on net n7558. Patching with GND.
-######## Missing driver on net n7555. Patching with GND.
+######## Missing driver on net n8836. Patching with GND.
+######## Missing driver on net n8840. Patching with GND.
+######## Missing driver on net n8835. Patching with GND.
+######## Missing driver on net n8839. Patching with GND.
+######## Missing driver on net n8852. Patching with GND.
+######## Missing driver on net n8851. Patching with GND.
+######## Missing driver on net n8850. Patching with GND.
+######## Missing driver on net n8849. Patching with GND.
+######## Missing driver on net n8848. Patching with GND.
+######## Missing driver on net n8847. Patching with GND.
+######## Missing driver on net n8846. Patching with GND.
+######## Missing driver on net n8845. Patching with GND.
+######## Missing driver on net n8844. Patching with GND.
+######## Missing driver on net n8843. Patching with GND.
+######## Missing driver on net n8842. Patching with GND.
+######## Missing driver on net n8841. Patching with GND.
+######## Missing driver on net n8838. Patching with GND.
+######## Missing driver on net n8834. Patching with GND.
+######## Missing driver on net n8837. Patching with GND.
+######## Missing driver on net n8833. Patching with GND.
 WARNING - synthesis: Bit 72 of Register status_hold is stuck at Zero
 WARNING - synthesis: Bit 111 of Register status_hold is stuck at Zero
 WARNING - synthesis: Bit 110 of Register status_hold is stuck at Zero
@@ -264,10 +176,6 @@ WARNING - synthesis: Bit 71 of Register status_hold is stuck at Zero
 WARNING - synthesis: Bit 70 of Register status_hold is stuck at Zero
 WARNING - synthesis: Bit 69 of Register status_hold is stuck at Zero
 WARNING - synthesis: Bit 68 of Register status_hold is stuck at Zero
-WARNING - synthesis: Bit 67 of Register status_hold is stuck at Zero
-WARNING - synthesis: Bit 66 of Register status_hold is stuck at Zero
-WARNING - synthesis: Bit 65 of Register status_hold is stuck at Zero
-WARNING - synthesis: Bit 64 of Register status_hold is stuck at Zero
 INFO - synthesis: Extracted state machine for register '\ws2812_i/state' with gray encoding
 original encoding -> new encoding (gray encoding)
 
@@ -280,40 +188,22 @@ original encoding -> new encoding (gray encoding)
 
 
 
-WARNING - synthesis: Bit 23 of Register rgb_hold is stuck at Zero
-WARNING - synthesis: Bit 22 of Register rgb_hold is stuck at Zero
-WARNING - synthesis: Bit 21 of Register rgb_hold is stuck at Zero
-WARNING - synthesis: Bit 20 of Register rgb_hold is stuck at Zero
-WARNING - synthesis: Bit 19 of Register rgb_hold is stuck at Zero
-WARNING - synthesis: Bit 18 of Register rgb_hold is stuck at Zero
-WARNING - synthesis: Bit 17 of Register rgb_hold is stuck at Zero
-WARNING - synthesis: Bit 16 of Register rgb_hold is stuck at Zero
-WARNING - synthesis: Bit 15 of Register rgb_hold is stuck at Zero
-WARNING - synthesis: Bit 14 of Register rgb_hold is stuck at Zero
-WARNING - synthesis: Bit 13 of Register rgb_hold is stuck at Zero
-WARNING - synthesis: Bit 12 of Register rgb_hold is stuck at Zero
-WARNING - synthesis: Bit 11 of Register rgb_hold is stuck at Zero
-WARNING - synthesis: Bit 10 of Register rgb_hold is stuck at Zero
-WARNING - synthesis: Bit 9 of Register rgb_hold is stuck at Zero
-WARNING - synthesis: Bit 8 of Register rgb_hold is stuck at Zero
 ######## Found 2 RTL RAMs in the design.
 ######## Mapping RTL RAM \event_ram/mem to 5 EBR blocks in PSEUDO_DUAL_PORT Mode
 
 ######## Mapping RTL RAM \staging_ram/mem to 1 EBR blocks in PSEUDO_DUAL_PORT Mode
 
-WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(364): Register spi_expected_length_i16 is stuck at Zero. VDB-5013
+WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(432): Register spi_expected_length_i16 is stuck at Zero. VDB-5013
 WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/spi_mic_stream.v(38): Register \mic_stream_i/shift_register_i0 is stuck at Zero. VDB-5013
-WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/ws2812_stream.v(84): Register \ws2812_i/shift_register_i0_i0 is stuck at Zero. VDB-5013
-Duplicate register/latch removal. spi_rx_shift_i1 is a one-to-one match with spi_rx_shift_rep_6_i1.
-Duplicate register/latch removal. spi_rx_shift_i7 is a one-to-one match with spi_rx_shift_rep_6_i7.
-Duplicate register/latch removal. spi_rx_shift_i6 is a one-to-one match with spi_rx_shift_rep_6_i6.
-Duplicate register/latch removal. spi_rx_shift_i5 is a one-to-one match with spi_rx_shift_rep_6_i5.
-Duplicate register/latch removal. spi_rx_shift_i4 is a one-to-one match with spi_rx_shift_rep_6_i4.
-Duplicate register/latch removal. spi_rx_shift_i3 is a one-to-one match with spi_rx_shift_rep_6_i3.
-Duplicate register/latch removal. spi_rx_shift_i2 is a one-to-one match with spi_rx_shift_rep_6_i2.
-GSR instance connected to net fpga_cs_n_N_2521.
-WARNING - synthesis: Initial value found on instance swap_pending_493 will be ignored.
+GSR instance connected to net fpga_cs_n_N_2723.
+WARNING - synthesis: Initial value found on instance ws2812_settle_i0_i0 will be ignored.
+WARNING - synthesis: Initial value found on instance swap_pending_503 will be ignored.
 WARNING - synthesis: Initial value found on instance ev_bit_i0 will be ignored.
+WARNING - synthesis: Initial value found on instance ws2812_settle_i0_i1 will be ignored.
+WARNING - synthesis: Initial value found on instance ws2812_settle_i0_i2 will be ignored.
+WARNING - synthesis: Initial value found on instance ws2812_settle_i0_i3 will be ignored.
+Duplicate register/latch removal. spi_byte_count_i0_i0 is a one-to-one match with spi_byte_count_rep_3__i0.
+Duplicate register/latch removal. spi_byte_count_i0_i1 is a one-to-one match with spi_byte_count_rep_3__i1.
 Applying 128.000000 MHz constraint to all clocks
 
 WARNING - synthesis: No user .sdc file.
@@ -326,22 +216,23 @@ All blocks are expanded and NGD expansion is successful.
 Writing NGD file UMH_7_UMH_7_1.ngd.
 
 ################### Begin Area Report (umh_fpga_top)######################
-Number of register bits => 1364 of 2427 (56 % )
-CCU2D => 96
+Number of register bits => 1365 of 2427 (56 % )
+CCU2D => 115
 EHXPLLJ => 1
-FD1P3AX => 768
+FD1P3AX => 774
 FD1P3AY => 2
 FD1P3DX => 101
-FD1P3IX => 296
+FD1P3IX => 287
+FD1P3JX => 3
 FD1S3AX => 184
 FD1S3DX => 1
 FD1S3IX => 11
-FD1S3JX => 1
+FD1S3JX => 2
 GSR => 1
 IB => 8
 INV => 2
-L6MUX21 => 12
-LUT4 => 825
+L6MUX21 => 13
+LUT4 => 836
 OB => 87
 OBZ => 1
 PDPW8KC => 6
@@ -355,35 +246,35 @@ TSALL => 1
 ################### Begin Clock Report ######################
 Clock Nets
 Number of Clocks: 4
-  Net : pll_clk, loads : 994
-  Net : spi1_sck_c, loads : 274
+  Net : pll_clk, loads : 1034
+  Net : spi1_sck_c, loads : 235
   Net : spi_mic_sck_c, loads : 1
   Net : fpga_clk_8m_c, loads : 1
 Clock Enable Nets
-Number of Clock Enables: 66
+Number of Clock Enables: 70
 Top 10 highest fanout Clock Enables:
-  Net : mic_stream_i/sck_N_3045_enable_101, loads : 101
-  Net : fpga_cs_n_c, loads : 74
-  Net : pll_clk_enable_576, loads : 50
-  Net : pll_clk_enable_282, loads : 50
-  Net : pll_clk_enable_744, loads : 50
-  Net : spi1_sck_c_enable_239, loads : 50
-  Net : pll_clk_enable_743, loads : 50
-  Net : pll_clk_enable_183, loads : 50
+  Net : mic_stream_i/sck_N_3271_enable_101, loads : 101
+  Net : fpga_cs_n_c, loads : 83
   Net : pll_clk_enable_439, loads : 50
-  Net : spi1_sck_c_enable_182, loads : 38
+  Net : pll_clk_enable_104, loads : 50
+  Net : pll_clk_enable_596, loads : 50
+  Net : pll_clk_enable_773, loads : 50
+  Net : pll_clk_enable_776, loads : 50
+  Net : pll_clk_enable_271, loads : 50
+  Net : pll_clk_enable_29, loads : 40
+  Net : pll_clk_enable_771, loads : 35
 Highest fanout non-clock nets
 Top 10 highest fanout non-clock nets:
-  Net : ev_state_0, loads : 131
-  Net : mic_stream_i/n23689, loads : 104
+  Net : ev_state_0, loads : 124
+  Net : mic_stream_i/n13, loads : 104
   Net : spi_mic_cs_n_c, loads : 103
-  Net : sck_N_3045, loads : 102
-  Net : mic_stream_i/sck_N_3045_enable_101, loads : 101
-  Net : n23687, loads : 95
+  Net : sck_N_3271, loads : 102
+  Net : mic_stream_i/sck_N_3271_enable_101, loads : 101
+  Net : n26056, loads : 94
+  Net : n18521, loads : 91
   Net : swap_now_s5, loads : 84
-  Net : n14465, loads : 84
-  Net : fpga_cs_n_c, loads : 74
-  Net : pll_clk_enable_736, loads : 70
+  Net : n17439, loads : 84
+  Net : fpga_cs_n_c, loads : 83
 ################### End Clock Report ##################
 
 Timing Report Summary
@@ -396,10 +287,10 @@ create_clock -period 7.812500 -name     |             |             |
 clk2 [get_nets spi_mic_sck_c]           |  128.008 MHz|  150.038 MHz|     4  
                                         |             |             |
 create_clock -period 7.812500 -name     |             |             |
-clk1 [get_nets pll_clk]                 |  128.008 MHz|  103.040 MHz|     5 *
+clk1 [get_nets spi1_sck_c]              |  128.008 MHz|   61.493 MHz|    18 *
                                         |             |             |
 create_clock -period 7.812500 -name     |             |             |
-clk0 [get_nets spi1_sck_c]              |  128.008 MHz|   59.291 MHz|    11 *
+clk0 [get_nets pll_clk]                 |  128.008 MHz|  101.812 MHz|     5 *
                                         |             |             |
 --------------------------------------------------------------------------------
 
@@ -407,8 +298,8 @@ clk0 [get_nets spi1_sck_c]              |  128.008 MHz|   59.291 MHz|    11 *
 2 constraints not met.
 
 
-Peak Memory Usage: 90.707  MB
+Peak Memory Usage: 97.551  MB
 
 --------------------------------------------------------------
-Elapsed CPU time for LSE flow : 0.469  secs
+Elapsed CPU time for LSE flow : 0.375  secs
 --------------------------------------------------------------

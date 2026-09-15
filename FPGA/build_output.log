@@ -1,0 +1,9 @@
+=== Building FPGA with WS2812 timing fix ===
+Changes:
+  1. Removed cs_sync gating from ws2812_settle condition
+  2. Removed cs_sync gating from frame_settle condition
+  3. This allows ws2812_enable to be set immediately after settle delay
+
+Starting Diamond build...
+'run_diamond.cmd' is not recognized as an internal or external command,
+operable program or batch file.

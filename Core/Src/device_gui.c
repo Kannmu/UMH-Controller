@@ -20,7 +20,7 @@ static void number(char *out, size_t size, uint32_t value);
 static const char *page_title(device_gui_page_t page)
 {
   static const char *const titles[DEVICE_GUI_PAGE_COUNT] = {
-    "STATUS", "PLAYBACK", "DEVICE", "CALIB", "STORAGE", "DEBUG", "SYSTEM", "DEMOS", "CONTROL", "LED TEST"
+    "STATUS", "PLAYBACK", "DEVICE", "CALIB", "STORAGE", "DEBUG", "SYSTEM", "DEMOS", "LED TEST"
   };
   return page < DEVICE_GUI_PAGE_COUNT ? titles[page] : "UMH-84";
 }
@@ -35,8 +35,7 @@ static uint8_t page_item_count(const device_gui_t *gui)
     case DEVICE_GUI_STORAGE: return 6u;
     case DEVICE_GUI_DIAGNOSTICS: return 32u;
     case DEVICE_GUI_SYSTEM: return (uint8_t)(4u + uxTaskGetNumberOfTasks());
-    case DEVICE_GUI_DEMOS: return (uint8_t)(gui->demo_count + 1u);
-    case DEVICE_GUI_CONTROL: return 4u;
+    case DEVICE_GUI_DEMOS: return gui->demo_count;
     case DEVICE_GUI_WS2812_TEST: return 5u;
     default: return 0u;
   }
@@ -307,15 +306,6 @@ static void render_demos(device_gui_t *gui)
     const umh_demo_descriptor_t *demo = demo_engine_descriptor(i);
     line(gui, i, demo != NULL ? demo->name : "-", i == gui->selected_demo ? "SELECT" : "READY");
   }
-  line(gui, gui->demo_count, "MODE", gui->content_focused != 0u ? "SELECT" : "READY");
-}
-
-static void render_control(device_gui_t *gui)
-{
-  line(gui, 0u, "START", "PLAN");
-  line(gui, 1u, "STOP", "OUTPUT");
-  line(gui, 2u, "CLEAR", "PLAN");
-  line(gui, 3u, "TRIGGER", "WAIT");
 }
 
 static void render_ws2812_test(device_gui_t *gui)
@@ -335,10 +325,6 @@ void device_gui_init(device_gui_t *gui, oled_ssd1315_t *oled,
                      const fpga_link_t *fpga,
                      const flash_store_t *flash,
                      const eeprom_profile_t *eeprom,
-                     device_gui_action_t start,
-                     device_gui_action_t stop,
-                     device_gui_action_t clear,
-                     device_gui_action_t trigger,
                      device_gui_action_t demo,
                      device_gui_action_t ws2812_set,
                      uint8_t demo_count,
@@ -348,7 +334,6 @@ void device_gui_init(device_gui_t *gui, oled_ssd1315_t *oled,
   memset(gui, 0, sizeof(*gui));
   gui->oled = oled; gui->profile = profile; gui->status = status; gui->plan = plan;
   gui->fpga = fpga; gui->flash = flash; gui->eeprom = eeprom;
-  gui->start = start; gui->stop = stop; gui->clear = clear; gui->trigger = trigger;
   gui->demo = demo; gui->ws2812_set = ws2812_set; gui->demo_count = demo_count;
   gui->action_context = action_context; gui->page = DEVICE_GUI_HOME;
   gui->cursor_y = GUI_BODY_Y + 1u;
@@ -438,14 +423,6 @@ void device_gui_handle_event(device_gui_t *gui, const input_event_t *event)
       gui->action_message = result == 0 ? 1u : 2u;
       gui->message_until = HAL_GetTick() + GUI_MESSAGE_MS;
     }
-  } else if (gui->page == DEVICE_GUI_CONTROL && gui->row < 4u) {
-    int result = -1;
-    if (gui->row == 0u && gui->start != NULL) result = gui->start(gui->action_context);
-    else if (gui->row == 1u && gui->stop != NULL) result = gui->stop(gui->action_context);
-    else if (gui->row == 2u && gui->clear != NULL) result = gui->clear(gui->action_context);
-    else if (gui->row == 3u && gui->trigger != NULL) result = gui->trigger(gui->action_context);
-    gui->action_message = result == 0 ? 1u : 2u;
-    gui->message_until = HAL_GetTick() + GUI_MESSAGE_MS;
   } else if (gui->page == DEVICE_GUI_DEMOS && gui->row < gui->demo_count && gui->demo != NULL) {
     int result = gui->demo(gui->action_context);
     gui->action_message = result == 0 ? 1u : 2u;
@@ -469,7 +446,6 @@ void device_gui_render(device_gui_t *gui, uint32_t now_ms)
     case DEVICE_GUI_DIAGNOSTICS: render_diagnostics(gui); break;
     case DEVICE_GUI_SYSTEM: render_system(gui); break;
     case DEVICE_GUI_DEMOS: render_demos(gui); break;
-    case DEVICE_GUI_CONTROL: render_control(gui); break;
     case DEVICE_GUI_WS2812_TEST: render_ws2812_test(gui); break;
     default: break;
   }

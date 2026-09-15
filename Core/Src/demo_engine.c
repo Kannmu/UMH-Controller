@@ -3,11 +3,12 @@
 #include <math.h>
 #include <string.h>
 
-#define DEMO_FRAME_COUNT 32u
-#define DEMO_PERIOD_US 156u
+#define DEMO_FRAME_COUNT UMH_DEVICE_FRAME_RING_SLOTS
+#define DEMO_PERIOD_US 5000u
 #define DEMO_STRENGTH 255u
 #define DEMO_PHASE 0u
 #define DEMO_Z_UM 100000
+#define DEMO_TRIGGER_MASK 0x01u
 
 static const umh_demo_descriptor_t demos[UMH_DEMO_COUNT] = {
   { UMH_DEMO_ULM, "ULM", "15 mm linear sweep" },
@@ -61,8 +62,16 @@ int demo_engine_build(uint8_t id, umh_spatial_renderer_t *renderer,
     point_for(id, i, &point);
     slot->deadline = origin_time + (uint64_t)i * DEMO_PERIOD_US;
     slot->sequence = i;
-    if (spatial_renderer_point(renderer, &point, slot) != 0 ||
-        frame_ring_commit_write(frames) != 0) {
+    if (spatial_renderer_point(renderer, &point, slot) != 0) {
+      frame_ring_init(frames);
+      return -3;
+    }
+    /* The renderer owns the ultrasound fields.  Add the PA9 power-stage gate
+     * after rendering so it cannot be cleared while finalizing the frame. */
+    slot->update_flags |= UMH_FRAME_FLAG_DIGITAL;
+    slot->digital_mask = DEMO_TRIGGER_MASK;
+    slot->digital_state = DEMO_TRIGGER_MASK;
+    if (frame_ring_commit_write(frames) != 0) {
       frame_ring_init(frames);
       return -3;
     }

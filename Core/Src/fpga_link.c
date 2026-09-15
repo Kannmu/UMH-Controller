@@ -42,6 +42,32 @@ static int exchange(fpga_link_t *link, uint16_t length)
   static uint32_t last_report;
   if (link == NULL || link->spi == NULL || length == 0u || length > FPGA_TX_BUFFER_SIZE) return -1;
   link->tx_length = length;
+  /* Keep the diagnostic record focused on output transactions.  The render
+   * task polls STATUS continuously; recording that command here used to erase
+   * the useful FRAME/WS2812 evidence before the 1 Hz CDC report was emitted. */
+  if (link->tx[0] != FPGA_CMD_STATUS) {
+    link->debug_last_command = link->tx[0];
+    link->debug_last_length = length;
+    link->debug_last_result = 0u;
+    ++link->debug_transactions;
+    if (length >= 10u) link->debug_last_sequence = get_u32(&link->tx[6]);
+    link->debug_last_update_flags = length >= 20u ? get_u16(&link->tx[18]) : 0u;
+    link->debug_last_phase0 = 0u;
+    link->debug_last_level0 = 0u;
+    link->debug_last_nonzero_channels = 0u;
+  }
+  if ((link->tx[0] != FPGA_CMD_STATUS) && (link->tx[0] == FPGA_CMD_FRAME) && length >= 36u &&
+      (link->debug_last_update_flags & UMH_FRAME_FLAG_ULTRASOUND) != 0u) {
+    uint16_t i;
+    for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT && (uint16_t)(36u + 2u * i + 1u) < length; ++i) {
+      uint8_t level = link->tx[37u + 2u * i];
+      if (i == 0u) {
+        link->debug_last_phase0 = link->tx[36u];
+        link->debug_last_level0 = level;
+      }
+      if (level != 0u) ++link->debug_last_nonzero_channels;
+    }
+  }
   cs_low();
   /* FPGA transactions are short (status: 36 bytes, frame: <=252 bytes).
    * Use the peripheral's blocking full-duplex path here.  The former DMA
@@ -52,13 +78,16 @@ static int exchange(fpga_link_t *link, uint16_t length)
   if (spi_result != HAL_OK) {
     cs_high();
     mark_link_fault(link);
+    if (link->tx[0] != FPGA_CMD_STATUS)
+      link->debug_last_result = (uint8_t)(spi_result == HAL_TIMEOUT ? 2u : 1u);
     /* A missing FPGA clock/MISO must not turn the render task into a fault
      * storm.  Report at most once per second and classify HAL timeout as a
      * timeout rather than a misleading SPI-start error. */
     if ((HAL_GetTick() - last_report) >= 1000u) {
       last_report = HAL_GetTick();
       system_status_fault(spi_result == HAL_TIMEOUT ? UMH_FAULT_FPGA_SPI_TIMEOUT : UMH_FAULT_FPGA_SPI_START,
-                          HAL_SPI_GetError(link->spi), UMH_FAULT_CRITICAL);
+                          spi_result == HAL_TIMEOUT ? 20u : HAL_SPI_GetError(link->spi),
+                          UMH_FAULT_CRITICAL);
     }
     return spi_result == HAL_TIMEOUT ? -3 : -2;
   }
