@@ -73,37 +73,38 @@ module umh_fpga_top (
 );
     localparam [15:0] HEADER_BYTES  = 16'd36;
     localparam [15:0] CHANNEL_BYTES = 16'd168;
-    /* 40 kHz carrier with 256 phase slots at 128 MHz. */
-    localparam [31:0] CARRIER_STEP  = 32'd1342177;
+    /* 40 kHz carrier with 256 phase slots at 64 MHz (10.24 MHz slot rate). */
+    localparam [31:0] CARRIER_STEP  = 32'd2684355;
 
     /* ------------------------------------------------------------------
-     * 8 MHz STM32 PA8 MCO -> 128 MHz output clock.
+     * 8 MHz STM32 PA8 MCO -> 64 MHz output clock.
      *
      * MachXO2 law, confirmed with Lattice's own PLL calculator
      * (ispfpga/bin/nt64/scuba.exe -arch xo2c00 -fin 8 -fclkop 128):
      *
-     *   fCLKOP = fCLKI * CLKFB_DIV / CLKI_DIV = 8 * 16 / 1   = 128 MHz
-     *   fVCO   = fCLKOP * CLKOP_DIV            = 128 * 4      = 512 MHz
+      *   fCLKOP = fCLKI * CLKFB_DIV / CLKI_DIV = 8 * 8 / 1    = 64 MHz
+     *   fVCO   = fCLKOP * CLKOP_DIV            = 64 * 8       = 512 MHz
      *
-     * scuba returns "Div: 1, 16, 4, ..." and "VCO/BW: 512.000 0.767" for
-     * this request, so CLKFB_DIV must be 16.  With CLKFB_DIV=64 the VCO
-     * would be pushed to 2048 MHz and the PLL could never lock.
+     * The PLL frequency is measured correct through fpga_time, but this
+     * board's LOCK output reads low even for the original 128 MHz core.  The
+     * output engine therefore uses running/stop_event, not LOCK, to enable
+     * us_tx.  PLL LOCK remains a diagnostic status bit only.
      * CLKOP_CPHASE = CLKOP_DIV-1 keeps CLKOP aligned with the INT_DIVA
      * feedback path, which is the only internal feedback mode Map accepts.
      * ------------------------------------------------------------------ */
-    wire pll_clk, pll_locked, pll_feedback;
+    wire pll_clk, pll_feedback;
     wire fpga_clk = pll_clk;
     EHXPLLJ #(
         .PLLRST_ENA("DISABLED"), .INTFB_WAKE("DISABLED"), .STDBY_ENABLE("DISABLED"),
-        .DPHASE_SOURCE("DISABLED"), .CLKOP_FPHASE(0), .CLKOP_CPHASE(3),
-        .OUTDIVIDER_MUXA2("DIVA"), .CLKOP_ENABLE("ENABLED"), .CLKOP_DIV(4),
-        .CLKFB_DIV(16), .CLKI_DIV(1), .FEEDBK_PATH("INT_DIVA")
+        .DPHASE_SOURCE("DISABLED"), .CLKOP_FPHASE(0), .CLKOP_CPHASE(7),
+        .OUTDIVIDER_MUXA2("DIVA"), .CLKOP_ENABLE("ENABLED"), .CLKOP_DIV(8),
+        .CLKFB_DIV(8), .CLKI_DIV(1), .FEEDBK_PATH("INT_DIVA")
     ) fpga_pll_i (
         .CLKI(fpga_clk_8m), .CLKFB(pll_feedback), .RST(1'b0),
         .RESETM(1'b0), .RESETC(1'b0), .RESETD(1'b0),
         .PHASESEL0(1'b0), .PHASESEL1(1'b0), .PHASEDIR(1'b0), .PHASESTEP(1'b0),
-        .LOADREG(1'b0), .STDBY(1'b0), .PLLWAKESYNC(1'b0), .ENCLKOP(1'b0),
-        .CLKOP(pll_clk), .LOCK(pll_locked), .CLKINTFB(pll_feedback)
+        .LOADREG(1'b0), .STDBY(1'b0), .PLLWAKESYNC(1'b0), .ENCLKOP(1'b1),
+        .CLKOP(pll_clk), .LOCK(), .CLKINTFB(pll_feedback)
     );
 
     /* ------------------------------------------------------------------
@@ -119,8 +120,6 @@ module umh_fpga_top (
     reg  [2:0]  spi_bit_count;
     reg  [15:0] spi_byte_count, spi_update_flags, spi_extension_length;
     reg  [31:0] spi_frame_sequence, spi_expected_length, accepted_sequence_spi;
-    reg  [7:0]  last_command_spi;
-    reg  [15:0] last_length_spi;
     reg  [15:0] accepted_update_flags_spi;
     reg  [6:0]  spi_channel_index;
     reg  [1:0]  spi_channel_field;
@@ -130,6 +129,8 @@ module umh_fpga_top (
     reg  [95:0] rgb_values;
     reg  [6:0]  status_bit_index;
 
+    /* Sticky diagnostics for the board bring-up report.  Status is read
+     * while CS is inactive; these bits are ignored by the STM32 fault mask. */
     wire [7:0]  spi_rx_byte  = {spi_rx_shift[6:0], spi1_mosi};
     wire        spi_payload_byte = !fpga_cs_n && spi_update_flags[0] &&
                                    (spi_bit_count == 3'd7) &&
@@ -148,9 +149,6 @@ module umh_fpga_top (
 
     reg         ws2812_enable;
 
-    /* ------------------------------------------------------------------
-     * Carrier DDS.  The 24-bit fractional accumulator is isolated from the
-     * 84-bit output path.  Its registered carry is the only signal that
     /* ------------------------------------------------------------------
      * Carrier DDS (Fully Pipelined 5-Stage).
      * Stage 1: fractional accumulator carry
@@ -176,7 +174,7 @@ module umh_fpga_top (
     reg         phase_step_s5;
     reg         swap_now_s5;
 
-    wire [24:0] phase_frac_sum = {1'b0, phase_frac} + 25'd1342177;
+    wire [24:0] phase_frac_sum = {1'b0, phase_frac} + 25'd2684355;
 
     reg  [31:0] fpga_time;
     reg  [6:0]  time_divider;
@@ -204,14 +202,24 @@ module umh_fpga_top (
                      EV_RD1  = 4'd7, EV_CAP1  = 4'd8, EV_WR1  = 4'd9;
     reg  [3:0]  ev_state;
     reg  [7:0]  ev_clear_addr;
-    reg         ev_clear_done;
     reg  [6:0]  ev_ch;
-    reg  [83:0] ev_bit, init_shadow;
+    /* Combinational one-hot write mask.  Keeping this out of a state
+     * register removes the power-up/shift dependency that made the frame
+     * builder write all-zero tables on some MachXO2 configurations. */
+    wire [83:0] ev_ch_bit;
+    reg  [83:0] init_shadow;
     reg  [7:0]  build_phase;
     reg  [8:0]  build_sum;
     reg         build_zero;
     reg  [6:0]  staging_rd_addr;
     reg         frame_req, swap_pending, running, active_bank;
+
+    genvar ev_bit_index;
+    generate
+        for (ev_bit_index = 0; ev_bit_index < 84; ev_bit_index = ev_bit_index + 1) begin : EV_BIT_DECODE
+            assign ev_ch_bit[ev_bit_index] = (ev_ch == ev_bit_index);
+        end
+    endgenerate
 
     wire        event_busy = (ev_state != EV_IDLE);
     wire        build_idle = (ev_state == EV_IDLE) && !swap_pending && !frame_req;
@@ -227,17 +235,18 @@ module umh_fpga_top (
     wire        ev_rd_grant   = ev_rd_want && !phase_step_s2 && !phase_step_s3 && !phase_step_s4;
     wire [7:0]  ev_rd_slot    = (ev_state == EV_RD1) ? build_sum[7:0] : build_phase;
     wire [8:0]  ev_build_addr = {~active_bank, ev_rd_slot};
-
+    /* The device has only eight EBRs.  Use the RAM's single read port for
+     * either DDS or builder access; builder reads are granted only while the
+     * pipelined DDS is idle, so the synchronous read value is unambiguous. */
     wire [8:0]  event_rd_addr = ev_rd_grant ? ev_build_addr : run_addr_s3;
-
-    wire        ev_we     = (ev_state == EV_CLEAR) || (ev_state == EV_WR0) ||
-                            (ev_state == EV_WR1);
     wire [8:0]  ev_wr_addr = (ev_state == EV_CLEAR) ? {~active_bank, ev_clear_addr} :
                             (ev_state == EV_WR0)   ? {~active_bank, build_phase} :
                                                       {~active_bank, build_sum[7:0]};
+    wire        ev_we     = (ev_state == EV_CLEAR) || (ev_state == EV_WR0) ||
+                            (ev_state == EV_WR1);
     wire [83:0] ev_rd_data;
     reg  [83:0] ev_rd_hold;
-    wire [83:0] ev_wr_data = (ev_state == EV_CLEAR) ? 84'd0 : (ev_rd_hold | ev_bit);
+    wire [83:0] ev_wr_data = (ev_state == EV_CLEAR) ? 84'd0 : (ev_rd_hold | ev_ch_bit);
     umh_toggle_ram84 event_ram (
         .clk(fpga_clk),
         .addr_a(event_rd_addr), .rd_data_a(ev_rd_data),
@@ -280,10 +289,7 @@ module umh_fpga_top (
     /* Upper status bits are diagnostic only.  The STM32 masks them out when
      * deciding whether the FPGA reports a fault. */
     wire [15:0] status_flags_wire = (invalid_frame_sync ? 16'h0004 : 16'h0000) |
-                                    (running ? 16'h0010 : 16'h0000) |
-                                    (pll_locked ? 16'h0100 : 16'h0000) |
-                                    (last_length_spi != 16'd0 ? 16'h0800 : 16'h0000) |
-                                    {4'd0, last_command_spi[3:0], 8'd0};
+                                    (running ? 16'h0010 : 16'h0000);
     wire [127:0] status_word = {
         8'h01, 8'h00,
         fifo_credit_wire[7:0],  fifo_credit_wire[15:8],
@@ -403,8 +409,6 @@ module umh_fpga_top (
                 if (frame_end) begin
                     /* Keep the parser's last complete transaction visible in
                      * the status word, including STATUS and STOP commands. */
-                    last_command_spi <= spi_command;
-                    last_length_spi <= spi_expected_length;
                     if (spi_command == 8'h10 && spi_version == 8'h01 &&
                         spi_extension_length <= 16'd32) begin
                         frame_toggle_spi <= ~frame_toggle_spi;
@@ -477,7 +481,7 @@ module umh_fpga_top (
             ev_run_hold_s5 <= ev_rd_data;
         end
 
-        if (time_divider == 7'd127) begin
+        if (time_divider == 7'd63) begin
             time_divider <= 7'd0;
             fpga_time    <= fpga_time + 32'd1;
         end else begin
@@ -569,18 +573,17 @@ module umh_fpga_top (
                     ev_state         <= EV_CLEAR;
                     ev_clear_addr    <= 8'd0;
                     ev_ch            <= 7'd0;
-                    ev_bit           <= 84'd1;
                     init_shadow      <= 84'd0;
                     pending_sequence <= accepted_sequence_sync;
                 end
             end
             EV_CLEAR: begin
-                ev_clear_addr <= ev_clear_addr + 8'd1;
-                ev_clear_done <= (ev_clear_addr == 8'hFE);
-                if (ev_clear_done) begin
+                if (ev_clear_addr == 8'hFF) begin
                     ev_state        <= EV_ADDR;
                     staging_rd_addr <= 7'd0;
                     ev_ch           <= 7'd0;
+                end else begin
+                    ev_clear_addr <= ev_clear_addr + 8'd1;
                 end
             end
             EV_ADDR: begin
@@ -604,13 +607,16 @@ module umh_fpga_top (
                     ev_state <= EV_ADDR;
                 end
                 ev_ch  <= ev_ch + 7'd1;
-                ev_bit <= {ev_bit[82:0], 1'b0};
             end
             EV_RD0: begin
-                ev_state <= EV_CAP0;
+                /* The single EBR read port is shared with the running DDS.
+                 * Stay here until the banked address is actually presented;
+                 * otherwise the capture below would grab the active bank
+                 * (or an uninitialised word) and corrupt the event table. */
+                if (ev_rd_grant) ev_state <= EV_CAP0;
             end
             EV_CAP0: begin
-                if (build_sum[8]) init_shadow <= init_shadow | ev_bit;
+                if (build_sum[8]) init_shadow <= init_shadow | ev_ch_bit;
                 ev_rd_hold <= ev_rd_data;
                 ev_state <= EV_WR0;
             end
@@ -618,7 +624,7 @@ module umh_fpga_top (
                 ev_state <= EV_RD1;
             end
             EV_RD1: begin
-                ev_state <= EV_CAP1;
+                if (ev_rd_grant) ev_state <= EV_CAP1;
             end
             EV_CAP1: begin
                 ev_rd_hold <= ev_rd_data;
@@ -632,24 +638,12 @@ module umh_fpga_top (
                     ev_state <= EV_ADDR;
                 end
                 ev_ch  <= ev_ch + 7'd1;
-                ev_bit <= {ev_bit[82:0], 1'b0};
             end
             default: ev_state <= EV_IDLE;
         endcase
 
-        if (!pll_locked || stop_event) begin
-            us_tx <= 84'd0;
-        end else if (!running) begin
-            us_tx <= 84'd0;
-        end else if (phase_step_s5) begin
-            if (swap_now_s5)
-                us_tx <= init_shadow ^ ev_run_hold_s5;
-            else
-                us_tx <= us_tx ^ ev_run_hold_s5;
-        end
-
-        /* 128 MHz / (2 * 16) = 4 MHz microphone clock. */
-        mic_tick <= (mic_divider == 6'd15);
+        /* 64 MHz / (2 * 8) = 4 MHz microphone clock. */
+        mic_tick <= (mic_divider == 6'd7);
         if (mic_tick) begin
             mic_divider   <= 6'd0;
             mic_clock_reg <= ~mic_clock_reg;
@@ -673,6 +667,23 @@ module umh_fpga_top (
             mic_divider <= mic_divider + 6'd1;
         end
     end
+
+    /* Unconditional registered output.  The next-state cloud contains the
+     * same priority rules as the old gated block, but the flop itself has no
+     * clock enable or asynchronous clear.  This removes any dependence on
+     * LSE's gated-enable translation on silicon. */
+    reg  [83:0] us_tx_next;
+    always @* begin
+        if (stop_event)    us_tx_next = 84'd0;
+        else if (!running) us_tx_next = 84'd0;
+        else if (phase_step_s5)
+            us_tx_next = swap_now_s5 ? (init_shadow ^ ev_run_hold_s5)
+                                     : (us_tx ^ ev_run_hold_s5);
+        else
+            us_tx_next = us_tx;
+    end
+
+    always @(posedge fpga_clk) us_tx <= us_tx_next;
 
     assign mic_clk = mic_clock_reg;
 
@@ -698,7 +709,6 @@ module umh_fpga_top (
         spi_rx_shift = 8'd0; spi_bit_count = 3'd0; spi_byte_count = 16'd0;
         spi_command = 8'd0; spi_version = 8'd0; spi_update_flags = 16'd0;
         spi_extension_length = 16'd0; spi_frame_sequence = 32'd0; accepted_update_flags_spi = 16'd0;
-        last_command_spi = 8'd0; last_length_spi = 16'd0;
         spi_expected_length = HEADER_BYTES; spi_channel_index = 7'd0;
         spi_channel_field = 2'd0; spi_phase_pending = 8'd0; spi_bitmap = 88'd0;
         spi_rgb_index = 4'd0;
@@ -720,8 +730,8 @@ module umh_fpga_top (
         swap_now_s4 = 1'b0; ev_run_hold_s5 = 84'd0; phase_step_s5 = 1'b0;
         swap_now_s5 = 1'b0;
         fpga_time = 32'd0; time_divider = 7'd0;
-        ev_state = EV_IDLE; ev_clear_addr = 8'd0; ev_clear_done = 1'b0; ev_ch = 7'd0;
-        ev_bit = 84'd1; init_shadow = 84'd0; ev_rd_hold = 84'd0; staging_rd_addr = 7'd0;
+        ev_state = EV_IDLE; ev_clear_addr = 8'd0; ev_ch = 7'd0;
+        init_shadow = 84'd0; ev_rd_hold = 84'd0; staging_rd_addr = 7'd0;
         build_phase = 8'd0; build_sum = 9'd0; build_zero = 1'b0;
         frame_req = 1'b0; swap_pending = 1'b0; running = 1'b0; active_bank = 1'b0;
         us_tx = 84'd0;
@@ -729,6 +739,9 @@ module umh_fpga_top (
         mic_shift_0_l = 16'd0; mic_shift_0_r = 16'd0;
         mic_shift_1_l = 16'd0; mic_shift_1_r = 16'd0;
         mic_tick = 1'b0; mic_sample_count = 5'd0; mic_latest = 64'd0;
-        ws2812_enable = 1'b0;
+        /* Keep the protocol stream alive from power-up.  New RGB data is
+         * sampled at the next WS2812 reset gap, so updates do not depend on a
+         * fragile 0->1 enable transition or an STM32 reset. */
+        ws2812_enable = 1'b1;
     end
 endmodule

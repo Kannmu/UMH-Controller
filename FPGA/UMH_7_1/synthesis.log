@@ -5,7 +5,7 @@ Copyright (c) 1995 AT&T Corp.   All rights reserved.
 Copyright (c) 1995-2001 Lucent Technologies Inc.  All rights reserved.
 Copyright (c) 2001 Agere Systems   All rights reserved.
 Copyright (c) 2002-2023 Lattice Semiconductor Corporation,  All rights reserved.
-Tue Sep 15 22:11:30 2026
+Wed Sep 16 14:36:03 2026
 
 
 Command Line:  synthesis -f UMH_7_UMH_7_1_lattice.synproj 
@@ -80,19 +80,17 @@ Analyzing Verilog file D:/Software/Lattice Diamond/diamond/3.13/ispfpga/userware
 Compile design.
 Compile Design Begin
 Analyzing Verilog file d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v. VERI-1482
-WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(154): /* in comment. VERI-1049
 Analyzing Verilog file d:/data/onedrive/projects/umh/software/umh controller/fpga/src/ws2812_stream.v. VERI-1482
 Analyzing Verilog file d:/data/onedrive/projects/umh/software/umh controller/fpga/src/spi_mic_stream.v. VERI-1482
 Analyzing Verilog file D:/Software/Lattice Diamond/diamond/3.13/ispfpga/userware/NT/SYNTHESIS_HEADERS/machxo2.v. VERI-1482
 Top module name (Verilog): umh_fpga_top
 INFO - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(59): compiling module umh_fpga_top. VERI-1018
-INFO - synthesis: D:/Software/Lattice Diamond/diamond/3.13/ispfpga/userware/NT/SYNTHESIS_HEADERS/machxo2.v(1730): compiling module EHXPLLJ(CLKFB_DIV=16,CLKOP_DIV=4,CLKOP_CPHASE=3,FEEDBK_PATH="INT_DIVA"). VERI-1018
+INFO - synthesis: D:/Software/Lattice Diamond/diamond/3.13/ispfpga/userware/NT/SYNTHESIS_HEADERS/machxo2.v(1730): compiling module EHXPLLJ(CLKFB_DIV=8,CLKOP_CPHASE=7,FEEDBK_PATH="INT_DIVA"). VERI-1018
 INFO - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(25): compiling module umh_channel_ram18. VERI-1018
 INFO - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(41): compiling module umh_toggle_ram84. VERI-1018
-WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(407): expression size 32 truncated to fit in target size 16. VERI-1209
-INFO - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/ws2812_stream.v(10): compiling module ws2812_stream. VERI-1018
+INFO - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/ws2812_stream.v(13): compiling module ws2812_stream. VERI-1018
 INFO - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/spi_mic_stream.v(5): compiling module spi_mic_stream. VERI-1018
-WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(107): input port ENCLKOS is not connected on this instance. VDB-1013
+WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(108): input port ENCLKOS is not connected on this instance. VDB-1013
 Loading NGL library 'D:/Software/Lattice Diamond/diamond/3.13/ispfpga/xo2c00a/data/xo2alib.ngl'...
 Loading NGL library 'D:/Software/Lattice Diamond/diamond/3.13/ispfpga/xo2c00/data/xo2clib.ngl'...
 Loading NGL library 'D:/Software/Lattice Diamond/diamond/3.13/ispfpga/mg5g00/data/mg5glib.ngl'...
@@ -116,26 +114,26 @@ WARNING - synthesis: Bit 115 of Register status_hold is stuck at Zero
 WARNING - synthesis: Bit 114 of Register status_hold is stuck at Zero
 WARNING - synthesis: Bit 113 of Register status_hold is stuck at Zero
 WARNING - synthesis: Bit 112 of Register status_hold is stuck at Zero
-######## Missing driver on net n8836. Patching with GND.
-######## Missing driver on net n8840. Patching with GND.
-######## Missing driver on net n8835. Patching with GND.
-######## Missing driver on net n8839. Patching with GND.
-######## Missing driver on net n8852. Patching with GND.
-######## Missing driver on net n8851. Patching with GND.
-######## Missing driver on net n8850. Patching with GND.
-######## Missing driver on net n8849. Patching with GND.
-######## Missing driver on net n8848. Patching with GND.
-######## Missing driver on net n8847. Patching with GND.
-######## Missing driver on net n8846. Patching with GND.
-######## Missing driver on net n8845. Patching with GND.
-######## Missing driver on net n8844. Patching with GND.
-######## Missing driver on net n8843. Patching with GND.
-######## Missing driver on net n8842. Patching with GND.
-######## Missing driver on net n8841. Patching with GND.
-######## Missing driver on net n8838. Patching with GND.
-######## Missing driver on net n8834. Patching with GND.
-######## Missing driver on net n8837. Patching with GND.
-######## Missing driver on net n8833. Patching with GND.
+######## Missing driver on net n8378. Patching with GND.
+######## Missing driver on net n8377. Patching with GND.
+######## Missing driver on net n8381. Patching with GND.
+######## Missing driver on net n8382. Patching with GND.
+######## Missing driver on net n8394. Patching with GND.
+######## Missing driver on net n8393. Patching with GND.
+######## Missing driver on net n8392. Patching with GND.
+######## Missing driver on net n8391. Patching with GND.
+######## Missing driver on net n8390. Patching with GND.
+######## Missing driver on net n8389. Patching with GND.
+######## Missing driver on net n8388. Patching with GND.
+######## Missing driver on net n8387. Patching with GND.
+######## Missing driver on net n8386. Patching with GND.
+######## Missing driver on net n8385. Patching with GND.
+######## Missing driver on net n8384. Patching with GND.
+######## Missing driver on net n8383. Patching with GND.
+######## Missing driver on net n8380. Patching with GND.
+######## Missing driver on net n8376. Patching with GND.
+######## Missing driver on net n8379. Patching with GND.
+######## Missing driver on net n8375. Patching with GND.
 WARNING - synthesis: Bit 72 of Register status_hold is stuck at Zero
 WARNING - synthesis: Bit 111 of Register status_hold is stuck at Zero
 WARNING - synthesis: Bit 110 of Register status_hold is stuck at Zero
@@ -176,6 +174,10 @@ WARNING - synthesis: Bit 71 of Register status_hold is stuck at Zero
 WARNING - synthesis: Bit 70 of Register status_hold is stuck at Zero
 WARNING - synthesis: Bit 69 of Register status_hold is stuck at Zero
 WARNING - synthesis: Bit 68 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 67 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 66 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 65 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 64 of Register status_hold is stuck at Zero
 INFO - synthesis: Extracted state machine for register '\ws2812_i/state' with gray encoding
 original encoding -> new encoding (gray encoding)
 
@@ -193,12 +195,12 @@ original encoding -> new encoding (gray encoding)
 
 ######## Mapping RTL RAM \staging_ram/mem to 1 EBR blocks in PSEUDO_DUAL_PORT Mode
 
-WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(432): Register spi_expected_length_i16 is stuck at Zero. VDB-5013
+WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(436): Register spi_expected_length_i16 is stuck at Zero. VDB-5013
+WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(669): Register ws2812_enable_596 is stuck at One. VDB-5014
 WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/spi_mic_stream.v(38): Register \mic_stream_i/shift_register_i0 is stuck at Zero. VDB-5013
-GSR instance connected to net fpga_cs_n_N_2723.
+GSR instance connected to net fpga_cs_n_N_2500.
 WARNING - synthesis: Initial value found on instance ws2812_settle_i0_i0 will be ignored.
-WARNING - synthesis: Initial value found on instance swap_pending_503 will be ignored.
-WARNING - synthesis: Initial value found on instance ev_bit_i0 will be ignored.
+WARNING - synthesis: Initial value found on instance swap_pending_567 will be ignored.
 WARNING - synthesis: Initial value found on instance ws2812_settle_i0_i1 will be ignored.
 WARNING - synthesis: Initial value found on instance ws2812_settle_i0_i2 will be ignored.
 WARNING - synthesis: Initial value found on instance ws2812_settle_i0_i3 will be ignored.
@@ -216,27 +218,27 @@ All blocks are expanded and NGD expansion is successful.
 Writing NGD file UMH_7_UMH_7_1.ngd.
 
 ################### Begin Area Report (umh_fpga_top)######################
-Number of register bits => 1365 of 2427 (56 % )
-CCU2D => 115
+Number of register bits => 1255 of 2427 (51 % )
+CCU2D => 117
 EHXPLLJ => 1
-FD1P3AX => 774
+FD1P3AX => 736
 FD1P3AY => 2
 FD1P3DX => 101
-FD1P3IX => 287
+FD1P3IX => 218
 FD1P3JX => 3
-FD1S3AX => 184
+FD1S3AX => 176
 FD1S3DX => 1
-FD1S3IX => 11
+FD1S3IX => 16
 FD1S3JX => 2
 GSR => 1
 IB => 8
 INV => 2
-L6MUX21 => 13
-LUT4 => 836
+L6MUX21 => 12
+LUT4 => 895
 OB => 87
 OBZ => 1
 PDPW8KC => 6
-PFUMX => 23
+PFUMX => 34
 ################### End Area Report ##################
 
 ################### Begin BlackBox Report ######################
@@ -246,35 +248,35 @@ TSALL => 1
 ################### Begin Clock Report ######################
 Clock Nets
 Number of Clocks: 4
-  Net : pll_clk, loads : 1034
-  Net : spi1_sck_c, loads : 235
+  Net : pll_clk, loads : 945
+  Net : spi1_sck_c, loads : 214
   Net : spi_mic_sck_c, loads : 1
   Net : fpga_clk_8m_c, loads : 1
 Clock Enable Nets
-Number of Clock Enables: 70
+Number of Clock Enables: 65
 Top 10 highest fanout Clock Enables:
-  Net : mic_stream_i/sck_N_3271_enable_101, loads : 101
-  Net : fpga_cs_n_c, loads : 83
-  Net : pll_clk_enable_439, loads : 50
-  Net : pll_clk_enable_104, loads : 50
-  Net : pll_clk_enable_596, loads : 50
-  Net : pll_clk_enable_773, loads : 50
-  Net : pll_clk_enable_776, loads : 50
-  Net : pll_clk_enable_271, loads : 50
-  Net : pll_clk_enable_29, loads : 40
-  Net : pll_clk_enable_771, loads : 35
+  Net : mic_stream_i/sck_N_3050_enable_101, loads : 101
+  Net : fpga_cs_n_c, loads : 80
+  Net : pll_clk_enable_542, loads : 50
+  Net : pll_clk_enable_290, loads : 50
+  Net : pll_clk_enable_432, loads : 50
+  Net : pll_clk_enable_652, loads : 50
+  Net : pll_clk_enable_115, loads : 50
+  Net : pll_clk_enable_683, loads : 39
+  Net : pll_clk_enable_383, loads : 35
+  Net : pll_clk_enable_587, loads : 34
 Highest fanout non-clock nets
 Top 10 highest fanout non-clock nets:
-  Net : ev_state_0, loads : 124
   Net : mic_stream_i/n13, loads : 104
   Net : spi_mic_cs_n_c, loads : 103
-  Net : sck_N_3271, loads : 102
-  Net : mic_stream_i/sck_N_3271_enable_101, loads : 101
-  Net : n26056, loads : 94
-  Net : n18521, loads : 91
+  Net : sck_N_3050, loads : 102
+  Net : mic_stream_i/sck_N_3050_enable_101, loads : 101
+  Net : ev_state_0, loads : 92
   Net : swap_now_s5, loads : 84
-  Net : n17439, loads : 84
-  Net : fpga_cs_n_c, loads : 83
+  Net : n16988, loads : 84
+  Net : n11840, loads : 84
+  Net : fpga_cs_n_c, loads : 80
+  Net : pll_clk_enable_149, loads : 68
 ################### End Clock Report ##################
 
 Timing Report Summary
@@ -284,13 +286,13 @@ Constraint                              |   Constraint|       Actual|Levels
 --------------------------------------------------------------------------------
                                         |             |             |
 create_clock -period 7.812500 -name     |             |             |
-clk2 [get_nets spi_mic_sck_c]           |  128.008 MHz|  150.038 MHz|     4  
+clk2 [get_nets spi1_sck_c]              |  128.008 MHz|   63.694 MHz|    19 *
                                         |             |             |
 create_clock -period 7.812500 -name     |             |             |
-clk1 [get_nets spi1_sck_c]              |  128.008 MHz|   61.493 MHz|    18 *
+clk1 [get_nets spi_mic_sck_c]           |  128.008 MHz|  150.038 MHz|     4  
                                         |             |             |
 create_clock -period 7.812500 -name     |             |             |
-clk0 [get_nets pll_clk]                 |  128.008 MHz|  101.812 MHz|     5 *
+clk0 [get_nets pll_clk]                 |  128.008 MHz|   96.890 MHz|     6 *
                                         |             |             |
 --------------------------------------------------------------------------------
 
@@ -298,8 +300,8 @@ clk0 [get_nets pll_clk]                 |  128.008 MHz|  101.812 MHz|     5 *
 2 constraints not met.
 
 
-Peak Memory Usage: 97.551  MB
+Peak Memory Usage: 98.406  MB
 
 --------------------------------------------------------------
-Elapsed CPU time for LSE flow : 0.375  secs
+Elapsed CPU time for LSE flow : 0.484  secs
 --------------------------------------------------------------

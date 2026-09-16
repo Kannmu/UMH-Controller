@@ -93,3 +93,8 @@ build/
 
 Reference/
 Legacy V.5 Source Code/
+# Scratch/debug artifacts
+tmp/
+*.vcd
+*.vvp
+FPGA/program_*.log

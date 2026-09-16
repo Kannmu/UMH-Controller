@@ -1,6 +1,6 @@
 NOTE Copyright (C), 1992-2010, Lattice Semiconductor Corporation *
 NOTE All Rights Reserved *
-NOTE DATE CREATED: Tue Sep 15 22:12:02 2026 *
+NOTE DATE CREATED: Wed Sep 16 14:36:22 2026 *
 NOTE DESIGN NAME: umh_fpga_top *
 NOTE DEVICE NAME: LCMXO2-2000HC-4CSBGA132 *
 NOTE PIN ASSIGNMENTS *
@@ -11,9 +11,9 @@ NOTE PINS us_tx[79] : P9 : out *
 NOTE PINS us_tx[80] : L3 : out *
 NOTE PINS us_tx[81] : P6 : out *
 NOTE PINS us_tx[82] : N7 : out *
+NOTE PINS us_tx[75] : M2 : out *
 NOTE PINS us_tx[83] : P8 : out *
 NOTE PINS spi1_miso : J1 : out *
-NOTE PINS us_tx[75] : M2 : out *
 NOTE PINS us_tx[74] : M3 : out *
 NOTE PINS us_tx[73] : N2 : out *
 NOTE PINS us_tx[72] : N8 : out *

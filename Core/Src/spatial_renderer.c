@@ -95,7 +95,11 @@ int spatial_renderer_finalize(const umh_spatial_renderer_t *renderer,
       if (phase < 0) phase += (int32_t)renderer->phase_resolution;
       frame->channels[i].phase = (uint8_t)phase;
     }
-    frame->channels[i].level = (uint8_t)(magnitude * 255.0f + 0.5f);
+    /* The FPGA interprets level as the high-time in a 256-slot 40 kHz
+     * carrier.  Full spatial amplitude therefore maps to a 50% duty
+     * (level=128).  Using 255 here would be 99.6% DC and would leave no
+     * 40 kHz component for the transducer to launch. */
+    frame->channels[i].level = (uint8_t)(magnitude * 128.0f + 0.5f);
     if (renderer->calibration[i].enabled == 0u) frame->channels[i].level = 0u;
   }
   frame->update_flags |= UMH_FRAME_FLAG_ULTRASOUND;

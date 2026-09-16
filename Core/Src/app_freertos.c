@@ -118,64 +118,6 @@ static void send_response(const umh_protocol_frame_t *request, uint8_t type,
                           const void *payload, uint16_t length);
 static void application_init(void);
 
-static void debug_put16(uint8_t *p, uint16_t value)
-{
-  p[0] = (uint8_t)value;
-  p[1] = (uint8_t)(value >> 8);
-}
-
-static void debug_put32(uint8_t *p, uint32_t value)
-{
-  p[0] = (uint8_t)value;
-  p[1] = (uint8_t)(value >> 8);
-  p[2] = (uint8_t)(value >> 16);
-  p[3] = (uint8_t)(value >> 24);
-}
-
-/* Unsolicited diagnostic record for field debugging.  The record is carried
- * inside the normal v7 frame so a host can log it without a second parser. */
-static void emit_debug_record(void)
-{
-  static uint32_t record_sequence;
-  uint8_t payload[64] = {0};
-  const umh_system_status_t *s = system_status_get();
-  const fpga_status_wire_t *f = fpga_link_status(&fpga_link);
-  const umh_output_frame_t *frame = frame_ring_peek_read(&frame_ring);
-  uint16_t nonzero = 0u;
-  uint16_t i;
-
-  payload[0] = 'D'; payload[1] = 'B'; payload[2] = 'G'; payload[3] = '7';
-  debug_put32(&payload[4], ++record_sequence);
-  debug_put32(&payload[8], HAL_GetTick());
-  debug_put32(&payload[12], s->flags);
-  debug_put32(&payload[16], s->fpga_errors);
-  debug_put32(&payload[20], s->parser_errors);
-  debug_put32(&payload[24], s->usb_dropped);
-  debug_put16(&payload[28], s->frame_count);
-  debug_put16(&payload[30], s->frame_free);
-  payload[32] = f != NULL ? f->protocol_version : 0u;
-  payload[33] = f != NULL ? f->reserved : 0u;
-  debug_put16(&payload[34], f != NULL ? f->fifo_credit : 0u);
-  debug_put16(&payload[36], f != NULL ? f->fifo_depth : 0u);
-  debug_put16(&payload[38], f != NULL ? f->status_flags : 0u);
-  debug_put32(&payload[40], f != NULL ? f->fpga_time : 0u);
-  debug_put32(&payload[44], f != NULL ? f->accepted_sequence : 0u);
-  payload[48] = fpga_link.debug_last_command;
-  payload[49] = fpga_link.debug_last_result;
-  debug_put16(&payload[50], fpga_link.debug_last_length);
-  debug_put16(&payload[52], fpga_link.debug_last_update_flags);
-  debug_put32(&payload[54], fpga_link.debug_last_sequence);
-  payload[58] = fpga_link.debug_last_phase0;
-  payload[59] = fpga_link.debug_last_level0;
-  if (frame != NULL) {
-    for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i)
-      if (frame->channels[i].level != 0u) ++nonzero;
-  }
-  debug_put16(&payload[60], nonzero);
-  debug_put16(&payload[62], fpga_link.debug_last_nonzero_channels);
-  send_response(NULL, UMH_MSG_DEBUG, payload, sizeof(payload));
-}
-
 static uint32_t read_u32(const uint8_t *p)
 {
   return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
@@ -507,7 +449,6 @@ static void protocol_task(void *argument)
   uint32_t previous_parser_errors = 0u;
   uint32_t previous_rx_dropped = 0u;
   uint32_t previous_frame_dropped = 0u;
-  uint32_t next_debug_ms = 0u;
   (void)argument;
   /* Peripheral startup uses mutexes, DMA interrupts and the HAL tick. */
   application_init();
@@ -533,10 +474,6 @@ static void protocol_task(void *argument)
       system_status_fault(UMH_FAULT_PROTOCOL_PARSE, previous_parser_errors, UMH_FAULT_WARNING);
     }
     umh_usb_tx_service();
-    if ((int32_t)(HAL_GetTick() - next_debug_ms) >= 0) {
-      next_debug_ms = HAL_GetTick() + 1000u;
-      emit_debug_record();
-    }
   }
 }
 

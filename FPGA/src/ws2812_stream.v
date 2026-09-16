@@ -3,10 +3,13 @@
 /* WS2812 stream controller for 4 LEDs in parallel.
  * All 4 LEDs are connected to the same DI line (parallel configuration).
  * Takes 1 set of GRB data and sends it to all LEDs simultaneously.
- * At 128 MHz, each bit cell is 1.25 us (160 cycles):
- *   T0H: ~0.35 us (45 cycles), T0L: ~0.9 us (115 cycles)
- *   T1H: ~0.7 us (90 cycles), T1L: ~0.55 us (70 cycles)
- * Reset: >50 us (6400 cycles at 128 MHz) */
+ *
+ * WS2812C-2020-V6 requires RES >= 280 us.  At 64 MHz we use 20000 cycles
+ * (=312.5 us) so a parameter update is always accepted, independent of
+ * clock start-up or STM32 reset.  Each bit cell is 80 cycles = 1.25 us:
+ *   T0H = 20 cycles = 312.5 ns, T0L = 60 cycles = 937.5 ns
+ *   T1H = 40 cycles = 625.0 ns, T1L = 40 cycles = 625.0 ns
+ * All four values are inside the datasheet windows. */
 module ws2812_stream (
     input wire clk,
     input wire enable,
@@ -17,13 +20,13 @@ module ws2812_stream (
     output wire data_out
 );
     localparam [1:0] ST_RESET = 2'd0, ST_LOAD = 2'd1, ST_SEND = 2'd2;
-    localparam [12:0] RESET_CYCLES = 13'd7679;  /* ~60 us at 128 MHz */
-    localparam [7:0] BIT_CYCLES = 8'd159;       /* 1.25 us per bit */
-    localparam [7:0] T0H_CYCLES = 8'd44;        /* 0.35 us */
-    localparam [7:0] T1H_CYCLES = 8'd89;        /* 0.70 us */
+    localparam [15:0] RESET_CYCLES = 16'd20000; /* 312.5 us at 64 MHz */
+    localparam [7:0] BIT_CYCLES = 8'd79;        /* 80 cycles = 1.25 us */
+    localparam [7:0] T0H_CYCLES = 8'd19;        /* 20 cycles = 312.5 ns */
+    localparam [7:0] T1H_CYCLES = 8'd39;        /* 40 cycles = 625.0 ns */
 
     reg [1:0] state;
-    reg [12:0] reset_count;
+    reg [15:0] reset_count;
     reg [7:0] bit_cell_count;
     reg [4:0] bit_number;       /* 0-23 for 1 LED × 24 bits (parallel mode) */
     reg [23:0] shift_register;  /* 1 LED × 24 bits (all LEDs receive same data) */
@@ -34,13 +37,13 @@ module ws2812_stream (
         if (!enable) begin
             data_out_reg <= 1'b0;
             state <= ST_RESET;
-            reset_count <= 13'd0;
+            reset_count <= 16'd0;
         end else begin
             case (state)
                 ST_RESET: begin
                     data_out_reg <= 1'b0;
                     if (reset_count == RESET_CYCLES) state <= ST_LOAD;
-                    else reset_count <= reset_count + 13'd1;
+                    else reset_count <= reset_count + 16'd1;
                 end
                 ST_LOAD: begin
                     /* Load only LED0 data - all parallel LEDs receive the same data */
@@ -57,7 +60,7 @@ module ws2812_stream (
                         shift_register <= {shift_register[22:0], 1'b0};
                         if (bit_number == 5'd23) begin
                             /* All 24 bits sent, go to reset */
-                            reset_count <= 13'd0;
+                            reset_count <= 16'd0;
                             data_out_reg <= 1'b0;
                             state <= ST_RESET;
                         end else begin
@@ -68,11 +71,11 @@ module ws2812_stream (
                         /* Within bit cell, generate WS2812 timing */
                         bit_cell_count <= bit_cell_count + 8'd1;
                         if (shift_register[23]) begin
-                            /* Send '1': T1H=0.7us high, T1L=0.55us low */
+                            /* Send '1': T1H=625 ns high, T1L=625 ns low */
                             if (bit_cell_count == T1H_CYCLES)
                                 data_out_reg <= 1'b0;
                         end else begin
-                            /* Send '0': T0H=0.35us high, T0L=0.9us low */
+                            /* Send '0': T0H=312.5 ns high, T0L=937.5 ns low */
                             if (bit_cell_count == T0H_CYCLES)
                                 data_out_reg <= 1'b0;
                         end
@@ -85,7 +88,7 @@ module ws2812_stream (
 
     initial begin
         state = ST_RESET;
-        reset_count = 13'd0;
+        reset_count = 16'd0;
         bit_cell_count = 8'd0;
         bit_number = 5'd0;
         shift_register = 24'd0;
