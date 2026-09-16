@@ -26,6 +26,17 @@ typedef enum {
 
 typedef int (*device_gui_action_t)(void *context);
 
+typedef enum {
+  DEVICE_GUI_CAL_IDLE = 0u,
+  DEVICE_GUI_CAL_WAIT,
+  DEVICE_GUI_CAL_MEASURE,
+  DEVICE_GUI_CAL_SOLVE,
+  DEVICE_GUI_CAL_VERIFY,
+  DEVICE_GUI_CAL_OK,
+  DEVICE_GUI_CAL_FAIL,
+  DEVICE_GUI_CAL_STATE_COUNT
+} device_gui_cal_state_t;
+
 typedef struct {
   oled_ssd1315_t *oled;
   const umh_device_profile_t *profile;
@@ -36,6 +47,10 @@ typedef struct {
   const eeprom_profile_t *eeprom;
   device_gui_action_t demo;
   device_gui_action_t ws2812_set;
+  device_gui_action_t calibration;
+  volatile uint8_t calibration_busy;
+  volatile uint8_t calibration_state;
+  volatile uint8_t calibration_progress;
   uint8_t demo_count;
   uint8_t selected_demo;
   uint8_t ws2812_mode;
@@ -58,11 +73,15 @@ void device_gui_init(device_gui_t *gui, oled_ssd1315_t *oled,
                      const fpga_link_t *fpga,
                      const flash_store_t *flash,
                      const eeprom_profile_t *eeprom,
+                     device_gui_action_t calibration,
                      device_gui_action_t demo,
                      device_gui_action_t ws2812_set,
                      uint8_t demo_count,
                      void *action_context);
 void device_gui_handle_event(device_gui_t *gui, const input_event_t *event);
 void device_gui_render(device_gui_t *gui, uint32_t now_ms);
+uint8_t device_gui_calibration_busy(const device_gui_t *gui);
+void device_gui_calibration_begin(device_gui_t *gui);
+void device_gui_calibration_state(device_gui_t *gui, uint8_t state, uint8_t progress);
 
 #endif

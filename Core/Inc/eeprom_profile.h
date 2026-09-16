@@ -10,6 +10,8 @@
 #define EEPROM_PROFILE_PAGE_SIZE 16u
 #define EEPROM_PROFILE_I2C_ADDRESS 0x50u
 #define EEPROM_PROFILE_MAGIC 0x45505237u
+#define EEPROM_PROFILE_VERSION 2u
+#define EEPROM_PROFILE_V1_PAYLOAD_LENGTH 291u
 
 typedef struct __attribute__((packed)) {
   uint32_t magic;
@@ -22,6 +24,17 @@ typedef struct __attribute__((packed)) {
   uint8_t rgb_gain[UMH_DEVICE_RGB_COUNT][3];
   uint8_t digital_default;
   uint8_t reserved[3];
+  /* Static phase calibration metadata (version 2).  phase[] keeps its
+   * historical 16-bit layout: only the upper byte is the 8-bit correction
+   * applied by the renderer. */
+  uint8_t cal_meta_valid;
+  uint8_t cal_rms_deg_x10;
+  int8_t  cal_tilt_x_x10;
+  int8_t  cal_tilt_y_x10;
+  uint16_t cal_carrier_hz10;
+  uint16_t cal_level;
+  uint32_t cal_time_ms;
+  uint8_t cal_reserved[12];
   uint32_t crc32;
   uint32_t commit;
 } eeprom_profile_record_t;

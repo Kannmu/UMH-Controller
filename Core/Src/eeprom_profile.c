@@ -8,6 +8,23 @@
 #define EEPROM_READY_TIMEOUT 20u
 #define EEPROM_IO_RETRIES 3u
 
+/* First-generation record layout, kept only to migrate an existing EEPROM
+ * in place.  The common prefix is byte-identical to version 2. */
+typedef struct __attribute__((packed)) {
+  uint32_t magic;
+  uint16_t version;
+  uint16_t payload_length;
+  uint32_t generation;
+  uint16_t phase[UMH_DEVICE_CHANNEL_COUNT];
+  uint8_t gain[UMH_DEVICE_CHANNEL_COUNT];
+  uint8_t enabled[UMH_DEVICE_CHANNEL_BITMAP_BYTES];
+  uint8_t rgb_gain[UMH_DEVICE_RGB_COUNT][3];
+  uint8_t digital_default;
+  uint8_t reserved[3];
+  uint32_t crc32;
+  uint32_t commit;
+} eeprom_profile_record_v1_t;
+
 static void eeprom_note_error(eeprom_profile_t *profile, uint16_t error)
 {
   if (profile == NULL) return;
@@ -18,6 +35,39 @@ static void eeprom_note_error(eeprom_profile_t *profile, uint16_t error)
 static uint16_t eeprom_address(uint16_t address)
 {
   return (uint16_t)(EEPROM_PROFILE_I2C_ADDRESS | ((address >> 8) & 0x07u));
+}
+
+/* Bit-bang 9 clocks and a STOP to release a slave that is holding SDA/SCL,
+ * then re-init the I2C peripheral.  Used only after a bus timeout. */
+static void eeprom_i2c_recover(I2C_HandleTypeDef *i2c)
+{
+  GPIO_InitTypeDef gpio = {0};
+  uint8_t i;
+  if (i2c == NULL) return;
+  (void)HAL_I2C_DeInit(i2c);
+  gpio.Mode = GPIO_MODE_OUTPUT_OD;
+  gpio.Pull = GPIO_NOPULL;
+  gpio.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+  gpio.Pin = GPIO_PIN_7;
+  HAL_GPIO_Init(GPIOB, &gpio);
+  gpio.Pin = GPIO_PIN_15;
+  HAL_GPIO_Init(GPIOA, &gpio);
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_7, GPIO_PIN_SET);
+  for (i = 0u; i < 9u; ++i) {
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_RESET);
+    HAL_Delay(1u);
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_SET);
+    HAL_Delay(1u);
+  }
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_7, GPIO_PIN_RESET);
+  HAL_Delay(1u);
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_SET);
+  HAL_Delay(1u);
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_7, GPIO_PIN_SET);
+  HAL_Delay(1u);
+  HAL_GPIO_DeInit(GPIOB, GPIO_PIN_7);
+  HAL_GPIO_DeInit(GPIOA, GPIO_PIN_15);
+  MX_I2C1_Init();
 }
 
 static int eeprom_read(I2C_HandleTypeDef *i2c, uint16_t address, void *data, uint16_t length)
@@ -33,6 +83,7 @@ static int eeprom_read(I2C_HandleTypeDef *i2c, uint16_t address, void *data, uin
     for (attempt = 0u; attempt < EEPROM_IO_RETRIES; ++attempt) {
       if (HAL_I2C_Mem_Read(i2c, (uint16_t)(eeprom_address(address) << 1), address & 0xFFu,
                            I2C_MEMADD_SIZE_8BIT, dst, chunk, 100u) == HAL_OK) break;
+      eeprom_i2c_recover(i2c);
       HAL_Delay(1u);
     }
     if (attempt == EEPROM_IO_RETRIES) return -1;
@@ -56,13 +107,18 @@ static int eeprom_write(I2C_HandleTypeDef *i2c, uint16_t address, const void *da
     if (chunk > block_remaining) chunk = block_remaining;
     uint8_t attempt;
     for (attempt = 0u; attempt < EEPROM_IO_RETRIES; ++attempt) {
-      if (HAL_I2C_Mem_Write(i2c, (uint16_t)(eeprom_address(address) << 1), address & 0xFFu,
-                            I2C_MEMADD_SIZE_8BIT, (uint8_t *)src, chunk, 100u) == HAL_OK) break;
+      HAL_StatusTypeDef wr;
+      wr = HAL_I2C_Mem_Write(i2c, (uint16_t)(eeprom_address(address) << 1), address & 0xFFu,
+                             I2C_MEMADD_SIZE_8BIT, (uint8_t *)src, chunk, 100u);
+      if (wr == HAL_OK) {
+        HAL_Delay(6u); /* AT24C16 write-cycle guard */
+        if (HAL_I2C_IsDeviceReady(i2c, (uint16_t)(eeprom_address(address) << 1),
+                                  EEPROM_IO_RETRIES, EEPROM_READY_TIMEOUT * 4u) == HAL_OK) break;
+      }
+      eeprom_i2c_recover(i2c);
       HAL_Delay(1u);
     }
     if (attempt == EEPROM_IO_RETRIES) return -1;
-    if (HAL_I2C_IsDeviceReady(i2c, (uint16_t)(eeprom_address(address) << 1),
-                              EEPROM_IO_RETRIES, EEPROM_READY_TIMEOUT) != HAL_OK) return -1;
     address += chunk;
     src += chunk;
     length = (uint16_t)(length - chunk);
@@ -76,7 +132,7 @@ void eeprom_profile_defaults(eeprom_profile_record_t *record)
   if (record == NULL) return;
   memset(record, 0, sizeof(*record));
   record->magic = EEPROM_PROFILE_MAGIC;
-  record->version = 1u;
+  record->version = EEPROM_PROFILE_VERSION;
   record->payload_length = (uint16_t)(offsetof(eeprom_profile_record_t, crc32));
   record->generation = 1u;
   for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) record->gain[i] = 255u;
@@ -90,11 +146,40 @@ void eeprom_profile_defaults(eeprom_profile_record_t *record)
   record->commit = EEPROM_COMMIT_VALUE;
 }
 
+/* Returns the validated record version, 0 when the copy is not usable. */
+static uint16_t record_version(const eeprom_profile_record_t *record)
+{
+  uint32_t legacy_crc;
+  if (record->magic != EEPROM_PROFILE_MAGIC) return 0u;
+  if (record->version >= EEPROM_PROFILE_VERSION) {
+    if (record->commit != EEPROM_COMMIT_VALUE ||
+        record->payload_length != offsetof(eeprom_profile_record_t, crc32)) return 0u;
+    return flash_store_crc32(record, record->payload_length) == record->crc32 ?
+           record->version : 0u;
+  }
+  if (record->version == 1u && record->payload_length == EEPROM_PROFILE_V1_PAYLOAD_LENGTH) {
+    memcpy(&legacy_crc, ((const uint8_t *)record) + EEPROM_PROFILE_V1_PAYLOAD_LENGTH,
+           sizeof(legacy_crc));
+    return flash_store_crc32(record, EEPROM_PROFILE_V1_PAYLOAD_LENGTH) == legacy_crc ?
+           1u : 0u;
+  }
+  return 0u;
+}
+
 static int record_valid(const eeprom_profile_record_t *record)
 {
-  if (record->magic != EEPROM_PROFILE_MAGIC || record->commit != EEPROM_COMMIT_VALUE ||
-      record->payload_length != offsetof(eeprom_profile_record_t, crc32)) return 0;
-  return flash_store_crc32(record, record->payload_length) == record->crc32;
+  return record_version(record) >= EEPROM_PROFILE_VERSION;
+}
+
+static void record_upgrade_v1(eeprom_profile_record_t *record)
+{
+  uint8_t *raw = (uint8_t *)record;
+  memset(raw + EEPROM_PROFILE_V1_PAYLOAD_LENGTH, 0,
+         offsetof(eeprom_profile_record_t, crc32) - EEPROM_PROFILE_V1_PAYLOAD_LENGTH);
+  record->version = EEPROM_PROFILE_VERSION;
+  record->payload_length = (uint16_t)offsetof(eeprom_profile_record_t, crc32);
+  record->crc32 = flash_store_crc32(record, record->payload_length);
+  record->commit = EEPROM_COMMIT_VALUE;
 }
 
 void eeprom_profile_init(eeprom_profile_t *profile, I2C_HandleTypeDef *i2c)
@@ -126,10 +211,18 @@ int eeprom_profile_load(eeprom_profile_t *profile)
   profile->present = 1u;
   first_valid = eeprom_read(profile->i2c, 0u, &first, sizeof(first)) == 0;
   if (!first_valid) eeprom_note_error(profile, (uint16_t)HAL_I2C_GetError(profile->i2c));
-  else first_valid = record_valid(&first);
+  else {
+    uint16_t first_version = record_version(&first);
+    if (first_version == 1u) { record_upgrade_v1(&first); first_valid = 1; }
+    else first_valid = (first_version >= EEPROM_PROFILE_VERSION);
+  }
   second_valid = eeprom_read(profile->i2c, EEPROM_PROFILE_COPY_SIZE, &second, sizeof(second)) == 0;
   if (!second_valid) eeprom_note_error(profile, (uint16_t)HAL_I2C_GetError(profile->i2c));
-  else second_valid = record_valid(&second);
+  else {
+    uint16_t second_version = record_version(&second);
+    if (second_version == 1u) { record_upgrade_v1(&second); second_valid = 1; }
+    else second_valid = (second_version >= EEPROM_PROFILE_VERSION);
+  }
   i2c_bus_unlock();
   if (!first_valid && !second_valid) {
     eeprom_profile_defaults(&profile->record);
@@ -157,6 +250,7 @@ int eeprom_profile_commit(eeprom_profile_t *profile, const eeprom_profile_record
   if (profile->present == 0u) return -2;
   staged = *record;
   staged.magic = EEPROM_PROFILE_MAGIC;
+  staged.version = EEPROM_PROFILE_VERSION;
   staged.payload_length = (uint16_t)offsetof(eeprom_profile_record_t, crc32);
   staged.generation = profile->record.generation + 1u;
   staged.crc32 = flash_store_crc32(&staged, staged.payload_length);

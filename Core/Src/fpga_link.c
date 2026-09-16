@@ -209,6 +209,81 @@ int fpga_link_set_ws2812(fpga_link_t *link, uint8_t r, uint8_t g, uint8_t b)
   return 0;
 }
 
+static int mic_command(fpga_link_t *link, uint8_t command, uint32_t sequence,
+                       const uint8_t *extension, uint16_t extension_length,
+                       uint8_t *response, uint16_t response_length)
+{
+  umh_output_frame_t frame;
+  uint16_t length;
+  int result = 0;
+  if (link == NULL || link->mutex == NULL) return -1;
+  if (extension_length > sizeof(frame.extension)) return -2;
+  if (osMutexAcquire(link->mutex, osWaitForever) != osOK) return -1;
+  memset(&frame, 0, sizeof(frame));
+  frame.update_flags = UMH_FRAME_FLAG_EXTENDED;
+  frame.sequence = sequence;
+  frame.extension_length = extension_length;
+  if (extension != NULL && extension_length != 0u)
+    memcpy(frame.extension, extension, extension_length);
+  length = pack_common(link, command, &frame);
+  if (length == 0u) result = -2;
+  else {
+    if (response_length > length) {
+      uint16_t pad = (uint16_t)(response_length - length);
+      if (pad > (uint16_t)(FPGA_TX_BUFFER_SIZE - length)) result = -2;
+      else {
+        memset(&link->tx[length], 0, pad);
+        length = response_length;
+      }
+    }
+    if (result == 0 && length > 0u) {
+      if (exchange(link, length) != 0) result = -3;
+      else if (unpack_status(link) != 0) result = -4;
+      else if (response != NULL && response_length != 0u)
+        memcpy(response, link->rx, response_length);
+    }
+  }
+  osMutexRelease(link->mutex);
+  return result;
+}
+
+static uint16_t get_be16(const uint8_t *p)
+{
+  return (uint16_t)(((uint16_t)p[0] << 8) | (uint16_t)p[1]);
+}
+
+int fpga_link_mic_config(fpga_link_t *link, uint8_t gate_count, uint16_t start,
+                         uint16_t step, uint8_t width)
+{
+  uint8_t ext[6];
+  ext[0] = gate_count;
+  ext[1] = (uint8_t)start;
+  ext[2] = (uint8_t)(start >> 8);
+  ext[3] = (uint8_t)step;
+  ext[4] = (uint8_t)(step >> 8);
+  ext[5] = width;
+  return mic_command(link, FPGA_CMD_MIC_CONFIG, 0u, ext, sizeof(ext), NULL, 0u);
+}
+
+int fpga_link_mic_read(fpga_link_t *link, uint8_t gate, fpga_mic_gate_wire_t *result)
+{
+  uint8_t rx[FPGA_MIC_READ_BYTES];
+  uint8_t k;
+  int rc;
+  if (result == NULL) return -2;
+  rc = mic_command(link, FPGA_CMD_MIC_READ, (uint32_t)gate, NULL, 0u,
+                   rx, sizeof(rx));
+  if (rc != 0) return rc;
+  result->status = get_be16(&rx[16]);
+  result->block_count = get_be16(&rx[18]);
+  result->gate_count = get_be16(&rx[20]);
+  result->reserved = get_be16(&rx[22]);
+  for (k = 0u; k < UMH_DEVICE_MIC_COUNT; ++k) {
+    result->i[k] = (int16_t)get_be16(&rx[24u + 2u * k]);
+    result->q[k] = (int16_t)get_be16(&rx[32u + 2u * k]);
+  }
+  return 0;
+}
 const fpga_status_wire_t *fpga_link_status(const fpga_link_t *link)
 {
   return link != NULL ? &link->status : NULL;

@@ -12,6 +12,8 @@
 ```bash
 cd FPGA
 "D:\Software\Lattice Diamond\diamond\3.13\bin\nt64\pgrcmd.exe" -infile UMH_7_Programmer_File.xcf
+# 必须再刷新一次，使运行中的 FPGA 从新烧录的 Flash 镜像重新加载
+"D:\Software\Lattice Diamond\diamond\3.13\bin\nt64\pgrcmd.exe" -infile UMH_7_Programmer_Refresh.xcf
 ```
 
 ## 验证
@@ -22,3 +24,4 @@ cd FPGA
 3. 选择颜色（RED/GREEN/BLUE/WHITE）
 4. 按下 ACTIVATE
 5. 所有4颗WS2812应该同时显示相同的颜色
+

@@ -1,5 +1,32 @@
 `timescale 1ns/1ps
 
+/* Per-microphone update of the 40-tap boxcar state.  M is a constant
+ * microphone slot and S is the PDM bit for this sample. */
+`define MIC_UPDATE(M,S) \
+    mic_pdm_hist[M] <= {mic_pdm_hist[M][38:0], (S)}; \
+    if (mic_bc_fill >= 7'd40) begin \
+        mic_xor_i[M] <= mic_xor_i[M] + ((S) ^ mic_lo_i_r) - (mic_pdm_hist[M][39] ^ mic_lo_i_d40_r); \
+        mic_xor_q[M] <= mic_xor_q[M] + ((S) ^ mic_lo_q_r) - (mic_pdm_hist[M][39] ^ mic_lo_q_d40_r); \
+    end else begin \
+        mic_xor_i[M] <= mic_xor_i[M] + ((S) ^ mic_lo_i_r); \
+        mic_xor_q[M] <= mic_xor_q[M] + ((S) ^ mic_lo_q_r); \
+    end
+
+/* Advance or complete the gate sequence after one 100 kHz sample has been
+ * accumulated and handed to the EBR store registers. */
+`define MIC_FINISH_GATE \
+    mic_gate_active <= 1'b0; \
+    mic_gate_fill   <= 7'd0; \
+    if (mic_gate_index + 7'd1 >= mic_cfg_count) begin \
+        mic_gate_index  <= 7'd0; \
+        mic_done        <= 1'b1; \
+        mic_block_count <= mic_block_count + 16'd1; \
+        mic_run_state   <= 2'd1; \
+    end else begin \
+        mic_gate_index <= mic_gate_index + 7'd1; \
+        mic_gate_wait  <= mic_cfg_gap; \
+    end
+
 /* ---------------------------------------------------------------------------
  * UMH v7 MachXO2 output engine.
  *
@@ -53,6 +80,29 @@ module umh_toggle_ram84 (
         rd_data_a <= mem[addr_a];
         if (we_b) mem[addr_b] <= wr_data_b;
         rd_data_b <= mem[addr_b];
+    end
+endmodule
+
+/* 256 x 32 microphone gate accumulator storage.  One word carries the
+ * 16-bit in-phase and 16-bit quadrature sums of one (gate, microphone)
+ * pair, so all 64 gates x 4 microphones fit into a single EBR.  The word
+ * is written by the gate accumulator in the 64 MHz domain and read back by
+ * MIC_READ; a synchronous read port keeps the MISO payload stable. */
+module umh_mic_iq_ram (
+    input  wire        clk,
+    input  wire        we,
+    input  wire [8:0]  wr_addr,
+    input  wire [15:0] wr_data,
+    input  wire [8:0]  rd_addr,
+    output reg  [15:0] rd_data
+);
+    /* 512 x 16 fits one MachXO2 EBR exactly.  Address {gate[5:0],
+     * word[2:0]}: words 0..3 are the four microphone I sums, words 4..7 the
+     * four Q sums. */
+    (* syn_ramstyle = "block_ram" *) reg [15:0] mem [0:511];
+    always @(posedge clk) begin
+        if (we) mem[wr_addr] <= wr_data;
+        rd_data <= mem[rd_addr];
     end
 endmodule
 
@@ -127,7 +177,7 @@ module umh_fpga_top (
     reg  [87:0] spi_bitmap;
     reg         frame_toggle_spi, stop_toggle_spi, invalid_frame_spi, ws2812_toggle_spi;
     reg  [95:0] rgb_values;
-    reg  [6:0]  status_bit_index;
+    reg  [8:0]  status_bit_index;
 
     /* Sticky diagnostics for the board bring-up report.  Status is read
      * while CS is inactive; these bits are ignored by the STM32 fault mask. */
@@ -179,15 +229,116 @@ module umh_fpga_top (
     reg  [31:0] fpga_time;
     reg  [6:0]  time_divider;
 
-    /* Microphone PDM sampler. */
-    reg  [6:0]  mic_divider;
-    reg         mic_tick;
+    /* ------------------------------------------------------------------
+     * SPH0641LU4H-1 clock sequencer and 40 kHz coherent I/Q demodulator.
+     *
+     * The datasheet forbids powering up or waking directly into ultrasonic
+     * mode (3.072..4.8 MHz).  The clock is therefore held low through
+     * power-up, run at 200 kHz for 20 ms (sleep exit + 15 ms wake-up), and
+     * only then switched to the 4 MHz ultrasonic clock.
+     * ------------------------------------------------------------------ */
+    localparam [31:0] MIC_BOOT_CYCLES = 32'd640_000;  /* 10 ms at 64 MHz  */
+    localparam [13:0] MIC_WARM_EDGES  = 14'd8_000;    /* 20 ms at 200 kHz */
+
+    reg  [31:0] mic_boot_count;
+    reg         mic_warm;
+    reg         mic_ultrasonic;
+    reg  [7:0]  mic_warm_half;
+    reg  [13:0] mic_warm_edges;
+    reg  [3:0]  mic_phase;             /* 0..15, one 4 MHz PDM bit period */
     reg         mic_clock_reg;
     reg  [15:0] mic_shift_0_l, mic_shift_0_r;
     reg  [15:0] mic_shift_1_l, mic_shift_1_r;
     reg  [4:0]  mic_sample_count;
     reg  [63:0] mic_latest;
 
+    /* 40 kHz local oscillator and 40-tap boxcar.  One PDM sample per
+     * microphone arrives every 250 ns; the boxcar therefore updates at
+     * exactly 100 kHz.  The mixer product is one bit, and the product sum
+     * over 40 PDM samples is simply 40 - 2*xor_count, so no multiplier is
+     * needed anywhere in the microphone path. */
+    reg  [6:0]  mic_lo_n;              /* 0..99                        */
+    reg  [6:0]  mic_bc_fill;           /* 0..40 PDM samples in window  */
+    reg  [39:0] mic_pdm_hist [0:3];    /* raw PDM history per mic      */
+    reg  [6:0]  mic_xor_i [0:3];       /* I mixer products equal to 1  */
+    reg  [6:0]  mic_xor_q [0:3];       /* Q mixer products equal to 1  */
+    reg  signed [7:0] mic_win_i [0:3]; /* 40 - 2*xor, range -40..+40   */
+    reg  signed [7:0] mic_win_q [0:3];
+    reg         mic_bc_valid;          /* 100 kHz envelope valid pulse */
+    reg         mic_lo_i_r, mic_lo_q_r; /* registered LO for this PDM period */
+    reg         mic_lo_i_d40_r, mic_lo_q_d40_r;
+
+    /* Registered local oscillator.  mic_lo_n advances on phase 0 and the
+     * +/-1 LO bits for the new period (including the 40-sample-delayed bit
+     * used by the sliding boxcar) are registered in the same edge, so the
+     * long mixer / accumulator cloud starts from a flop instead of from the
+     * counter decoders. */
+    wire [6:0]  mic_lo_n_next = (mic_lo_n == 7'd99) ? 7'd0 : (mic_lo_n + 7'd1);
+    wire        mic_lo_i_next = (mic_lo_n_next < 7'd25) || (mic_lo_n_next >= 7'd75);
+    wire        mic_lo_q_next = (mic_lo_n_next < 7'd50);
+    wire [6:0]  mic_lo_n_d40_next = (mic_lo_n_next >= 7'd40)
+                                    ? (mic_lo_n_next - 7'd40) : (mic_lo_n_next + 7'd60);
+    wire        mic_lo_i_d40_next = (mic_lo_n_d40_next < 7'd25) ||
+                                    (mic_lo_n_d40_next >= 7'd75);
+    wire        mic_lo_q_d40_next = (mic_lo_n_d40_next < 7'd50);
+
+    /* Gate configuration is expressed in 100 kHz samples (10 us).  The
+     * sequence is re-armed automatically after every completed block, so
+     * the STM32 can submit one pattern per block without reconfiguring. */
+    reg  [6:0]  mic_cfg_count;         /* 1..64 gates per pattern      */
+    reg  [15:0] mic_cfg_start;         /* gate 0 start after swap      */
+    reg  [15:0] mic_cfg_step;          /* start-to-start spacing       */
+    reg  [15:0] mic_cfg_gap;           /* step - width, precomputed    */
+    reg  [6:0]  mic_cfg_width;         /* 1..64 samples per gate       */
+    reg  [1:0]  mic_run_state;         /* 0 idle, 1 wait, 2 collect    */
+    reg         mic_done;
+    reg         mic_saturated;
+    reg  [15:0] mic_block_count;
+    reg  [6:0]  mic_gate_index;
+    reg  [6:0]  mic_gate_fill;
+    reg  [15:0] mic_gate_wait;
+    reg         mic_gate_active;
+    /* The gate accumulators live in the microphone EBR.  A small read / add /
+     * write-back engine services the eight 16-bit words of the active gate
+     * once per 100 kHz sample; the remaining ~600 cycles of the sample period
+     * are idle, so one shared adder replaces eight parallel accumulators. */
+    reg         mic_acc_busy;
+    reg  [2:0]  mic_acc_state;         /* 0 idle, 1 clear, 2 read, 3 write, 4 finish */
+    reg  [2:0]  mic_acc_word;
+    reg  [6:0]  mic_acc_gate;
+    reg         mic_acc_last;          /* this sample completes the gate */
+    reg         mic_ram_we;
+    reg  [8:0]  mic_ram_wr_addr;
+    reg  [15:0] mic_ram_wr_data;
+    wire [15:0] mic_ram_rd_data;
+    /* Payload layout for bits 192..319: eight 16-bit words, MSB first. */
+    wire [3:0]  mic_payload_word = status_bit_index[8:4] - 4'd12;
+    wire        mic_ram_rd_acc   = (mic_acc_state == 3'd2);
+    wire [8:0]  mic_ram_rd_addr  = mic_ram_rd_acc ? {mic_acc_gate[5:0], mic_acc_word}
+                                                  : {spi_frame_sequence[5:0], mic_payload_word[2:0]};
+    wire [15:0] mic_status_reg   = {11'd0,
+                                    (mic_run_state != 2'd0),
+                                    (mic_run_state == 2'd2),
+                                    mic_saturated,
+                                    (mic_run_state == 2'd1),
+                                    mic_done};
+    wire [63:0] mic_meta_word    = {mic_status_reg, mic_block_count,
+                                    {9'd0, mic_cfg_count}, 16'd0};
+    wire signed [7:0] mic_acc_win = mic_acc_word[2] ? mic_win_q[mic_acc_word[1:0]]
+                                                    : mic_win_i[mic_acc_word[1:0]];
+    wire [15:0] mic_acc_addend = {{9{mic_acc_win[7]}}, mic_acc_win};
+
+    /* MIC_CONFIG handshake.  The SCK-domain extension bytes are loaded by a
+     * command-complete toggle; the 48-bit bus is synchronized before the
+     * configuration is adopted, so no multi-bit field can be sampled torn. */
+    reg  [47:0] mic_cfg_hold_spi;
+    reg  [47:0] mic_cfg_meta, mic_cfg_sync;
+    reg         mic_cfg_toggle_spi, mic_cfg_toggle_meta, mic_cfg_toggle_sync, mic_cfg_toggle_seen;
+    reg  [3:0]  mic_cfg_settle;
+    wire [6:0]  mic_cfg_count_w = (mic_cfg_sync[6:0] == 7'd0) ? 7'd1 :
+                                  ((mic_cfg_sync[6:0] > 7'd64) ? 7'd64 : mic_cfg_sync[6:0]);
+    wire [6:0]  mic_cfg_width_w = (mic_cfg_sync[46:40] == 7'd0) ? 7'd1 :
+                                  ((mic_cfg_sync[46:40] > 7'd64) ? 7'd64 : mic_cfg_sync[46:40]);
     /* ------------------------------------------------------------------
      * Frame builder.  CLEAR wipes the inactive bank, then every channel
      * contributes one set bit at its rising slot and one at its falling
@@ -255,6 +406,18 @@ module umh_fpga_top (
     );
 
     /* ------------------------------------------------------------------
+     * Microphone gate accumulator storage: 64 gates x 4 microphones packed
+     * as {I[15:0], Q[15:0]} in one 256 x 32 EBR.  The accumulator writes in
+     * the 64 MHz domain and MIC_READ reads back through the synchronous port;
+     * the ultrasound engine never touches this memory.
+     * ------------------------------------------------------------------ */
+    umh_mic_iq_ram mic_iq_ram (
+        .clk(fpga_clk), .we(mic_ram_we), .wr_addr(mic_ram_wr_addr),
+        .wr_data(mic_ram_wr_data),
+        .rd_addr(mic_ram_rd_addr), .rd_data(mic_ram_rd_data)
+    );
+
+    /* ------------------------------------------------------------------
      * Cross-domain hand-off.  The SCK domain raises a toggle at the end of
      * a complete frame; the output domain waits 8 cycles (62.5 ns, more
      * than one full 42.5 MHz SCK period) before capturing anything, so the
@@ -300,12 +463,21 @@ module umh_fpga_top (
         accepted_sequence[23:16], accepted_sequence[31:24]
     };
     /* MISO is a shared SPI return line and must be released while CS is
-     * inactive. */
-    assign spi1_miso = fpga_cs_n ? 1'bz : status_hold[7'd127 - status_bit_index];
+     * inactive.  The first 16 bytes always carry the status word.  Longer
+     * transactions continue with the microphone payload:
+     *   bytes 16..23  {status, block_count, gate_count, 0}, MSB first
+     *   bytes 24..39  four 32-bit {I[15:0], Q[15:0]} words, MSB first
+     * The MIC_READ gate address travels in the frame-sequence header field
+     * (bytes 6..9), so it is already stable when the payload starts. */
+    assign spi1_miso = fpga_cs_n ? 1'bz :
+                       (status_bit_index < 9'd128) ? status_hold[8'd127 - status_bit_index[6:0]] :
+                       (status_bit_index < 9'd192) ? mic_meta_word[9'd191 - status_bit_index] :
+                       (status_bit_index < 9'd320) ? mic_ram_rd_data[4'd15 - status_bit_index[3:0]] :
+                       1'b0;
 
     always @(negedge spi1_sck or posedge fpga_cs_n) begin
-        if (fpga_cs_n) status_bit_index <= 7'd0;
-        else if (status_bit_index != 7'd127) status_bit_index <= status_bit_index + 7'd1;
+        if (fpga_cs_n) status_bit_index <= 9'd0;
+        else if (status_bit_index != 9'd511) status_bit_index <= status_bit_index + 9'd1;
     end
 
     wire [15:0] ext_len_next  = {spi_rx_byte, spi_extension_length[7:0]};
@@ -354,6 +526,20 @@ module umh_fpga_top (
                         spi_expected_length <= expected_next;
                     end
                     default: begin
+                        /* MIC_CONFIG extension: six bytes at offsets 36..41.
+                         * Captured in the SCK domain and adopted after the
+                         * command-complete toggle is synchronized. */
+                        if (spi_command == 8'h14) begin
+                            case (spi_byte_count)
+                                16'd36: mic_cfg_hold_spi[7:0]   <= spi_rx_byte;
+                                16'd37: mic_cfg_hold_spi[15:8]  <= spi_rx_byte;
+                                16'd38: mic_cfg_hold_spi[23:16] <= spi_rx_byte;
+                                16'd39: mic_cfg_hold_spi[31:24] <= spi_rx_byte;
+                                16'd40: mic_cfg_hold_spi[39:32] <= spi_rx_byte;
+                                16'd41: mic_cfg_hold_spi[47:40] <= spi_rx_byte;
+                                default: ;
+                            endcase
+                        end
                         /* The wire format is little-endian.  A shift register
                          * makes byte 0 the most significant byte and causes
                          * the valid low nibble of byte 10 to fail bitmap_ok. */
@@ -424,6 +610,19 @@ module umh_fpga_top (
                         ws2812_toggle_spi <= ~ws2812_toggle_spi;
                         accepted_sequence_spi <= spi_frame_sequence;
                         accepted_update_flags_spi <= spi_update_flags;
+                        invalid_frame_spi <= 1'b0;
+                    end else if (spi_command == 8'h14 && spi_version == 8'h01 &&
+                                 spi_extension_length == 16'd6) begin
+                        /* Arm the microphone gate sequencer.  The frame
+                         * pattern submitted next starts the first block. */
+                        mic_cfg_toggle_spi <= ~mic_cfg_toggle_spi;
+                        invalid_frame_spi <= 1'b0;
+                    end else if (spi_command == 8'h15 && spi_version == 8'h01 &&
+                                 spi_extension_length == 16'd0) begin
+                        /* MIC_READ gate address travels in frame_sequence
+                         * (bytes 6..9), which is captured before the MISO
+                         * payload starts, so the first transaction already
+                         * returns the right gate. */
                         invalid_frame_spi <= 1'b0;
                     end else if (spi_command != 8'h01) begin
                         invalid_frame_spi <= 1'b1;
@@ -642,18 +841,77 @@ module umh_fpga_top (
             default: ev_state <= EV_IDLE;
         endcase
 
-        /* 64 MHz / (2 * 8) = 4 MHz microphone clock. */
-        mic_tick <= (mic_divider == 6'd7);
-        if (mic_tick) begin
-            mic_divider   <= 6'd0;
-            mic_clock_reg <= ~mic_clock_reg;
-            /* Each SPH0641 pair puts left/right PDM on opposite clock edges.
-             * The edge polarity is retained in the source marker below:
-             * MIC0/1 are DATA0 rising/falling, MIC2/3 are DATA1 rising/falling. */
-            if (!mic_clock_reg) begin
+        /* ------------------------------------------------------------------
+         * SPH0641LU4H-1 clock sequencer.
+         *
+         * The clock is held low from power-up, then runs at 200 kHz for
+         * 20 ms (sleep exit plus the 15 ms wake-up specification), and only
+         * then switches to the 4 MHz ultrasonic mode.  64 MHz / 320 =
+         * 200 kHz, 64 MHz / 16 = 4 MHz.
+         * ------------------------------------------------------------------ */
+        if (mic_boot_count != MIC_BOOT_CYCLES)
+            mic_boot_count <= mic_boot_count + 32'd1;
+
+        if (!mic_ultrasonic && !mic_warm) begin
+            mic_clock_reg <= 1'b0;
+            if (mic_boot_count == MIC_BOOT_CYCLES) begin
+                mic_warm       <= 1'b1;
+                mic_warm_half  <= 8'd0;
+                mic_warm_edges <= 14'd0;
+            end
+        end else if (mic_warm) begin
+            if (mic_warm_half == 8'd159) begin
+                mic_warm_half <= 8'd0;
+                mic_clock_reg <= ~mic_clock_reg;
+                if (mic_warm_edges + 14'd1 >= MIC_WARM_EDGES) begin
+                    mic_warm        <= 1'b0;
+                    mic_ultrasonic  <= 1'b1;
+                    mic_clock_reg   <= 1'b0;
+                    mic_phase       <= 4'd0;
+                    mic_lo_n        <= 7'd0;
+                    mic_lo_i_r      <= 1'b1; mic_lo_q_r <= 1'b1;
+                    mic_lo_i_d40_r  <= 1'b0; mic_lo_q_d40_r <= 1'b0;
+                    mic_bc_fill     <= 7'd0;
+                    mic_bc_valid    <= 1'b0;
+                    mic_pdm_hist[0] <= 40'd0; mic_pdm_hist[1] <= 40'd0;
+                    mic_pdm_hist[2] <= 40'd0; mic_pdm_hist[3] <= 40'd0;
+                    mic_xor_i[0] <= 7'd0; mic_xor_i[1] <= 7'd0;
+                    mic_xor_i[2] <= 7'd0; mic_xor_i[3] <= 7'd0;
+                    mic_xor_q[0] <= 7'd0; mic_xor_q[1] <= 7'd0;
+                    mic_xor_q[2] <= 7'd0; mic_xor_q[3] <= 7'd0;
+                end else begin
+                    mic_warm_edges <= mic_warm_edges + 14'd1;
+                end
+            end else begin
+                mic_warm_half <= mic_warm_half + 8'd1;
+            end
+        end else begin
+            /* 4 MHz ultrasonic mode.  Phase 4 samples the DATA pins in the
+             * first (rising-edge) half period, phase 12 in the second
+             * (falling-edge) half period.  Netlist mapping: slot 0 = DATA0
+             * rising (U181), slot 1 = DATA0 falling (U180), slot 2 = DATA1
+             * rising (U204), slot 3 = DATA1 falling (U182). */
+            mic_bc_valid <= 1'b0;
+            mic_phase <= (mic_phase == 4'd15) ? 4'd0 : mic_phase + 4'd1;
+            if (mic_phase == 4'd0) begin
+                mic_clock_reg <= 1'b1;
+                mic_lo_n <= mic_lo_n_next;
+                mic_lo_i_r <= mic_lo_i_next;
+                mic_lo_q_r <= mic_lo_q_next;
+                mic_lo_i_d40_r <= mic_lo_i_d40_next;
+                mic_lo_q_d40_r <= mic_lo_q_d40_next;
+            end else if (mic_phase == 4'd8) begin
+                mic_clock_reg <= 1'b0;
+            end
+
+            if (mic_phase == 4'd4) begin
+                `MIC_UPDATE(0, mic_data_0)
+                `MIC_UPDATE(2, mic_data_1)
                 mic_shift_0_l <= {mic_shift_0_l[14:0], mic_data_0};
                 mic_shift_1_l <= {mic_shift_1_l[14:0], mic_data_1};
-            end else begin
+            end else if (mic_phase == 4'd12) begin
+                `MIC_UPDATE(1, mic_data_0)
+                `MIC_UPDATE(3, mic_data_1)
                 mic_shift_0_r <= {mic_shift_0_r[14:0], mic_data_0};
                 mic_shift_1_r <= {mic_shift_1_r[14:0], mic_data_1};
                 mic_sample_count <= mic_sample_count + 5'd1;
@@ -662,10 +920,144 @@ module umh_fpga_top (
                                    {mic_shift_0_r[14:0], mic_data_0},
                                    mic_shift_1_l,
                                    {mic_shift_1_r[14:0], mic_data_1}};
+                if (mic_bc_fill != 7'd40) mic_bc_fill <= mic_bc_fill + 7'd1;
+            end else if (mic_phase == 4'd13) begin
+                /* All xor counters now include this PDM period, so the
+                 * complex envelope is a pure register-to-register subtract. */
+                mic_win_i[0] <= 8'sd40 - {1'b0, mic_xor_i[0], 1'b0};
+                mic_win_q[0] <= 8'sd40 - {1'b0, mic_xor_q[0], 1'b0};
+                mic_win_i[1] <= 8'sd40 - {1'b0, mic_xor_i[1], 1'b0};
+                mic_win_q[1] <= 8'sd40 - {1'b0, mic_xor_q[1], 1'b0};
+                mic_win_i[2] <= 8'sd40 - {1'b0, mic_xor_i[2], 1'b0};
+                mic_win_q[2] <= 8'sd40 - {1'b0, mic_xor_q[2], 1'b0};
+                mic_win_i[3] <= 8'sd40 - {1'b0, mic_xor_i[3], 1'b0};
+                mic_win_q[3] <= 8'sd40 - {1'b0, mic_xor_q[3], 1'b0};
+                mic_bc_valid <= (mic_bc_fill >= 7'd40);
             end
-        end else begin
-            mic_divider <= mic_divider + 6'd1;
         end
+
+        /* ------------------------------------------------------------------
+         * MIC_CONFIG adoption and gate sequence.
+         *
+         * MIC_CONFIG moves the sequencer to state 1.  The next pattern swap
+         * moves it to state 2 and starts gate 0 at mic_cfg_start.  After the
+         * last gate the sequencer returns to state 1 so the next submitted
+         * pattern is measured without another configuration transaction.
+         * ------------------------------------------------------------------ */
+        mic_cfg_toggle_meta <= mic_cfg_toggle_spi;
+        mic_cfg_toggle_sync <= mic_cfg_toggle_meta;
+        mic_cfg_meta        <= mic_cfg_hold_spi;
+        mic_cfg_sync        <= mic_cfg_meta;
+
+        if (mic_cfg_toggle_sync != mic_cfg_toggle_seen) begin
+            mic_cfg_toggle_seen <= mic_cfg_toggle_sync;
+            mic_cfg_settle      <= 4'd4;
+        end else if (mic_cfg_settle != 4'd0) begin
+            if (mic_cfg_settle == 4'd1) begin
+                mic_cfg_settle  <= 4'd0;
+                mic_cfg_count   <= mic_cfg_count_w;
+                mic_cfg_width   <= mic_cfg_width_w;
+                mic_cfg_start   <= mic_cfg_sync[23:8];
+                mic_cfg_step    <= (mic_cfg_sync[39:24] < {9'd0, mic_cfg_width_w})
+                                   ? {9'd0, mic_cfg_width_w} : mic_cfg_sync[39:24];
+                mic_cfg_gap     <= (mic_cfg_sync[39:24] > {9'd0, mic_cfg_width_w})
+                                   ? (mic_cfg_sync[39:24] - {9'd0, mic_cfg_width_w}) : 16'd0;
+                mic_run_state   <= 2'd1;
+                mic_done        <= 1'b0;
+                mic_saturated   <= 1'b0;
+                mic_block_count <= 16'd0;
+                mic_gate_index  <= 7'd0;
+                mic_gate_fill   <= 7'd0;
+                mic_gate_wait   <= 16'd0;
+                mic_gate_active <= 1'b0;
+                mic_acc_busy    <= 1'b0;
+                mic_acc_state   <= 3'd0;
+                mic_acc_last    <= 1'b0;
+                mic_ram_we      <= 1'b0;
+            end else begin
+                mic_cfg_settle <= mic_cfg_settle - 4'd1;
+            end
+        end
+
+        if (mic_run_state == 2'd1 && swap_now_s3) begin
+            mic_run_state   <= 2'd2;
+            mic_gate_index  <= 7'd0;
+            mic_gate_fill   <= 7'd0;
+            mic_gate_active <= 1'b0;
+            mic_acc_busy    <= 1'b0;
+            mic_acc_state   <= 3'd0;
+            mic_gate_wait   <= mic_cfg_start;
+            mic_done        <= 1'b0;
+            mic_saturated   <= 1'b0;
+        end
+
+        /* Every 100 kHz sample either decrements the inter-gate wait, starts
+         * a gate (its EBR words are cleared first) or launches one read /
+         * add / write-back pass over the eight words of the active gate. */
+        if (mic_bc_valid && mic_run_state == 2'd2 && !mic_acc_busy) begin
+            if (!mic_gate_active) begin
+                if (mic_gate_wait != 16'd0) begin
+                    mic_gate_wait <= mic_gate_wait - 16'd1;
+                end else begin
+                    mic_gate_active <= 1'b1;
+                    mic_gate_fill   <= 7'd0;
+                    mic_acc_gate    <= mic_gate_index;
+                    mic_acc_word    <= 3'd0;
+                    mic_acc_state   <= 3'd1;
+                    mic_acc_busy    <= 1'b1;
+                    mic_acc_last    <= (mic_cfg_width <= 7'd1);
+                end
+            end else begin
+                mic_acc_gate  <= mic_gate_index;
+                mic_acc_word  <= 3'd0;
+                mic_acc_state <= 3'd2;
+                mic_acc_busy  <= 1'b1;
+                mic_acc_last  <= (mic_gate_fill + 7'd1 >= mic_cfg_width);
+            end
+        end
+
+        case (mic_acc_state)
+            3'd1: begin  /* clear the eight words of a fresh gate */
+                mic_ram_we      <= 1'b1;
+                mic_ram_wr_addr <= {mic_acc_gate[5:0], mic_acc_word};
+                mic_ram_wr_data <= 16'd0;
+                if (mic_acc_word == 3'd7) begin
+                    mic_acc_word  <= 3'd0;
+                    mic_acc_state <= 3'd2;
+                end else begin
+                    mic_acc_word <= mic_acc_word + 3'd1;
+                end
+            end
+            3'd2: begin  /* present the read address; data latches at this edge */
+                mic_ram_we    <= 1'b0;
+                mic_acc_state <= 3'd3;
+            end
+            3'd3: begin  /* registered EBR data is valid: add and write back */
+                mic_ram_we      <= 1'b1;
+                mic_ram_wr_addr <= {mic_acc_gate[5:0], mic_acc_word};
+                mic_ram_wr_data <= mic_ram_rd_data + mic_acc_addend;
+                if (mic_acc_word == 3'd7) begin
+                    if (mic_acc_last) begin
+                        mic_acc_state <= 3'd4;
+                    end else begin
+                        mic_acc_state <= 3'd0;
+                        mic_acc_busy  <= 1'b0;
+                        mic_gate_fill <= mic_gate_fill + 7'd1;
+                    end
+                end else begin
+                    mic_acc_word  <= mic_acc_word + 3'd1;
+                    mic_acc_state <= 3'd2;
+                end
+            end
+            3'd4: begin  /* gate complete: advance the sequence */
+                mic_ram_we    <= 1'b0;
+                mic_acc_busy  <= 1'b0;
+                mic_acc_last  <= 1'b0;
+                mic_acc_state <= 3'd0;
+                `MIC_FINISH_GATE
+            end
+            default: mic_ram_we <= 1'b0;
+        endcase
     end
 
     /* Unconditional registered output.  The next-state cloud contains the
@@ -714,7 +1106,7 @@ module umh_fpga_top (
         spi_rgb_index = 4'd0;
         frame_toggle_spi = 1'b0; stop_toggle_spi = 1'b0; invalid_frame_spi = 1'b0;
         ws2812_toggle_spi = 1'b0;
-        rgb_values = 96'd0; status_bit_index = 7'd0;
+        rgb_values = 96'd0; status_bit_index = 9'd0;
         frame_toggle_meta = 1'b0; frame_toggle_sync = 1'b0; frame_toggle_seen = 1'b0;
         stop_toggle_meta = 1'b0; stop_toggle_sync = 1'b0; stop_toggle_seen = 1'b0;
         ws2812_toggle_meta = 1'b0; ws2812_toggle_sync = 1'b0; ws2812_toggle_seen = 1'b0;
@@ -735,10 +1127,40 @@ module umh_fpga_top (
         build_phase = 8'd0; build_sum = 9'd0; build_zero = 1'b0;
         frame_req = 1'b0; swap_pending = 1'b0; running = 1'b0; active_bank = 1'b0;
         us_tx = 84'd0;
-        mic_divider = 6'd0; mic_clock_reg = 1'b0;
+        mic_clock_reg = 1'b0;
         mic_shift_0_l = 16'd0; mic_shift_0_r = 16'd0;
         mic_shift_1_l = 16'd0; mic_shift_1_r = 16'd0;
-        mic_tick = 1'b0; mic_sample_count = 5'd0; mic_latest = 64'd0;
+        mic_sample_count = 5'd0; mic_latest = 64'd0;
+        mic_boot_count = 32'd0; mic_warm = 1'b0; mic_ultrasonic = 1'b0;
+        mic_warm_half = 8'd0; mic_warm_edges = 14'd0; mic_phase = 4'd0;
+        /* Microphone demodulator and gate accumulator.  LSE has no reset, so
+         * every state element is spelled out here: an uninitialised gate
+         * configuration would otherwise leak into the first MIC_READ. */
+        mic_lo_n = 7'd0; mic_bc_fill = 7'd0; mic_bc_valid = 1'b0;
+        mic_lo_i_r = 1'b1; mic_lo_q_r = 1'b1;
+        mic_lo_i_d40_r = 1'b0; mic_lo_q_d40_r = 1'b0;
+        mic_pdm_hist[0] = 40'd0; mic_pdm_hist[1] = 40'd0;
+        mic_pdm_hist[2] = 40'd0; mic_pdm_hist[3] = 40'd0;
+        mic_xor_i[0] = 7'd0; mic_xor_i[1] = 7'd0;
+        mic_xor_i[2] = 7'd0; mic_xor_i[3] = 7'd0;
+        mic_xor_q[0] = 7'd0; mic_xor_q[1] = 7'd0;
+        mic_xor_q[2] = 7'd0; mic_xor_q[3] = 7'd0;
+        mic_win_i[0] = 8'sd0; mic_win_i[1] = 8'sd0;
+        mic_win_i[2] = 8'sd0; mic_win_i[3] = 8'sd0;
+        mic_win_q[0] = 8'sd0; mic_win_q[1] = 8'sd0;
+        mic_win_q[2] = 8'sd0; mic_win_q[3] = 8'sd0;
+        mic_cfg_count = 7'd64; mic_cfg_start = 16'd0;
+        mic_cfg_step = 16'd30; mic_cfg_width = 7'd20; mic_cfg_gap = 16'd10;
+        mic_run_state = 2'd0; mic_done = 1'b0; mic_saturated = 1'b0;
+        mic_block_count = 16'd0; mic_gate_index = 7'd0; mic_gate_fill = 7'd0;
+        mic_gate_wait = 16'd0; mic_gate_active = 1'b0;
+        mic_acc_busy = 1'b0; mic_acc_state = 3'd0; mic_acc_word = 3'd0;
+        mic_acc_gate = 7'd0; mic_acc_last = 1'b0;
+        mic_ram_we = 1'b0; mic_ram_wr_addr = 9'd0; mic_ram_wr_data = 16'd0;
+        mic_cfg_hold_spi = 48'd0; mic_cfg_meta = 48'd0; mic_cfg_sync = 48'd0;
+        mic_cfg_toggle_spi = 1'b0; mic_cfg_toggle_meta = 1'b0;
+        mic_cfg_toggle_sync = 1'b0; mic_cfg_toggle_seen = 1'b0;
+        mic_cfg_settle = 4'd0;
         /* Keep the protocol stream alive from power-up.  New RGB data is
          * sampled at the next WS2812 reset gap, so updates do not depend on a
          * fragile 0->1 enable transition or an STM32 reset. */

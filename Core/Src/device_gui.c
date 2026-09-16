@@ -31,7 +31,7 @@ static uint8_t page_item_count(const device_gui_t *gui)
     case DEVICE_GUI_HOME: return 6u;
     case DEVICE_GUI_PLAYBACK: return 6u;
     case DEVICE_GUI_DEVICE: return 7u;
-    case DEVICE_GUI_CALIBRATION: return 6u;
+    case DEVICE_GUI_CALIBRATION: return 7u;
     case DEVICE_GUI_STORAGE: return 6u;
     case DEVICE_GUI_DIAGNOSTICS: return 32u;
     case DEVICE_GUI_SYSTEM: return (uint8_t)(4u + uxTaskGetNumberOfTasks());
@@ -138,7 +138,7 @@ static const char *fault_name(uint16_t code)
     "FPGA UNDERRUN", "FPGA OVERFLOW", "FPGA FRAME", "FPGA OUTPUT",
     "PROTOCOL NACK", "PROTOCOL PARSE", "BLOCK PARSE", "PLAN START",
     "FRAME RING", "FLASH IO", "EEPROM IO", "USB RX DROP", "USB TX DROP",
-    "HAL INIT"
+    "HAL INIT", "CAL MIC", "CAL SOLVE", "CAL QUAL"
   };
   return code < UMH_FAULT_COUNT ? names[code] : "UNKNOWN";
 }
@@ -193,25 +193,53 @@ static void render_device(device_gui_t *gui)
   line(gui, 6u, "GEOMETRY", (p->capability_flags & UMH_PROFILE_CAP_GEOMETRY_VALID) != 0u ? "OK" : "--");
 }
 
+static const char *cal_state_name(uint8_t state)
+{
+  static const char *const names[DEVICE_GUI_CAL_STATE_COUNT] = {
+    "IDLE", "WAIT", "MEAS", "SOLVE", "VERIFY", "OK", "FAIL"
+  };
+  return state < DEVICE_GUI_CAL_STATE_COUNT ? names[state] : "?";
+}
+
 static void render_calibration(device_gui_t *gui)
 {
   char value[16];
   uint16_t enabled = 0u;
   uint16_t i;
   const eeprom_profile_record_t *record = gui->eeprom != NULL ? &gui->eeprom->record : NULL;
+  const umh_system_status_t *s = gui->status;
   if (record != NULL) {
     for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i)
       if ((record->enabled[i / 8u] & (uint8_t)(1u << (i % 8u))) != 0u) ++enabled;
   }
-  line(gui, 0u, "STATE", gui->eeprom != NULL && gui->eeprom->present != 0u ?
-       (gui->eeprom->valid != 0u ? "VALID" : "DEFAULT") : "OFFLINE");
-  number(value, sizeof(value), record != NULL ? record->version : 0u); line(gui, 1u, "VERSION", value);
-  number(value, sizeof(value), record != NULL ? record->generation : 0u); line(gui, 2u, "GEN", value);
-  number(value, sizeof(value), enabled); line(gui, 3u, "ENABLED", value);
-  number(value, sizeof(value), gui->profile != NULL ? gui->profile->phase_bits : 0u); line(gui, 4u, "PHASE", value);
-  number(value, sizeof(value), gui->profile != NULL ? gui->profile->intensity_bits : 0u); line(gui, 5u, "LEVEL", value);
+  if (gui->calibration_busy != 0u) {
+    line(gui, 0u, "STATE", cal_state_name(gui->calibration_state));
+    number(value, sizeof(value), record != NULL ? record->version : 0u); line(gui, 1u, "VERSION", value);
+    number(value, sizeof(value), record != NULL ? record->generation : 0u); line(gui, 2u, "GEN", value);
+    (void)snprintf(value, sizeof(value), "%u%%", (unsigned)gui->calibration_progress);
+    line(gui, 3u, "PROG", value);
+    number(value, sizeof(value), s != NULL ? s->cal_rms_deg_x10 : 0u); line(gui, 4u, "RMS X10", value);
+    if (s != NULL) {
+      int16_t t = s->cal_tilt_x_x10;
+      (void)snprintf(value, sizeof(value), "%d.%d", (int)(t / 10), (int)((t < 0 ? -t : t) % 10));
+    } else (void)snprintf(value, sizeof(value), "-");
+    line(gui, 5u, "TILT", value);
+    line(gui, 6u, "RUN", gui->calibration_state == DEVICE_GUI_CAL_FAIL ? "RETRY" : "BUSY");
+  } else {
+    line(gui, 0u, "STATE", gui->eeprom != NULL && gui->eeprom->present != 0u ?
+         (gui->eeprom->valid != 0u ? "VALID" : "DEFAULT") : "OFFLINE");
+    number(value, sizeof(value), record != NULL ? record->version : 0u); line(gui, 1u, "VERSION", value);
+    number(value, sizeof(value), record != NULL ? record->generation : 0u); line(gui, 2u, "GEN", value);
+    number(value, sizeof(value), enabled); line(gui, 3u, "ENABLED", value);
+    number(value, sizeof(value), s != NULL ? s->cal_rms_deg_x10 : 0u); line(gui, 4u, "RMS X10", value);
+    if (s != NULL && s->cal_state == DEVICE_GUI_CAL_OK) {
+      int16_t t = s->cal_tilt_x_x10;
+      (void)snprintf(value, sizeof(value), "%d.%d", (int)(t / 10), (int)((t < 0 ? -t : t) % 10));
+    } else (void)snprintf(value, sizeof(value), "-");
+    line(gui, 5u, "TILT", value);
+    line(gui, 6u, "RUN", "PRESS OK");
+  }
 }
-
 static void render_storage(device_gui_t *gui)
 {
   char value[16];
@@ -325,6 +353,7 @@ void device_gui_init(device_gui_t *gui, oled_ssd1315_t *oled,
                      const fpga_link_t *fpga,
                      const flash_store_t *flash,
                      const eeprom_profile_t *eeprom,
+                     device_gui_action_t calibration,
                      device_gui_action_t demo,
                      device_gui_action_t ws2812_set,
                      uint8_t demo_count,
@@ -334,7 +363,8 @@ void device_gui_init(device_gui_t *gui, oled_ssd1315_t *oled,
   memset(gui, 0, sizeof(*gui));
   gui->oled = oled; gui->profile = profile; gui->status = status; gui->plan = plan;
   gui->fpga = fpga; gui->flash = flash; gui->eeprom = eeprom;
-  gui->demo = demo; gui->ws2812_set = ws2812_set; gui->demo_count = demo_count;
+  gui->demo = demo; gui->ws2812_set = ws2812_set; gui->calibration = calibration;
+  gui->demo_count = demo_count;
   gui->action_context = action_context; gui->page = DEVICE_GUI_HOME;
   gui->cursor_y = GUI_BODY_Y + 1u;
   gui->ws2812_mode = 0u;
@@ -364,6 +394,8 @@ void device_gui_handle_event(device_gui_t *gui, const input_event_t *event)
 {
   uint8_t count;
   if (gui == NULL || event == NULL || event->type != INPUT_EVENT_PRESS) return;
+  /* A calibration run owns the device: ignore all key presses until it ends. */
+  if (gui->calibration_busy != 0u) return;
 
   if (event->key == INPUT_KEY0) {
     if (gui->content_focused != 0u) {
@@ -403,6 +435,13 @@ void device_gui_handle_event(device_gui_t *gui, const input_event_t *event)
   }
   if (event->key != INPUT_KEY1) return;
 
+  if (gui->page == DEVICE_GUI_CALIBRATION && gui->row == 6u) {
+    int result = gui->calibration != NULL ? gui->calibration(gui->action_context) : -1;
+    gui->action_message = result == 0 ? 1u : 2u;
+    gui->message_until = HAL_GetTick() + 3000u;
+    return;
+  }
+
   if (gui->page == DEVICE_GUI_WS2812_TEST && gui->row < 4u) {
     int result = -1;
     if (gui->row == 0u) {
@@ -430,6 +469,32 @@ void device_gui_handle_event(device_gui_t *gui, const input_event_t *event)
   }
 }
 
+
+uint8_t device_gui_calibration_busy(const device_gui_t *gui)
+{
+  return gui != NULL ? gui->calibration_busy : 0u;
+}
+
+void device_gui_calibration_begin(device_gui_t *gui)
+{
+  if (gui == NULL) return;
+  gui->calibration_busy = 1u;
+  gui->calibration_state = DEVICE_GUI_CAL_WAIT;
+  gui->calibration_progress = 0u;
+  gui->action_message = 0u;
+}
+
+void device_gui_calibration_state(device_gui_t *gui, uint8_t state, uint8_t progress)
+{
+  if (gui == NULL) return;
+  gui->calibration_state = state;
+  gui->calibration_progress = progress;
+  if (state == DEVICE_GUI_CAL_OK || state == DEVICE_GUI_CAL_FAIL) {
+    gui->calibration_busy = 0u;
+    gui->action_message = state == DEVICE_GUI_CAL_OK ? 1u : 2u;
+    gui->message_until = HAL_GetTick() + 3000u;
+  }
+}
 void device_gui_render(device_gui_t *gui, uint32_t now_ms)
 {
   uint8_t progress;

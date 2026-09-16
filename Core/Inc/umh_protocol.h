@@ -36,7 +36,9 @@ typedef enum {
   UMH_MSG_ERROR_COUNTERS     = 0x60,
   UMH_MSG_SET_DEMO           = 0x61,
   UMH_MSG_ACK                 = 0x70,
-  UMH_MSG_NACK                = 0x71
+  UMH_MSG_NACK                = 0x71,
+  UMH_MSG_CAL_DUMP            = 0x80,
+  UMH_MSG_CAL_RESULT          = 0x81
 } umh_message_type_t;
 
 typedef enum {

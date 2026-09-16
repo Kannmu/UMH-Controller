@@ -20,11 +20,13 @@
 #include "input_events.h"
 #include "system_status.h"
 #include "device_gui.h"
+#include "us_calibration.h"
 #include "demo_engine.h"
 #include "spi.h"
 #include "i2c.h"
 #include "i2c_bus.h"
 #include <string.h>
+#include <math.h>
 
 osThreadId_t umh_protocol_task_handle;
 umh_rx_ring_t umh_usb_rx_ring;
@@ -40,6 +42,8 @@ static eeprom_profile_t eeprom_profile;
 static oled_ssd1315_t oled;
 static umh_protocol_parser_t protocol_parser;
 static device_gui_t device_gui;
+static umh_calibration_result_t calibration_result;
+static osThreadId_t calibration_task_handle;
 
 typedef struct {
   umh_protocol_frame_t frame;
@@ -54,6 +58,32 @@ static uint8_t storage_data[UMH_PROTOCOL_MAX_PAYLOAD];
 static flash_store_record_t storage_records[FLASH_STORE_MAX_OBJECTS];
 static eeprom_profile_record_t eeprom_pending;
 static uint8_t eeprom_pending_valid;
+typedef struct __attribute__((packed)) {
+  uint8_t phase[UMH_DEVICE_CHANNEL_COUNT];
+  uint8_t progress;
+  uint8_t good_mics;
+  uint8_t fault;
+  uint8_t quality_flags;
+  uint8_t reserved;
+  uint8_t used_gate_count;
+  uint8_t used_gate_width;
+  uint16_t used_gate_start;
+  uint16_t block_count;
+  float rms_before_deg;
+  float rms_after_deg;
+  float mic_consistency_deg;
+  float residual;
+  float distance_m;
+  float tilt_x_deg;
+  float tilt_y_deg;
+  float echo_ratio;
+  float mic_ratio;
+  float verify_gain_db;
+} umh_cal_result_wire_t;
+
+_Static_assert(sizeof(umh_cal_result_wire_t) == 135u, "cal result wire size");
+
+static uint8_t calibration_dump_buffer[512];
 static uint8_t block_stream_active;
 static uint32_t block_stream_expected_sequence;
 static volatile uint8_t demo_building;
@@ -108,6 +138,13 @@ static const osThreadAttr_t ui_task_attributes = {
   .stack_mem = ui_task_stack, .stack_size = sizeof(ui_task_stack),
   .priority = osPriorityBelowNormal
 };
+static StaticTask_t calibration_task_cb;
+static StackType_t calibration_task_stack[768];
+static const osThreadAttr_t calibration_task_attributes = {
+  .name = "cal", .cb_mem = &calibration_task_cb, .cb_size = sizeof(calibration_task_cb),
+  .stack_mem = calibration_task_stack, .stack_size = sizeof(calibration_task_stack),
+  .priority = osPriorityNormal
+};
 static const osThreadAttr_t health_task_attributes = {
   .name = "health", .cb_mem = &health_task_cb, .cb_size = sizeof(health_task_cb),
   .stack_mem = health_task_stack, .stack_size = sizeof(health_task_stack),
@@ -122,6 +159,126 @@ static uint32_t read_u32(const uint8_t *p)
 {
   return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
          ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
+static void apply_calibration_from_eeprom(void)
+{
+  umh_channel_calibration_t calibration[UMH_DEVICE_CHANNEL_COUNT];
+  const eeprom_profile_record_t *record = eeprom_profile_current(&eeprom_profile);
+  uint16_t i;
+  uint16_t enabled_count = 0u;
+  if (record == NULL) return;
+  for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
+    calibration[i].phase = (uint8_t)(record->phase[i] >> 8);
+    calibration[i].gain = record->gain[i];
+    calibration[i].enabled = (uint8_t)((record->enabled[i / 8u] >> (i % 8u)) & 1u);
+    if (calibration[i].enabled != 0u) ++enabled_count;
+  }
+  if (enabled_count == 0u) {
+    for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) calibration[i].enabled = 1u;
+  }
+  spatial_renderer_set_calibration(&renderer, calibration, UMH_DEVICE_CHANNEL_COUNT);
+  spatial_renderer_set_rgb_calibration(&renderer, record->rgb_gain);
+  device_profile_set_calibration_generation(&device_profile, record->version,
+                                            record->generation);
+  if (record->cal_meta_valid != 0u) {
+    umh_system_status_t *s = system_status_get();
+    s->cal_rms_deg_x10 = record->cal_rms_deg_x10;
+    s->cal_tilt_x_x10 = record->cal_tilt_x_x10;
+    s->cal_tilt_y_x10 = record->cal_tilt_y_x10;
+    s->cal_state = DEVICE_GUI_CAL_OK;
+    s->cal_last_ms = HAL_GetTick();
+  }
+  system_status_set(UMH_SYSTEM_CALIBRATION_VALID);
+}
+
+static int gui_calibration(void *context)
+{
+  (void)context;
+  if (calibration_task_handle == NULL) return -1;
+  device_gui_calibration_begin(&device_gui);
+  (void)xTaskNotifyGive((TaskHandle_t)calibration_task_handle);
+  return 0;
+}
+
+static void calibration_progress(uint8_t state, uint8_t progress, void *context)
+{
+  (void)context;
+  device_gui_calibration_state(&device_gui, state, progress);
+  system_status_get()->cal_state = state;
+  system_status_get()->cal_last_ms = HAL_GetTick();
+}
+
+static void calibration_fail(umh_fault_code_t code, uint32_t argument)
+{
+  calibration_progress(DEVICE_GUI_CAL_FAIL, 100u, NULL);
+  system_status_fault(code, argument, UMH_FAULT_WARNING);
+}
+
+static void calibration_session(void)
+{
+  int rc;
+  uint16_t i;
+  const umh_device_profile_t *profile = device_profile_get();
+  device_gui_calibration_begin(&device_gui);
+  playback_plan_stop(&playback_plan);
+  (void)fpga_link_safe_stop(&fpga_link);
+  block_parser_cancel(&block_parser);
+  frame_ring_init(&frame_ring);
+  block_stream_active = 0u;
+  demo_building = 1u;
+  calibration_progress(DEVICE_GUI_CAL_WAIT, 0u, NULL);
+  osDelay(1000u);
+  rc = us_calibration_run(&fpga_link, profile, calibration_progress, NULL,
+                          &calibration_result);
+  if (rc == 0) {
+    eeprom_profile_record_t record = eeprom_profile.record;
+    record.version = EEPROM_PROFILE_VERSION;
+    for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
+      record.phase[i] = (uint16_t)((uint16_t)calibration_result.phase_byte[i] << 8);
+      record.enabled[i / 8u] |= (uint8_t)(1u << (i % 8u));
+    }
+    if (UMH_DEVICE_CHANNEL_COUNT % 8u != 0u) {
+      uint8_t mask = (uint8_t)((1u << (UMH_DEVICE_CHANNEL_COUNT % 8u)) - 1u);
+      record.enabled[UMH_DEVICE_CHANNEL_BITMAP_BYTES - 1u] &= mask;
+    }
+    record.cal_meta_valid = 1u;
+    {
+      float rms10 = calibration_result.rms_before_deg * 10.0f + 0.5f;
+      if (rms10 > 255.0f) rms10 = 255.0f;
+      record.cal_rms_deg_x10 = (uint8_t)rms10;
+    }
+    record.cal_tilt_x_x10 = (int16_t)lroundf(calibration_result.tilt_x_deg * 10.0f);
+    record.cal_tilt_y_x10 = (int16_t)lroundf(calibration_result.tilt_y_deg * 10.0f);
+    record.cal_carrier_hz10 = (uint16_t)(device_profile.carrier_hz / 10u);
+    record.cal_level = 128u;
+    record.cal_time_ms = (uint32_t)(system_time_us() / 1000u);
+    if (eeprom_profile_commit(&eeprom_profile, &record) != 0) {
+      calibration_fail(UMH_FAULT_EEPROM_IO, 3u);
+    } else {
+      apply_calibration_from_eeprom();
+      system_status_get()->cal_rms_deg_x10 = record.cal_rms_deg_x10;
+      system_status_get()->cal_tilt_x_x10 = record.cal_tilt_x_x10;
+      system_status_get()->cal_tilt_y_x10 = record.cal_tilt_y_x10;
+      system_status_get()->cal_good_mics = calibration_result.good_mics;
+      system_status_get()->cal_last_ms = HAL_GetTick();
+    }
+  } else {
+    umh_fault_code_t code = (umh_fault_code_t)calibration_result.fault;
+    if (code == UMH_FAULT_NONE) code = UMH_FAULT_CAL_SOLVER;
+    calibration_fail(code, (uint32_t)rc);
+  }
+  (void)fpga_link_safe_stop(&fpga_link);
+  demo_building = 0u;
+}
+
+static void calibration_task(void *argument)
+{
+  (void)argument;
+  for (;;) {
+    (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    calibration_session();
+  }
 }
 
 static int gui_demo(void *context)
@@ -416,6 +573,45 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
           eeprom_profile_commit(&eeprom_profile, &eeprom_pending) != 0) status = UMH_STATUS_IO;
       else eeprom_pending_valid = 0u;
       break;
+    case UMH_MSG_CAL_RESULT:
+      if (frame->payload_size != 0u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
+      {
+        umh_cal_result_wire_t wire;
+        memset(&wire, 0, sizeof(wire));
+        memcpy(wire.phase, calibration_result.phase_byte, UMH_DEVICE_CHANNEL_COUNT);
+        wire.progress = calibration_result.progress;
+        wire.good_mics = calibration_result.good_mics;
+        wire.fault = calibration_result.fault;
+        wire.quality_flags = calibration_result.quality_flags;
+        wire.used_gate_count = calibration_result.used_gate_count;
+        wire.used_gate_width = calibration_result.used_gate_width;
+        wire.used_gate_start = calibration_result.used_gate_start;
+        wire.block_count = calibration_result.final_block_count;
+        wire.rms_before_deg = calibration_result.rms_before_deg;
+        wire.rms_after_deg = calibration_result.rms_after_deg;
+        wire.mic_consistency_deg = calibration_result.mic_consistency_deg;
+        wire.residual = calibration_result.residual;
+        wire.distance_m = calibration_result.distance_m;
+        wire.tilt_x_deg = calibration_result.tilt_x_deg;
+        wire.tilt_y_deg = calibration_result.tilt_y_deg;
+        wire.echo_ratio = calibration_result.echo_ratio;
+        wire.mic_ratio = calibration_result.mic_ratio;
+        wire.verify_gain_db = calibration_result.verify_gain_db;
+        send_response(frame, UMH_MSG_CAL_RESULT, &wire, (uint16_t)sizeof(wire));
+        return;
+      }
+    case UMH_MSG_CAL_DUMP:
+      if (frame->payload_size != 6u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
+      {
+        uint32_t offset = read_u32(&frame->payload[0]);
+        uint16_t length = (uint16_t)((uint16_t)frame->payload[4] | ((uint16_t)frame->payload[5] << 8));
+        int copied;
+        if (length > sizeof(calibration_dump_buffer)) length = sizeof(calibration_dump_buffer);
+        copied = us_calibration_raw_read(offset, calibration_dump_buffer, length);
+        if (copied < 0) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
+        send_response(frame, UMH_MSG_CAL_DUMP, calibration_dump_buffer, (uint16_t)copied);
+        return;
+      }
     case UMH_MSG_ERROR_COUNTERS:
       if (frame->payload_size != 0u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
       {
@@ -653,38 +849,24 @@ static void application_init(void)
       system_status_fault(UMH_FAULT_FLASH_IO, 1u, UMH_FAULT_WARNING);
   }
   eeprom_profile_init(&eeprom_profile, &hi2c1);
-  if (eeprom_profile_load(&eeprom_profile) == 0) {
-    umh_channel_calibration_t calibration[UMH_DEVICE_CHANNEL_COUNT];
-    uint16_t i;
-    uint16_t enabled_count = 0u;
-    const eeprom_profile_record_t *record = eeprom_profile_current(&eeprom_profile);
-    for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
-      /* EEPROM v7 keeps the historical 16-bit phase word.  The renderer and
-       * FPGA link use the upper byte as the new 8-bit phase contract. */
-      calibration[i].phase = (uint8_t)(record->phase[i] >> 8);
-      calibration[i].gain = record->gain[i];
-      calibration[i].enabled = (uint8_t)((record->enabled[i / 8u] >> (i % 8u)) & 1u);
-      if (calibration[i].enabled != 0u) ++enabled_count;
+  {
+    int load_result = eeprom_profile_load(&eeprom_profile);
+    if (load_result == 0) {
+      apply_calibration_from_eeprom();
+    } else if (load_result > 0 && eeprom_profile.present != 0u) {
+      /* Blank but reachable EEPROM: defaults are not an I/O fault. */
+      apply_calibration_from_eeprom();
+      system_status_clear(UMH_SYSTEM_CALIBRATION_VALID);
+    } else {
+      system_status_fault(UMH_FAULT_EEPROM_IO, 1u, UMH_FAULT_WARNING);
     }
-    /* A blank or legacy EEPROM can contain a valid CRC with an all-zero
-     * enable bitmap.  Treat that state as an uncalibrated profile; otherwise
-     * every rendered demo is silently converted to 84 zero-level channels. */
-    if (enabled_count == 0u) {
-      for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) calibration[i].enabled = 1u;
-    }
-    spatial_renderer_set_calibration(&renderer, calibration, UMH_DEVICE_CHANNEL_COUNT);
-    spatial_renderer_set_rgb_calibration(&renderer, record->rgb_gain);
-    device_profile_set_calibration_generation(&device_profile,
-                                              record->version,
-                                              record->generation);
-    system_status_set(UMH_SYSTEM_CALIBRATION_VALID);
-  } else system_status_fault(UMH_FAULT_EEPROM_IO, 1u, UMH_FAULT_WARNING);
+  }
   oled_ssd1315_init(&oled, &hi2c1);
   if (oled.initialized == 0u) system_status_fault(UMH_FAULT_HAL_INIT, 1u, UMH_FAULT_WARNING);
   input_events_init();
   device_gui_init(&device_gui, &oled, &device_profile, system_status_get(),
                   &playback_plan, &fpga_link, &flash_store, &eeprom_profile,
-                  gui_demo, gui_ws2812_set, demo_engine_count(), NULL);
+                  gui_calibration, gui_demo, gui_ws2812_set, demo_engine_count(), NULL);
   {
     const osMessageQueueAttr_t storage_queue_attributes = {
       .name = "storage", .cb_mem = &storage_queue_cb, .cb_size = sizeof(storage_queue_cb),
@@ -698,6 +880,7 @@ static void application_init(void)
   (void)osThreadNew(ui_task, NULL, &ui_task_attributes);
   (void)osThreadNew(input_task, NULL, &input_task_attributes);
   (void)osThreadNew(health_task, NULL, &health_task_attributes);
+  calibration_task_handle = osThreadNew(calibration_task, NULL, &calibration_task_attributes);
 }
 
 void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi)

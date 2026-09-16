@@ -36,6 +36,9 @@ typedef enum {
   UMH_FAULT_USB_RX_DROP,
   UMH_FAULT_USB_TX_DROP,
   UMH_FAULT_HAL_INIT,
+  UMH_FAULT_CAL_MIC_SILENT,
+  UMH_FAULT_CAL_SOLVER,
+  UMH_FAULT_CAL_QUALITY,
   UMH_FAULT_COUNT
 } umh_fault_code_t;
 
@@ -71,6 +74,12 @@ typedef struct {
   volatile uint16_t critical_fault_code;
   volatile uint8_t critical_fault_valid;
   volatile uint8_t reserved2;
+  volatile uint8_t cal_state;
+  volatile uint8_t cal_rms_deg_x10;
+  volatile int16_t cal_tilt_x_x10;
+  volatile int16_t cal_tilt_y_x10;
+  volatile uint16_t cal_good_mics;
+  volatile uint32_t cal_last_ms;
   volatile uint8_t heartbeat;
 } umh_system_status_t;
 
