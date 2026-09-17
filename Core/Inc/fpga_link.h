@@ -19,7 +19,8 @@
 
 /* Microphone calibration commands.  MIC_CONFIG carries six extension bytes:
  *   [0] gate_count (1..64), [1..2] gate0 start, [3..4] start-to-start step,
- *   [5] gate width.  The three time fields are in 100 kHz samples (10 us).
+ *   [5] gate width.  The three time fields are in 40 kHz samples (25 us),
+ *   matching the fixed one-carrier-period microphone I/Q integrator.
  * MIC_READ carries the gate index in the header frame-sequence field and
  * replies with 24 payload bytes after the usual 16 status bytes:
  *   status u16, block_count u16, gate_count u16, reserved u16,

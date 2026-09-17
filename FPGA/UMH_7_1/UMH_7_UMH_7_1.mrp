@@ -14,22 +14,22 @@ Target Vendor:  LATTICE
 Target Device:  LCMXO2-2000HCCSBGA132
 Target Performance:   4
 Mapper:  xo2c00,  version:  Diamond (64-bit) 3.13.0.56.2
-Mapped on:  09/16/26  17:16:52
+Mapped on:  09/16/26  20:40:36
 
 Design Summary
 --------------
 
-   Number of registers:   1882 out of  2427 (78%)
-      PFU registers:         1882 out of  2112 (89%)
+   Number of registers:   1720 out of  2427 (71%)
+      PFU registers:         1720 out of  2112 (81%)
       PIO registers:            0 out of   315 (0%)
-   Number of SLICEs:      1036 out of  1056 (98%)
-      SLICEs as Logic/ROM:   1036 out of  1056 (98%)
+   Number of SLICEs:       960 out of  1056 (91%)
+      SLICEs as Logic/ROM:    960 out of  1056 (91%)
       SLICEs as RAM:            0 out of   792 (0%)
-      SLICEs as Carry:        255 out of  1056 (24%)
-   Number of LUT4s:        1861 out of  2112 (88%)
-      Number used as logic LUTs:        1351
+      SLICEs as Carry:        215 out of  1056 (20%)
+   Number of LUT4s:        1783 out of  2112 (84%)
+      Number used as logic LUTs:        1353
       Number used as distributed RAM:     0
-      Number used as ripple logic:      510
+      Number used as ripple logic:      430
       Number used as shift registers:     0
    Number of PIO sites used: 96 + 4(JTAG) out of 105 (95%)
    Number of block RAMs:  7 out of 8 (88%)
@@ -57,8 +57,8 @@ Design Summary
       2. Number of logic LUT4s does not include count of distributed RAM and
      ripple logic.
    Number of clocks:  4
+     Net pll_clk: 729 loads, 729 rising, 0 falling (Driver: fpga_pll_i )
      Net spi1_sck_c: 142 loads, 137 rising, 5 falling (Driver: PIO spi1_sck )
-     Net pll_clk: 807 loads, 807 rising, 0 falling (Driver: fpga_pll_i )
      Net fpga_clk_8m_c: 1 loads, 1 rising, 0 falling (Driver: PIO fpga_clk_8m )
 
                                     Page 1
@@ -66,183 +66,183 @@ Design Summary
 
 
 
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
 
 Design Summary (cont)
 ---------------------
      Net spi_mic_sck_c: 52 loads, 0 rising, 52 falling (Driver: PIO spi_mic_sck
      )
-   Number of Clock Enables:  104
-     Net spi1_sck_c_enable_57: 16 loads, 16 LSLICEs
-     Net pll_clk_enable_1159: 25 loads, 25 LSLICEs
-     Net spi1_sck_c_enable_196: 4 loads, 4 LSLICEs
-     Net pll_clk_enable_156: 3 loads, 3 LSLICEs
-     Net spi1_sck_c_enable_188: 4 loads, 4 LSLICEs
+   Number of Clock Enables:  103
+     Net pll_clk_enable_919: 5 loads, 5 LSLICEs
+     Net pll_clk_enable_45: 2 loads, 2 LSLICEs
+     Net pll_clk_enable_912: 9 loads, 9 LSLICEs
+     Net spi1_sck_c_enable_197: 4 loads, 4 LSLICEs
+     Net spi1_sck_c_enable_190: 4 loads, 4 LSLICEs
+     Net pll_clk_enable_901: 25 loads, 25 LSLICEs
      Net spi1_sck_c_enable_181: 1 loads, 1 LSLICEs
-     Net spi1_sck_c_enable_180: 4 loads, 4 LSLICEs
-     Net spi1_sck_c_enable_165: 4 loads, 4 LSLICEs
-     Net spi1_sck_c_enable_134: 4 loads, 4 LSLICEs
-     Net spi1_sck_c_enable_127: 4 loads, 4 LSLICEs
-     Net spi1_sck_c_enable_82: 4 loads, 4 LSLICEs
-     Net pll_clk_enable_151: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_78: 12 loads, 12 LSLICEs
-     Net pll_clk_enable_1084: 4 loads, 4 LSLICEs
-     Net pll_clk_enable_149: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_1161: 25 loads, 25 LSLICEs
-     Net spi1_sck_c_enable_212: 9 loads, 9 LSLICEs
-     Net pll_clk_enable_763: 25 loads, 25 LSLICEs
-     Net pll_clk_enable_296: 25 loads, 25 LSLICEs
+     Net spi1_sck_c_enable_179: 4 loads, 4 LSLICEs
+     Net spi1_sck_c_enable_164: 4 loads, 4 LSLICEs
+     Net spi1_sck_c_enable_133: 4 loads, 4 LSLICEs
+     Net spi1_sck_c_enable_126: 4 loads, 4 LSLICEs
+     Net spi1_sck_c_enable_80: 4 loads, 4 LSLICEs
+     Net spi1_sck_c_enable_57: 16 loads, 16 LSLICEs
+     Net pll_clk_enable_103: 1 loads, 1 LSLICEs
+     Net pll_clk_enable_138: 12 loads, 12 LSLICEs
+     Net pll_clk_enable_999: 25 loads, 25 LSLICEs
+     Net pll_clk_enable_167: 8 loads, 8 LSLICEs
+     Net pll_clk_enable_228: 16 loads, 16 LSLICEs
+     Net pll_clk_enable_101: 1 loads, 1 LSLICEs
      Net fpga_cs_n_c: 34 loads, 34 LSLICEs
-     Net pll_clk_enable_364: 16 loads, 16 LSLICEs
+     Net pll_clk_enable_270: 16 loads, 16 LSLICEs
+     Net pll_clk_enable_819: 25 loads, 25 LSLICEs
      Net phase_step_s1: 5 loads, 5 LSLICEs
-     Net pll_clk_enable_104: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_372: 5 loads, 5 LSLICEs
-     Net pll_clk_enable_24: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_26: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_387: 9 loads, 9 LSLICEs
-     Net pll_clk_enable_436: 25 loads, 25 LSLICEs
-     Net pll_clk_enable_501: 16 loads, 16 LSLICEs
-     Net pll_clk_enable_544: 16 loads, 16 LSLICEs
-     Net pll_clk_enable_529: 8 loads, 8 LSLICEs
-     Net pll_clk_enable_572: 15 loads, 15 LSLICEs
-     Net pll_clk_enable_635: 32 loads, 32 LSLICEs
-     Net pll_clk_enable_689: 28 loads, 28 LSLICEs
-     Net pll_clk_enable_704: 8 loads, 8 LSLICEs
-     Net pll_clk_enable_148: 1 loads, 1 LSLICEs
-     Net mic_ram_we_N_3942: 5 loads, 5 LSLICEs
-     Net pll_clk_enable_41: 1 loads, 1 LSLICEs
+     Net pll_clk_enable_60: 1 loads, 1 LSLICEs
+     Net pll_clk_enable_278: 5 loads, 5 LSLICEs
+     Net pll_clk_enable_27: 1 loads, 1 LSLICEs
+     Net pll_clk_enable_29: 1 loads, 1 LSLICEs
+     Net pll_clk_enable_293: 9 loads, 9 LSLICEs
+     Net pll_clk_enable_342: 25 loads, 25 LSLICEs
+     Net pll_clk_enable_407: 16 loads, 16 LSLICEs
+     Net pll_clk_enable_437: 16 loads, 16 LSLICEs
+     Net pll_clk_enable_465: 15 loads, 15 LSLICEs
+     Net pll_clk_enable_514: 25 loads, 25 LSLICEs
+     Net pll_clk_enable_576: 25 loads, 25 LSLICEs
+     Net pll_clk_enable_597: 8 loads, 8 LSLICEs
+     Net pll_clk_enable_100: 1 loads, 1 LSLICEs
+     Net mic_ram_we_N_3595: 5 loads, 5 LSLICEs
+     Net pll_clk_enable_44: 1 loads, 1 LSLICEs
      Net mic_ram_we: 1 loads, 0 LSLICEs
-     Net pll_clk_enable_98: 2 loads, 2 LSLICEs
-     Net pll_clk_enable_1048: 9 loads, 9 LSLICEs
-     Net spi1_sck_c_enable_46: 8 loads, 8 LSLICEs
+     Net spi1_sck_c_enable_212: 9 loads, 9 LSLICEs
+     Net spi1_sck_c_enable_26: 8 loads, 8 LSLICEs
+     Net pll_clk_enable_238: 3 loads, 3 LSLICEs
      Net ev_we: 5 loads, 0 LSLICEs
-     Net pll_clk_enable_907: 3 loads, 3 LSLICEs
-     Net spi1_sck_N_307_enable_9: 5 loads, 5 LSLICEs
-     Net spi1_sck_c_enable_215: 2 loads, 2 LSLICEs
-     Net pll_clk_enable_1002: 25 loads, 25 LSLICEs
-     Net pll_clk_enable_95: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_1045: 9 loads, 9 LSLICEs
-     Net pll_clk_enable_150: 1 loads, 1 LSLICEs
-     Net spi1_sck_c_enable_221: 4 loads, 4 LSLICEs
-     Net spi1_sck_c_enable_67: 4 loads, 4 LSLICEs
-     Net spi1_sck_c_enable_75: 4 loads, 4 LSLICEs
+     Net pll_clk_enable_682: 25 loads, 25 LSLICEs
+     Net pll_clk_enable_721: 3 loads, 3 LSLICEs
+     Net pll_clk_enable_59: 1 loads, 1 LSLICEs
+     Net pll_clk_enable_102: 1 loads, 1 LSLICEs
+     Net pll_clk_enable_69: 1 loads, 1 LSLICEs
+     Net pll_clk_enable_926: 1 loads, 1 LSLICEs
+     Net pll_clk_enable_71: 1 loads, 1 LSLICEs
+     Net pll_clk_enable_997: 5 loads, 5 LSLICEs
+     Net pll_clk_enable_861: 3 loads, 3 LSLICEs
+     Net pll_clk_enable_725: 17 loads, 17 LSLICEs
 
                                     Page 2
 
 
 
 
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
 
 Design Summary (cont)
 ---------------------
-     Net spi1_sck_c_enable_89: 4 loads, 4 LSLICEs
-     Net spi1_sck_c_enable_97: 4 loads, 4 LSLICEs
-     Net spi1_sck_c_enable_105: 4 loads, 4 LSLICEs
-     Net spi1_sck_c_enable_113: 4 loads, 4 LSLICEs
-     Net spi1_sck_c_enable_121: 4 loads, 4 LSLICEs
-     Net spi1_sck_c_enable_142: 4 loads, 4 LSLICEs
-     Net pll_clk_enable_1122: 17 loads, 17 LSLICEs
-     Net pll_clk_enable_119: 1 loads, 1 LSLICEs
-     Net spi1_sck_c_enable_150: 4 loads, 4 LSLICEs
-     Net pll_clk_enable_1059: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_121: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_1079: 5 loads, 5 LSLICEs
-     Net pll_clk_enable_1153: 17 loads, 17 LSLICEs
-     Net spi1_sck_c_enable_158: 4 loads, 4 LSLICEs
-     Net pll_clk_enable_920: 17 loads, 17 LSLICEs
-     Net spi1_sck_c_enable_173: 4 loads, 4 LSLICEs
-     Net pll_clk_enable_152: 1 loads, 1 LSLICEs
-     Net spi1_sck_c_enable_189: 1 loads, 1 LSLICEs
-     Net spi1_sck_c_enable_197: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_180: 3 loads, 3 LSLICEs
-     Net pll_clk_enable_853: 25 loads, 25 LSLICEs
-     Net pll_clk_enable_183: 3 loads, 3 LSLICEs
-     Net pll_clk_enable_184: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_1088: 3 loads, 3 LSLICEs
-     Net mic_stream_i/sck_N_4439_enable_101: 51 loads, 51 LSLICEs
-     Net pll_clk_enable_803: 25 loads, 25 LSLICEs
-     Net pll_clk_enable_241: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_247: 3 loads, 3 LSLICEs
-     Net pll_clk_enable_330: 17 loads, 17 LSLICEs
-     Net pll_clk_enable_706: 2 loads, 2 LSLICEs
-     Net pll_clk_enable_470: 17 loads, 17 LSLICEs
-     Net pll_clk_enable_1046: 4 loads, 4 LSLICEs
-     Net pll_clk_enable_1072: 2 loads, 2 LSLICEs
-     Net pll_clk_enable_893: 25 loads, 25 LSLICEs
-     Net pll_clk_enable_861: 4 loads, 4 LSLICEs
-     Net pll_clk_enable_901: 4 loads, 4 LSLICEs
-     Net spi1_sck_c_enable_226: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_1036: 17 loads, 17 LSLICEs
+     Net spi1_sck_c_enable_65: 4 loads, 4 LSLICEs
+     Net pll_clk_enable_888: 9 loads, 9 LSLICEs
+     Net spi1_sck_c_enable_73: 4 loads, 4 LSLICEs
+     Net spi1_sck_c_enable_220: 2 loads, 2 LSLICEs
+     Net spi1_sck_c_enable_88: 4 loads, 4 LSLICEs
+     Net spi1_sck_c_enable_96: 4 loads, 4 LSLICEs
+     Net spi1_sck_c_enable_104: 4 loads, 4 LSLICEs
+     Net spi1_sck_c_enable_112: 4 loads, 4 LSLICEs
+     Net spi1_sck_c_enable_120: 4 loads, 4 LSLICEs
+     Net pll_clk_enable_959: 17 loads, 17 LSLICEs
+     Net spi1_sck_N_307_enable_9: 5 loads, 5 LSLICEs
+     Net pll_clk_enable_990: 17 loads, 17 LSLICEs
+     Net spi1_sck_c_enable_141: 4 loads, 4 LSLICEs
+     Net spi1_sck_c_enable_149: 4 loads, 4 LSLICEs
+     Net spi1_sck_c_enable_157: 4 loads, 4 LSLICEs
+     Net spi1_sck_c_enable_172: 4 loads, 4 LSLICEs
+     Net spi1_sck_c_enable_226: 4 loads, 4 LSLICEs
+     Net pll_clk_enable_104: 1 loads, 1 LSLICEs
+     Net spi1_sck_c_enable_185: 1 loads, 1 LSLICEs
+     Net spi1_sck_c_enable_186: 1 loads, 1 LSLICEs
+     Net pll_clk_enable_235: 16 loads, 16 LSLICEs
+     Net pll_clk_enable_202: 1 loads, 1 LSLICEs
+     Net pll_clk_enable_208: 3 loads, 3 LSLICEs
+     Net pll_clk_enable_376: 17 loads, 17 LSLICEs
+     Net pll_clk_enable_528: 7 loads, 7 LSLICEs
+     Net pll_clk_enable_582: 3 loads, 3 LSLICEs
+     Net pll_clk_enable_599: 2 loads, 2 LSLICEs
+     Net pll_clk_enable_914: 4 loads, 4 LSLICEs
+     Net pll_clk_enable_631: 3 loads, 3 LSLICEs
+     Net pll_clk_enable_632: 1 loads, 1 LSLICEs
+     Net spi1_sck_c_enable_213: 1 loads, 1 LSLICEs
+     Net spi1_sck_c_enable_214: 1 loads, 1 LSLICEs
+     Net mic_stream_i/sck_N_4092_enable_101: 51 loads, 51 LSLICEs
+     Net pll_clk_enable_716: 17 loads, 17 LSLICEs
+     Net pll_clk_enable_853: 17 loads, 17 LSLICEs
+     Net spi1_sck_c_enable_216: 1 loads, 1 LSLICEs
+     Net spi1_sck_c_enable_218: 1 loads, 1 LSLICEs
+     Net pll_clk_enable_867: 2 loads, 2 LSLICEs
+     Net pll_clk_enable_996: 3 loads, 3 LSLICEs
+     Net pll_clk_enable_910: 4 loads, 4 LSLICEs
+     Net pll_clk_enable_908: 4 loads, 4 LSLICEs
+     Net pll_clk_enable_876: 1 loads, 1 LSLICEs
+     Net pll_clk_enable_907: 2 loads, 2 LSLICEs
      Net spi_write: 1 loads, 0 LSLICEs
-     Net spi1_sck_c_enable_222: 1 loads, 1 LSLICEs
-     Net spi1_sck_c_enable_223: 1 loads, 1 LSLICEs
-     Net spi1_sck_c_enable_225: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_1067: 5 loads, 5 LSLICEs
-     Net pll_clk_enable_1083: 9 loads, 9 LSLICEs
-     Net pll_clk_enable_1074: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_1078: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_1081: 1 loads, 1 LSLICEs
+     Net pll_clk_enable_927: 1 loads, 1 LSLICEs
+     Net pll_clk_enable_991: 1 loads, 1 LSLICEs
      Net ws2812_i/state_0: 8 loads, 8 LSLICEs
-     Net ws2812_i/pll_clk_enable_1085: 9 loads, 9 LSLICEs
-     Net ws2812_i/pll_clk_enable_1042: 13 loads, 13 LSLICEs
-     Net ws2812_i/pll_clk_enable_1082: 1 loads, 1 LSLICEs
-   Number of LSRs:  33
-     Net n42507: 25 loads, 25 LSLICEs
-     Net pll_clk_enable_151: 3 loads, 3 LSLICEs
-     Net pll_clk_enable_149: 117 loads, 117 LSLICEs
-     Net n28760: 9 loads, 9 LSLICEs
+     Net ws2812_i/pll_clk_enable_911: 13 loads, 13 LSLICEs
+     Net ws2812_i/pll_clk_enable_995: 9 loads, 9 LSLICEs
+     Net ws2812_i/pll_clk_enable_917: 1 loads, 1 LSLICEs
+   Number of LSRs:  34
+     Net n29494: 5 loads, 5 LSLICEs
+     Net n25757: 9 loads, 9 LSLICEs
+     Net n37813: 25 loads, 25 LSLICEs
+     Net pll_clk_enable_103: 3 loads, 3 LSLICEs
+     Net n25616: 9 loads, 9 LSLICEs
 
                                     Page 3
 
 
 
 
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
 
 Design Summary (cont)
 ---------------------
-     Net n23941: 2 loads, 2 LSLICEs
-     Net n19489: 4 loads, 4 LSLICEs
-     Net n19483: 42 loads, 42 LSLICEs
+     Net n37095: 9 loads, 9 LSLICEs
+     Net pll_clk_enable_101: 36 loads, 36 LSLICEs
+     Net n21031: 2 loads, 2 LSLICEs
+     Net n17691: 4 loads, 4 LSLICEs
      Net phase_step_s1: 1 loads, 1 LSLICEs
-     Net n40615: 1 loads, 1 LSLICEs
-     Net n26250: 1 loads, 1 LSLICEs
-     Net n41793: 9 loads, 9 LSLICEs
-     Net pll_clk_enable_148: 4 loads, 4 LSLICEs
-     Net mic_done_N_3908: 2 loads, 2 LSLICEs
-     Net n28902: 9 loads, 9 LSLICEs
-     Net pll_clk_enable_150: 2 loads, 2 LSLICEs
-     Net n41977: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_1122: 4 loads, 4 LSLICEs
-     Net n28890: 5 loads, 5 LSLICEs
-     Net n28807: 17 loads, 17 LSLICEs
-     Net n28802: 3 loads, 3 LSLICEs
+     Net n34721: 1 loads, 1 LSLICEs
+     Net n23210: 1 loads, 1 LSLICEs
+     Net pll_clk_enable_100: 4 loads, 4 LSLICEs
+     Net mic_done_N_3561: 2 loads, 2 LSLICEs
+     Net n25657: 3 loads, 3 LSLICEs
+     Net n17693: 42 loads, 42 LSLICEs
+     Net pll_clk_enable_102: 2 loads, 2 LSLICEs
+     Net n37222: 1 loads, 1 LSLICEs
+     Net n25745: 5 loads, 5 LSLICEs
+     Net n25662: 17 loads, 17 LSLICEs
+     Net n25644: 9 loads, 9 LSLICEs
+     Net pll_clk_enable_959: 4 loads, 4 LSLICEs
      Net spi_mic_cs_n_c: 52 loads, 52 LSLICEs
-     Net n30033: 2 loads, 2 LSLICEs
-     Net n28756: 3 loads, 3 LSLICEs
-     Net n28790: 3 loads, 3 LSLICEs
-     Net n39714: 1 loads, 1 LSLICEs
-     Net n33530: 5 loads, 5 LSLICEs
-     Net n28951: 9 loads, 9 LSLICEs
-     Net n42034: 1 loads, 1 LSLICEs
-     Net ws2812_i/n41808: 2 loads, 2 LSLICEs
-     Net ws2812_i/n28926: 7 loads, 7 LSLICEs
-     Net ws2812_i/pll_clk_enable_1042: 5 loads, 5 LSLICEs
-     Net ws2812_i/n40591: 1 loads, 1 LSLICEs
-     Net ws2812_i/n42035: 3 loads, 3 LSLICEs
+     Net n25612: 3 loads, 3 LSLICEs
+     Net n34986: 1 loads, 1 LSLICEs
+     Net n25607: 2 loads, 2 LSLICEs
+     Net n25642: 4 loads, 4 LSLICEs
+     Net n25639: 2 loads, 2 LSLICEs
+     Net n37257: 1 loads, 1 LSLICEs
+     Net ws2812_i/pll_clk_enable_911: 5 loads, 5 LSLICEs
+     Net ws2812_i/n25803: 3 loads, 3 LSLICEs
+     Net ws2812_i/n25788: 7 loads, 7 LSLICEs
+     Net ws2812_i/n25801: 2 loads, 2 LSLICEs
+     Net ws2812_i/n35568: 1 loads, 1 LSLICEs
    Number of nets driven by tri-state buffers:  0
    Top 10 highest fanout non-clock nets:
-     Net pll_clk_enable_149: 120 loads
      Net mic_stream_i/n13: 104 loads
-     Net ev_state_3: 100 loads
-     Net n27594: 84 loads
+     Net n24298: 84 loads
      Net swap_now_s5: 84 loads
-     Net n41941: 72 loads
-     Net status_bit_index_0: 59 loads
-     Net n41956: 56 loads
+     Net mic_phase_2: 71 loads
+     Net mic_phase_3: 69 loads
+     Net n37299: 66 loads
+     Net n37162: 60 loads
+     Net ev_state_3: 59 loads
+     Net status_bit_index_0: 58 loads
      Net spi_mic_cs_n_c: 53 loads
-     Net mic_stream_i/sck_N_4439_enable_101: 51 loads
 
 
 
@@ -264,7 +264,7 @@ WARNING - map: EHXPLLJ 'fpga_pll_i' cannot obtain FREQUENCY_PIN_CLKOP=-1.000
 
 
 
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
 
 IO (PIO) Attributes
 -------------------
@@ -273,47 +273,13 @@ IO (PIO) Attributes
 | IO Name             | Direction | Levelmode | IO         |
 |                     |           |  IO_TYPE  | Register   |
 +---------------------+-----------+-----------+------------+
-| us_tx[70]           | OUTPUT    | LVCMOS33  |            |
-+---------------------+-----------+-----------+------------+
-| us_tx[71]           | OUTPUT    | LVCMOS33  |            |
-+---------------------+-----------+-----------+------------+
-| us_tx[56]           | OUTPUT    | LVCMOS33  |            |
-+---------------------+-----------+-----------+------------+
-| us_tx[57]           | OUTPUT    | LVCMOS33  |            |
-+---------------------+-----------+-----------+------------+
-| us_tx[58]           | OUTPUT    | LVCMOS33  |            |
-+---------------------+-----------+-----------+------------+
-| us_tx[59]           | OUTPUT    | LVCMOS33  |            |
-+---------------------+-----------+-----------+------------+
-| us_tx[60]           | OUTPUT    | LVCMOS33  |            |
-+---------------------+-----------+-----------+------------+
-| us_tx[61]           | OUTPUT    | LVCMOS33  |            |
-+---------------------+-----------+-----------+------------+
 | us_tx[72]           | OUTPUT    | LVCMOS33  |            |
 +---------------------+-----------+-----------+------------+
 | us_tx[73]           | OUTPUT    | LVCMOS33  |            |
 +---------------------+-----------+-----------+------------+
-| us_tx[62]           | OUTPUT    | LVCMOS33  |            |
-+---------------------+-----------+-----------+------------+
-| us_tx[63]           | OUTPUT    | LVCMOS33  |            |
-+---------------------+-----------+-----------+------------+
-| us_tx[64]           | OUTPUT    | LVCMOS33  |            |
-+---------------------+-----------+-----------+------------+
-| us_tx[65]           | OUTPUT    | LVCMOS33  |            |
-+---------------------+-----------+-----------+------------+
-| us_tx[66]           | OUTPUT    | LVCMOS33  |            |
-+---------------------+-----------+-----------+------------+
-| us_tx[67]           | OUTPUT    | LVCMOS33  |            |
-+---------------------+-----------+-----------+------------+
 | us_tx[74]           | OUTPUT    | LVCMOS33  |            |
 +---------------------+-----------+-----------+------------+
 | us_tx[75]           | OUTPUT    | LVCMOS33  |            |
-+---------------------+-----------+-----------+------------+
-| us_tx[68]           | OUTPUT    | LVCMOS33  |            |
-+---------------------+-----------+-----------+------------+
-| us_tx[69]           | OUTPUT    | LVCMOS33  |            |
-+---------------------+-----------+-----------+------------+
-| us_tx[55]           | OUTPUT    | LVCMOS33  |            |
 +---------------------+-----------+-----------+------------+
 | us_tx[76]           | OUTPUT    | LVCMOS33  |            |
 +---------------------+-----------+-----------+------------+
@@ -324,16 +290,6 @@ IO (PIO) Attributes
 | us_tx[79]           | OUTPUT    | LVCMOS33  |            |
 +---------------------+-----------+-----------+------------+
 | us_tx[80]           | OUTPUT    | LVCMOS33  |            |
-
-                                    Page 5
-
-
-
-
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
-
-IO (PIO) Attributes (cont)
---------------------------
 +---------------------+-----------+-----------+------------+
 | us_tx[81]           | OUTPUT    | LVCMOS33  |            |
 +---------------------+-----------+-----------+------------+
@@ -342,6 +298,50 @@ IO (PIO) Attributes (cont)
 | us_tx[83]           | OUTPUT    | LVCMOS33  |            |
 +---------------------+-----------+-----------+------------+
 | spi1_miso           | OUTPUT    | LVCMOS33  |            |
++---------------------+-----------+-----------+------------+
+| us_tx[71]           | OUTPUT    | LVCMOS33  |            |
++---------------------+-----------+-----------+------------+
+| us_tx[70]           | OUTPUT    | LVCMOS33  |            |
++---------------------+-----------+-----------+------------+
+| us_tx[69]           | OUTPUT    | LVCMOS33  |            |
++---------------------+-----------+-----------+------------+
+| us_tx[68]           | OUTPUT    | LVCMOS33  |            |
++---------------------+-----------+-----------+------------+
+| us_tx[67]           | OUTPUT    | LVCMOS33  |            |
++---------------------+-----------+-----------+------------+
+| us_tx[66]           | OUTPUT    | LVCMOS33  |            |
++---------------------+-----------+-----------+------------+
+| us_tx[65]           | OUTPUT    | LVCMOS33  |            |
++---------------------+-----------+-----------+------------+
+| us_tx[64]           | OUTPUT    | LVCMOS33  |            |
++---------------------+-----------+-----------+------------+
+| us_tx[63]           | OUTPUT    | LVCMOS33  |            |
++---------------------+-----------+-----------+------------+
+| us_tx[62]           | OUTPUT    | LVCMOS33  |            |
++---------------------+-----------+-----------+------------+
+| us_tx[61]           | OUTPUT    | LVCMOS33  |            |
++---------------------+-----------+-----------+------------+
+| us_tx[60]           | OUTPUT    | LVCMOS33  |            |
++---------------------+-----------+-----------+------------+
+| us_tx[59]           | OUTPUT    | LVCMOS33  |            |
+
+                                    Page 5
+
+
+
+
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
+
+IO (PIO) Attributes (cont)
+--------------------------
++---------------------+-----------+-----------+------------+
+| us_tx[58]           | OUTPUT    | LVCMOS33  |            |
++---------------------+-----------+-----------+------------+
+| us_tx[57]           | OUTPUT    | LVCMOS33  |            |
++---------------------+-----------+-----------+------------+
+| us_tx[56]           | OUTPUT    | LVCMOS33  |            |
++---------------------+-----------+-----------+------------+
+| us_tx[55]           | OUTPUT    | LVCMOS33  |            |
 +---------------------+-----------+-----------+------------+
 | us_tx[54]           | OUTPUT    | LVCMOS33  |            |
 +---------------------+-----------+-----------+------------+
@@ -396,7 +396,7 @@ IO (PIO) Attributes (cont)
 
 
 
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
 
 IO (PIO) Attributes (cont)
 --------------------------
@@ -462,7 +462,7 @@ IO (PIO) Attributes (cont)
 
 
 
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
 
 IO (PIO) Attributes (cont)
 --------------------------
@@ -499,284 +499,244 @@ IO (PIO) Attributes (cont)
 Removed logic
 -------------
 
-Signal sck_N_4439 was merged into signal spi_mic_sck_c
 Signal spi1_sck_N_307 was merged into signal spi1_sck_c
-Signal n42047 was merged into signal status_bit_index_5
-Signal n42036 was merged into signal status_bit_index_1
-Signal fpga_cs_n_N_3777 was merged into signal fpga_cs_n_c
-Signal n28779 was merged into signal phase_step_s1
+Signal sck_N_4092 was merged into signal spi_mic_sck_c
+Signal n25637 was merged into signal phase_step_s1
+Signal n37308 was merged into signal status_bit_index_5
+Signal fpga_cs_n_N_3442 was merged into signal fpga_cs_n_c
+Signal n37265 was merged into signal status_bit_index_1
 Signal GND_net undriven or does not drive anything - clipped.
-Signal equal_5114_0/S1 undriven or does not drive anything - clipped.
-Signal equal_5114_0/S0 undriven or does not drive anything - clipped.
-Signal equal_5114_0/CI undriven or does not drive anything - clipped.
+Signal equal_4357_0/S1 undriven or does not drive anything - clipped.
+Signal equal_4357_0/S0 undriven or does not drive anything - clipped.
+Signal equal_4357_0/CI undriven or does not drive anything - clipped.
+Signal ws2812_i/add_2285_17/S1 undriven or does not drive anything - clipped.
+Signal ws2812_i/add_2285_17/CO undriven or does not drive anything - clipped.
 Signal ws2812_i/add_15_1/S0 undriven or does not drive anything - clipped.
 Signal ws2812_i/add_15_1/CI undriven or does not drive anything - clipped.
 Signal ws2812_i/add_15_9/S1 undriven or does not drive anything - clipped.
 Signal ws2812_i/add_15_9/CO undriven or does not drive anything - clipped.
-Signal ws2812_i/add_2454_1/S0 undriven or does not drive anything - clipped.
-Signal ws2812_i/add_2454_1/CI undriven or does not drive anything - clipped.
-Signal ws2812_i/add_2454_17/S1 undriven or does not drive anything - clipped.
-Signal ws2812_i/add_2454_17/CO undriven or does not drive anything - clipped.
-Signal add_1539_25/CO undriven or does not drive anything - clipped.
-Signal mic_bc_fill_2933_add_4_1/S0 undriven or does not drive anything -
+Signal ws2812_i/add_2285_1/S0 undriven or does not drive anything - clipped.
+Signal ws2812_i/add_2285_1/CI undriven or does not drive anything - clipped.
+Signal status_bit_index_2740_add_4_1/S0 undriven or does not drive anything -
      clipped.
-Signal mic_bc_fill_2933_add_4_1/CI undriven or does not drive anything -
+Signal status_bit_index_2740_add_4_1/CI undriven or does not drive anything -
      clipped.
+Signal status_bit_index_2740_add_4_9/CO undriven or does not drive anything -
 
                                     Page 8
 
 
 
 
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
 
 Removed logic (cont)
 --------------------
-Signal mic_bc_fill_2933_add_4_7/CO undriven or does not drive anything -
      clipped.
-Signal mic_block_count_2935_add_4_1/S0 undriven or does not drive anything -
+Signal mic_boot_count_2748_add_4_1/S0 undriven or does not drive anything -
      clipped.
-Signal mic_block_count_2935_add_4_1/CI undriven or does not drive anything -
+Signal mic_boot_count_2748_add_4_1/CI undriven or does not drive anything -
      clipped.
-Signal add_532_15/S1 undriven or does not drive anything - clipped.
-Signal add_532_15/CO undriven or does not drive anything - clipped.
-Signal mic_block_count_2935_add_4_17/S1 undriven or does not drive anything -
+Signal add_2283_1/S0 undriven or does not drive anything - clipped.
+Signal add_2283_1/CI undriven or does not drive anything - clipped.
+Signal mic_boot_count_2748_add_4_33/S1 undriven or does not drive anything -
      clipped.
-Signal mic_block_count_2935_add_4_17/CO undriven or does not drive anything -
+Signal mic_boot_count_2748_add_4_33/CO undriven or does not drive anything -
      clipped.
-Signal add_590_1/S1 undriven or does not drive anything - clipped.
-Signal add_590_1/S0 undriven or does not drive anything - clipped.
-Signal add_590_1/CI undriven or does not drive anything - clipped.
-Signal status_bit_index_2921_add_4_1/S0 undriven or does not drive anything -
+Signal spi_channel_index_2741_add_4_1/S0 undriven or does not drive anything -
      clipped.
-Signal status_bit_index_2921_add_4_1/CI undriven or does not drive anything -
+Signal spi_channel_index_2741_add_4_1/CI undriven or does not drive anything -
      clipped.
-Signal status_bit_index_2921_add_4_9/CO undriven or does not drive anything -
+Signal spi_channel_index_2741_add_4_7/CO undriven or does not drive anything -
      clipped.
-Signal sub_891_add_2_1/S0 undriven or does not drive anything - clipped.
-Signal sub_891_add_2_1/CI undriven or does not drive anything - clipped.
-Signal sub_891_add_2_17/CO undriven or does not drive anything - clipped.
-Signal add_590_9/S1 undriven or does not drive anything - clipped.
-Signal add_590_9/CO undriven or does not drive anything - clipped.
-Signal add_2452_1/S0 undriven or does not drive anything - clipped.
-Signal add_2452_1/CI undriven or does not drive anything - clipped.
-Signal add_2452_9/S1 undriven or does not drive anything - clipped.
-Signal add_2452_9/CO undriven or does not drive anything - clipped.
-Signal sub_966_add_2_1/S0 undriven or does not drive anything - clipped.
-Signal sub_966_add_2_1/CI undriven or does not drive anything - clipped.
-Signal add_592_1/S1 undriven or does not drive anything - clipped.
+Signal add_4346_2/S0 undriven or does not drive anything - clipped.
+Signal add_4346_2/CI undriven or does not drive anything - clipped.
+Signal add_4346_16/S1 undriven or does not drive anything - clipped.
+Signal add_4346_16/CO undriven or does not drive anything - clipped.
+Signal add_19258_1/S1 undriven or does not drive anything - clipped.
+Signal add_19258_1/S0 undriven or does not drive anything - clipped.
+Signal add_19258_1/CI undriven or does not drive anything - clipped.
+Signal add_19258_3/S1 undriven or does not drive anything - clipped.
+Signal add_19258_3/S0 undriven or does not drive anything - clipped.
+Signal add_19258_5/S1 undriven or does not drive anything - clipped.
+Signal add_19258_5/S0 undriven or does not drive anything - clipped.
+Signal add_19258_7/S0 undriven or does not drive anything - clipped.
+Signal add_19258_7/CO undriven or does not drive anything - clipped.
+Signal add_19257_1/S1 undriven or does not drive anything - clipped.
+Signal add_19257_1/S0 undriven or does not drive anything - clipped.
+Signal add_19257_1/CI undriven or does not drive anything - clipped.
+Signal add_19257_3/S1 undriven or does not drive anything - clipped.
+Signal add_19257_3/S0 undriven or does not drive anything - clipped.
+Signal add_19257_5/S1 undriven or does not drive anything - clipped.
+Signal add_19257_5/S0 undriven or does not drive anything - clipped.
+Signal add_19257_7/S1 undriven or does not drive anything - clipped.
+Signal add_19257_7/S0 undriven or does not drive anything - clipped.
+Signal add_19257_9/S1 undriven or does not drive anything - clipped.
+Signal add_19257_9/S0 undriven or does not drive anything - clipped.
+Signal add_19257_11/S1 undriven or does not drive anything - clipped.
+Signal add_19257_11/S0 undriven or does not drive anything - clipped.
+Signal add_19257_13/S1 undriven or does not drive anything - clipped.
+Signal add_19257_13/S0 undriven or does not drive anything - clipped.
+Signal add_19257_15/S1 undriven or does not drive anything - clipped.
+Signal add_19257_15/S0 undriven or does not drive anything - clipped.
+Signal add_2283_9/S1 undriven or does not drive anything - clipped.
+Signal add_2283_9/CO undriven or does not drive anything - clipped.
+Signal add_19257_17/S1 undriven or does not drive anything - clipped.
+Signal add_19257_17/S0 undriven or does not drive anything - clipped.
 Signal add_592_1/S0 undriven or does not drive anything - clipped.
 Signal add_592_1/CI undriven or does not drive anything - clipped.
-Signal sub_966_add_2_17/S1 undriven or does not drive anything - clipped.
-Signal sub_966_add_2_17/CO undriven or does not drive anything - clipped.
-Signal spi_channel_index_2922_add_4_1/S0 undriven or does not drive anything -
-     clipped.
-Signal spi_channel_index_2922_add_4_1/CI undriven or does not drive anything -
-     clipped.
-Signal spi_channel_index_2922_add_4_7/CO undriven or does not drive anything -
-     clipped.
-Signal add_21987_1/S0 undriven or does not drive anything - clipped.
-Signal add_21987_1/CI undriven or does not drive anything - clipped.
-Signal add_21987_7/CO undriven or does not drive anything - clipped.
-Signal global_phase_s2_2926_add_4_1/S0 undriven or does not drive anything -
-     clipped.
-Signal global_phase_s2_2926_add_4_1/CI undriven or does not drive anything -
-     clipped.
-Signal global_phase_s2_2926_add_4_9/S1 undriven or does not drive anything -
-     clipped.
-Signal global_phase_s2_2926_add_4_9/CO undriven or does not drive anything -
-     clipped.
-Signal fpga_time_2927_add_4_1/S0 undriven or does not drive anything - clipped.
-Signal fpga_time_2927_add_4_1/CI undriven or does not drive anything - clipped.
+Signal sub_809_add_2_1/S0 undriven or does not drive anything - clipped.
+Signal sub_809_add_2_1/CI undriven or does not drive anything - clipped.
+Signal add_19257_cout/S1 undriven or does not drive anything - clipped.
 
                                     Page 9
 
 
 
 
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
 
 Removed logic (cont)
 --------------------
-Signal add_592_9/S1 undriven or does not drive anything - clipped.
-Signal add_592_9/CO undriven or does not drive anything - clipped.
-Signal equal_5114_13/S1 undriven or does not drive anything - clipped.
-Signal equal_5114_13/S0 undriven or does not drive anything - clipped.
-Signal equal_5114_11/S1 undriven or does not drive anything - clipped.
-Signal equal_5114_11/S0 undriven or does not drive anything - clipped.
-Signal equal_5114_15/S1 undriven or does not drive anything - clipped.
-Signal equal_5114_15/S0 undriven or does not drive anything - clipped.
-Signal equal_5114_17_21638/S1 undriven or does not drive anything - clipped.
-Signal equal_5114_17_21638/S0 undriven or does not drive anything - clipped.
-Signal equal_5114_17/S1 undriven or does not drive anything - clipped.
-Signal equal_5114_17/CO undriven or does not drive anything - clipped.
-Signal add_617_1/S1 undriven or does not drive anything - clipped.
-Signal add_617_1/S0 undriven or does not drive anything - clipped.
-Signal add_617_1/CI undriven or does not drive anything - clipped.
-Signal add_617_9/S1 undriven or does not drive anything - clipped.
-Signal add_617_9/CO undriven or does not drive anything - clipped.
-Signal add_619_1/S1 undriven or does not drive anything - clipped.
-Signal add_619_1/S0 undriven or does not drive anything - clipped.
-Signal add_619_1/CI undriven or does not drive anything - clipped.
-Signal fpga_time_2927_add_4_33/S1 undriven or does not drive anything - clipped.
-     
-Signal fpga_time_2927_add_4_33/CO undriven or does not drive anything - clipped.
-     
-Signal time_divider_2928_add_4_1/S0 undriven or does not drive anything -
+Signal add_19257_cout/CO undriven or does not drive anything - clipped.
+Signal expected_next_15__I_0_1362_1/S0 undriven or does not drive anything -
      clipped.
-Signal time_divider_2928_add_4_1/CI undriven or does not drive anything -
+Signal expected_next_15__I_0_1362_1/CI undriven or does not drive anything -
      clipped.
-Signal add_619_9/S1 undriven or does not drive anything - clipped.
-Signal add_619_9/CO undriven or does not drive anything - clipped.
-Signal time_divider_2928_add_4_7/CO undriven or does not drive anything -
+Signal add_592_7/CO undriven or does not drive anything - clipped.
+Signal add_602_1/S0 undriven or does not drive anything - clipped.
+Signal add_602_1/CI undriven or does not drive anything - clipped.
+Signal add_1364_25/CO undriven or does not drive anything - clipped.
+Signal sub_809_add_2_17/S1 undriven or does not drive anything - clipped.
+Signal sub_809_add_2_17/CO undriven or does not drive anything - clipped.
+Signal mic_window_count_2753_add_4_1/S0 undriven or does not drive anything -
      clipped.
-Signal mic_boot_count_2929_add_4_1/S0 undriven or does not drive anything -
+Signal mic_window_count_2753_add_4_1/CI undriven or does not drive anything -
      clipped.
-Signal mic_boot_count_2929_add_4_1/CI undriven or does not drive anything -
+Signal add_289_17/CO undriven or does not drive anything - clipped.
+Signal mic_warm_half_2749_add_4_1/S0 undriven or does not drive anything -
      clipped.
-Signal add_645_1/S1 undriven or does not drive anything - clipped.
-Signal add_645_1/S0 undriven or does not drive anything - clipped.
-Signal add_645_1/CI undriven or does not drive anything - clipped.
-Signal add_645_9/S1 undriven or does not drive anything - clipped.
-Signal add_645_9/CO undriven or does not drive anything - clipped.
-Signal add_647_1/S1 undriven or does not drive anything - clipped.
-Signal add_647_1/S0 undriven or does not drive anything - clipped.
-Signal add_647_1/CI undriven or does not drive anything - clipped.
-Signal expected_next_15__I_0_1537_1/S0 undriven or does not drive anything -
+Signal mic_warm_half_2749_add_4_1/CI undriven or does not drive anything -
      clipped.
-Signal expected_next_15__I_0_1537_1/CI undriven or does not drive anything -
+Signal add_524_1/S0 undriven or does not drive anything - clipped.
+Signal add_524_1/CI undriven or does not drive anything - clipped.
+Signal equal_4357_13/S1 undriven or does not drive anything - clipped.
+Signal equal_4357_13/S0 undriven or does not drive anything - clipped.
+Signal equal_4357_15/S1 undriven or does not drive anything - clipped.
+Signal equal_4357_15/S0 undriven or does not drive anything - clipped.
+Signal equal_4357_17_19257/S1 undriven or does not drive anything - clipped.
+Signal equal_4357_17_19257/S0 undriven or does not drive anything - clipped.
+Signal equal_4357_11/S1 undriven or does not drive anything - clipped.
+Signal equal_4357_11/S0 undriven or does not drive anything - clipped.
+Signal equal_4357_17/S1 undriven or does not drive anything - clipped.
+Signal equal_4357_17/CO undriven or does not drive anything - clipped.
+Signal mic_window_count_2753_add_4_7/CO undriven or does not drive anything -
      clipped.
-Signal mic_boot_count_2929_add_4_33/S1 undriven or does not drive anything -
+Signal global_phase_s2_2745_add_4_1/S0 undriven or does not drive anything -
      clipped.
-Signal mic_boot_count_2929_add_4_33/CO undriven or does not drive anything -
+Signal global_phase_s2_2745_add_4_1/CI undriven or does not drive anything -
      clipped.
-Signal mic_warm_half_2930_add_4_1/S0 undriven or does not drive anything -
+Signal mic_warm_half_2749_add_4_9/S1 undriven or does not drive anything -
      clipped.
-Signal mic_warm_half_2930_add_4_1/CI undriven or does not drive anything -
+Signal mic_warm_half_2749_add_4_9/CO undriven or does not drive anything -
      clipped.
+Signal global_phase_s2_2745_add_4_9/S1 undriven or does not drive anything -
+     clipped.
+Signal global_phase_s2_2745_add_4_9/CO undriven or does not drive anything -
+     clipped.
+Signal mic_block_count_2755_add_4_1/S0 undriven or does not drive anything -
+     clipped.
+Signal mic_block_count_2755_add_4_1/CI undriven or does not drive anything -
+     clipped.
+Signal add_1366_2/S0 undriven or does not drive anything - clipped.
+Signal add_1366_2/CI undriven or does not drive anything - clipped.
+Signal add_602_7/CO undriven or does not drive anything - clipped.
+Signal add_1366_cout/S1 undriven or does not drive anything - clipped.
+Signal add_1366_cout/CO undriven or does not drive anything - clipped.
+Signal sub_2412_add_2_1/S1 undriven or does not drive anything - clipped.
 
                                    Page 10
 
 
 
 
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
 
 Removed logic (cont)
 --------------------
-Signal add_647_9/S1 undriven or does not drive anything - clipped.
-Signal add_647_9/CO undriven or does not drive anything - clipped.
-Signal sub_2581_add_2_5/S1 undriven or does not drive anything - clipped.
-Signal sub_2581_add_2_5/S0 undriven or does not drive anything - clipped.
-Signal sub_2581_add_2_1/S1 undriven or does not drive anything - clipped.
-Signal sub_2581_add_2_1/S0 undriven or does not drive anything - clipped.
-Signal sub_2581_add_2_1/CI undriven or does not drive anything - clipped.
-Signal expected_next_15__I_0_1537_15/S1 undriven or does not drive anything -
+Signal sub_2412_add_2_1/S0 undriven or does not drive anything - clipped.
+Signal sub_2412_add_2_1/CI undriven or does not drive anything - clipped.
+Signal expected_next_15__I_0_1362_15/S1 undriven or does not drive anything -
      clipped.
-Signal expected_next_15__I_0_1537_15/CO undriven or does not drive anything -
+Signal expected_next_15__I_0_1362_15/CO undriven or does not drive anything -
      clipped.
-Signal sub_2581_add_2_3/S1 undriven or does not drive anything - clipped.
-Signal sub_2581_add_2_3/S0 undriven or does not drive anything - clipped.
-Signal sub_2581_add_2_cout/S1 undriven or does not drive anything - clipped.
-Signal sub_2581_add_2_cout/CO undriven or does not drive anything - clipped.
-Signal add_1541_2/S0 undriven or does not drive anything - clipped.
-Signal add_1541_2/CI undriven or does not drive anything - clipped.
-Signal mic_warm_half_2930_add_4_9/S1 undriven or does not drive anything -
+Signal sub_2412_add_2_3/S1 undriven or does not drive anything - clipped.
+Signal sub_2412_add_2_3/S0 undriven or does not drive anything - clipped.
+Signal add_611_1/S0 undriven or does not drive anything - clipped.
+Signal add_611_1/CI undriven or does not drive anything - clipped.
+Signal add_524_15/S1 undriven or does not drive anything - clipped.
+Signal add_524_15/CO undriven or does not drive anything - clipped.
+Signal add_565_1/S0 undriven or does not drive anything - clipped.
+Signal add_565_1/CI undriven or does not drive anything - clipped.
+Signal sub_2412_add_2_5/S1 undriven or does not drive anything - clipped.
+Signal sub_2412_add_2_5/S0 undriven or does not drive anything - clipped.
+Signal sub_2412_add_2_7/S1 undriven or does not drive anything - clipped.
+Signal sub_2412_add_2_7/S0 undriven or does not drive anything - clipped.
+Signal sub_2412_add_2_cout/S1 undriven or does not drive anything - clipped.
+Signal sub_2412_add_2_cout/CO undriven or does not drive anything - clipped.
+Signal add_289_1/S0 undriven or does not drive anything - clipped.
+Signal add_289_1/CI undriven or does not drive anything - clipped.
+Signal add_611_7/CO undriven or does not drive anything - clipped.
+Signal add_565_7/CO undriven or does not drive anything - clipped.
+Signal add_574_1/S0 undriven or does not drive anything - clipped.
+Signal add_574_1/CI undriven or does not drive anything - clipped.
+Signal add_620_1/S0 undriven or does not drive anything - clipped.
+Signal add_620_1/CI undriven or does not drive anything - clipped.
+Signal sub_734_add_2_1/S0 undriven or does not drive anything - clipped.
+Signal sub_734_add_2_1/CI undriven or does not drive anything - clipped.
+Signal add_574_7/CO undriven or does not drive anything - clipped.
+Signal add_583_1/S0 undriven or does not drive anything - clipped.
+Signal add_583_1/CI undriven or does not drive anything - clipped.
+Signal mic_block_count_2755_add_4_17/S1 undriven or does not drive anything -
      clipped.
-Signal mic_warm_half_2930_add_4_9/CO undriven or does not drive anything -
+Signal mic_block_count_2755_add_4_17/CO undriven or does not drive anything -
      clipped.
-Signal add_21930_1/S0 undriven or does not drive anything - clipped.
-Signal add_21930_1/CI undriven or does not drive anything - clipped.
-Signal add_21930_7/CO undriven or does not drive anything - clipped.
-Signal add_21815_1/S0 undriven or does not drive anything - clipped.
-Signal add_21815_1/CI undriven or does not drive anything - clipped.
-Signal add_5103_2/S0 undriven or does not drive anything - clipped.
-Signal add_5103_2/CI undriven or does not drive anything - clipped.
-Signal add_21815_7/CO undriven or does not drive anything - clipped.
-Signal sub_2581_add_2_7/S1 undriven or does not drive anything - clipped.
-Signal sub_2581_add_2_7/S0 undriven or does not drive anything - clipped.
-Signal add_22044_1/S0 undriven or does not drive anything - clipped.
-Signal add_22044_1/CI undriven or does not drive anything - clipped.
-Signal add_22044_7/CO undriven or does not drive anything - clipped.
-Signal add_21699_1/S0 undriven or does not drive anything - clipped.
-Signal add_21699_1/CI undriven or does not drive anything - clipped.
-Signal add_21699_7/CO undriven or does not drive anything - clipped.
-Signal add_21873_1/S0 undriven or does not drive anything - clipped.
-Signal add_21873_1/CI undriven or does not drive anything - clipped.
-Signal add_21873_7/CO undriven or does not drive anything - clipped.
-Signal add_21641_1/S0 undriven or does not drive anything - clipped.
-Signal add_21641_1/CI undriven or does not drive anything - clipped.
-Signal add_5103_16/S1 undriven or does not drive anything - clipped.
-Signal add_5103_16/CO undriven or does not drive anything - clipped.
-Signal add_21641_7/CO undriven or does not drive anything - clipped.
-Signal add_21757_1/S0 undriven or does not drive anything - clipped.
-Signal add_21757_1/CI undriven or does not drive anything - clipped.
-Signal add_672_1/S1 undriven or does not drive anything - clipped.
-Signal add_672_1/S0 undriven or does not drive anything - clipped.
-Signal add_672_1/CI undriven or does not drive anything - clipped.
-Signal add_21757_7/CO undriven or does not drive anything - clipped.
-Signal add_672_9/S1 undriven or does not drive anything - clipped.
-Signal add_672_9/CO undriven or does not drive anything - clipped.
-Signal add_21639_1/S1 undriven or does not drive anything - clipped.
-Signal add_21639_1/S0 undriven or does not drive anything - clipped.
-Signal add_21639_1/CI undriven or does not drive anything - clipped.
+Signal fpga_time_2746_add_4_1/S0 undriven or does not drive anything - clipped.
+Signal fpga_time_2746_add_4_1/CI undriven or does not drive anything - clipped.
+Signal add_583_7/CO undriven or does not drive anything - clipped.
+Signal add_620_7/CO undriven or does not drive anything - clipped.
+Signal add_629_1/S0 undriven or does not drive anything - clipped.
+Signal add_629_1/CI undriven or does not drive anything - clipped.
+Signal add_629_7/CO undriven or does not drive anything - clipped.
+Signal sub_734_add_2_17/CO undriven or does not drive anything - clipped.
+Signal fpga_time_2746_add_4_33/S1 undriven or does not drive anything - clipped.
+     
+Signal fpga_time_2746_add_4_33/CO undriven or does not drive anything - clipped.
+     
+Signal add_1364_1/S0 undriven or does not drive anything - clipped.
+Signal add_1364_1/CI undriven or does not drive anything - clipped.
+Signal time_divider_2747_add_4_1/S0 undriven or does not drive anything -
+     clipped.
+Signal time_divider_2747_add_4_1/CI undriven or does not drive anything -
+     clipped.
+Signal time_divider_2747_add_4_7/CO undriven or does not drive anything -
 
                                    Page 11
 
 
 
 
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
 
 Removed logic (cont)
 --------------------
-Signal add_21639_3/S1 undriven or does not drive anything - clipped.
-Signal add_21639_3/S0 undriven or does not drive anything - clipped.
-Signal add_674_1/S1 undriven or does not drive anything - clipped.
-Signal add_674_1/S0 undriven or does not drive anything - clipped.
-Signal add_674_1/CI undriven or does not drive anything - clipped.
-Signal add_21639_5/S1 undriven or does not drive anything - clipped.
-Signal add_21639_5/S0 undriven or does not drive anything - clipped.
-Signal add_21639_7/S0 undriven or does not drive anything - clipped.
-Signal add_21639_7/CO undriven or does not drive anything - clipped.
-Signal add_674_9/S1 undriven or does not drive anything - clipped.
-Signal add_674_9/CO undriven or does not drive anything - clipped.
-Signal add_1539_1/S0 undriven or does not drive anything - clipped.
-Signal add_1539_1/CI undriven or does not drive anything - clipped.
-Signal add_21638_1/S1 undriven or does not drive anything - clipped.
-Signal add_21638_1/S0 undriven or does not drive anything - clipped.
-Signal add_21638_1/CI undriven or does not drive anything - clipped.
-Signal add_21638_3/S1 undriven or does not drive anything - clipped.
-Signal add_21638_3/S0 undriven or does not drive anything - clipped.
-Signal add_21638_5/S1 undriven or does not drive anything - clipped.
-Signal add_21638_5/S0 undriven or does not drive anything - clipped.
-Signal add_21638_7/S1 undriven or does not drive anything - clipped.
-Signal add_21638_7/S0 undriven or does not drive anything - clipped.
-Signal add_21638_9/S1 undriven or does not drive anything - clipped.
-Signal add_21638_9/S0 undriven or does not drive anything - clipped.
-Signal add_21638_11/S1 undriven or does not drive anything - clipped.
-Signal add_21638_11/S0 undriven or does not drive anything - clipped.
-Signal add_21638_13/S1 undriven or does not drive anything - clipped.
-Signal add_21638_13/S0 undriven or does not drive anything - clipped.
-Signal add_21638_15/S1 undriven or does not drive anything - clipped.
-Signal add_21638_15/S0 undriven or does not drive anything - clipped.
-Signal add_21638_17/S1 undriven or does not drive anything - clipped.
-Signal add_21638_17/S0 undriven or does not drive anything - clipped.
-Signal add_21638_cout/S1 undriven or does not drive anything - clipped.
-Signal add_21638_cout/CO undriven or does not drive anything - clipped.
-Signal add_1541_cout/S1 undriven or does not drive anything - clipped.
-Signal add_1541_cout/CO undriven or does not drive anything - clipped.
-Signal add_297_1/S0 undriven or does not drive anything - clipped.
-Signal add_297_1/CI undriven or does not drive anything - clipped.
-Signal add_297_17/CO undriven or does not drive anything - clipped.
-Signal add_532_1/S0 undriven or does not drive anything - clipped.
-Signal add_532_1/CI undriven or does not drive anything - clipped.
-Block i24635 was optimized away.
-Block i24634 was optimized away.
-Block sub_1628_inv_0_i6_1_lut_rep_461 was optimized away.
-Block sub_1629_inv_0_i2_1_lut_rep_450 was optimized away.
-Block i33_1_lut was optimized away.
-Block i11824_1_lut was optimized away.
+     clipped.
+Block i21674 was optimized away.
+Block i21673 was optimized away.
+Block i10333_1_lut was optimized away.
+Block sub_1452_inv_0_i6_1_lut_rep_482 was optimized away.
+Block i2227_1_lut was optimized away.
+Block sub_1453_inv_0_i2_1_lut_rep_439 was optimized away.
 Block i1 was optimized away.
 
 Memory Usage
@@ -786,16 +746,6 @@ Memory Usage
     EBRs: 5
     RAM SLICEs: 0
     Logic SLICEs: 0
-
-                                   Page 12
-
-
-
-
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
-
-Memory Usage (cont)
--------------------
     PFU Registers: 0
     -Contains EBR mem1:  TYPE= PDPW8KC,  Width= 18,  Depth_R= 512,  Depth_W=
          512,  REGMODE= NOREG,  RESETMODE= SYNC,  ASYNC_RESET_RELEASE= SYNC,
@@ -806,10 +756,10 @@ Memory Usage (cont)
     -Contains EBR mem2:  TYPE= PDPW8KC,  Width= 18,  Depth_R= 512,  Depth_W=
          512,  REGMODE= NOREG,  RESETMODE= SYNC,  ASYNC_RESET_RELEASE= SYNC,
          GSR= DISABLED
-    -Contains EBR mem4:  TYPE= PDPW8KC,  Width= 12,  Depth_R= 512,  Depth_W=
+    -Contains EBR mem0:  TYPE= PDPW8KC,  Width= 18,  Depth_R= 512,  Depth_W=
          512,  REGMODE= NOREG,  RESETMODE= SYNC,  ASYNC_RESET_RELEASE= SYNC,
          GSR= DISABLED
-    -Contains EBR mem0:  TYPE= PDPW8KC,  Width= 18,  Depth_R= 512,  Depth_W=
+    -Contains EBR mem4:  TYPE= PDPW8KC,  Width= 12,  Depth_R= 512,  Depth_W=
          512,  REGMODE= NOREG,  RESETMODE= SYNC,  ASYNC_RESET_RELEASE= SYNC,
          GSR= DISABLED
 /mic_iq_ram:
@@ -836,6 +786,16 @@ PLL/DLL Summary
 
 PLL 1:                                     Pin/Node Value
   PLL Instance Name:                                fpga_pll_i
+
+                                   Page 12
+
+
+
+
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
+
+PLL/DLL Summary (cont)
+----------------------
   PLL Type:                                         EHXPLLJ
   Input Clock:                             PIN      fpga_clk_8m_c
   Output Clock(P):                         NODE     pll_clk
@@ -852,16 +812,6 @@ PLL 1:                                     Pin/Node Value
   PLL Data bus CLK Signal:                          NONE
   PLL Data bus Strobe Signal:                       NONE
   PLL Data bus Reset Signal:                        NONE
-
-                                   Page 13
-
-
-
-
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
-
-PLL/DLL Summary (cont)
-----------------------
   PLL Data bus Write Enable Signal:                 NONE
   PLL Data bus Address0:                            NONE
   PLL Data bus Address1:                            NONE
@@ -902,6 +852,16 @@ PLL/DLL Summary (cont)
   VCO Bypass B Input:                               VCO_PHASE
   VCO Bypass C Input:                               VCO_PHASE
   VCO Bypass D Input:                               VCO_PHASE
+
+                                   Page 13
+
+
+
+
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
+
+PLL/DLL Summary (cont)
+----------------------
   FB_MODE:                                          INT_OP
   CLKI Divider:                                     1
   CLKFB Divider:                                    8
@@ -919,14 +879,6 @@ PLL/DLL Summary (cont)
   CLKOS2 Desired Phase Shift(degree):               -315
   CLKOS3 Desired Phase Shift(degree):               -315
 
-                                   Page 14
-
-
-
-
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
-
-
 ASIC Components
 ---------------
 
@@ -938,13 +890,13 @@ Instance Name: event_ram/mem3
          Type: PDPW8KC
 Instance Name: event_ram/mem2
          Type: PDPW8KC
-Instance Name: event_ram/mem4
-         Type: PDPW8KC
 Instance Name: event_ram/mem0
          Type: PDPW8KC
-Instance Name: staging_ram/mem0
+Instance Name: event_ram/mem4
          Type: PDPW8KC
 Instance Name: mic_iq_ram/mem0
+         Type: PDPW8KC
+Instance Name: staging_ram/mem0
          Type: PDPW8KC
 
 GSR Usage
@@ -967,239 +919,35 @@ GSR Component:
      These components have the GSR property set to DISABLED. The components will
      not respond to the reset signal 'fpga_cs_n_c' via the GSR component.
 
+                                   Page 14
+
+
+
+
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
+
+GSR Usage (cont)
+----------------
+
      Type and number of components of the type: 
-   Register = 1744 
+   Register = 1582 
    PDPW8KC = 7
 
      Type and instance name of component: 
-   Register : accepted_sequence_spi_i0_i31
-   Register : accepted_sequence_spi_i0_i30
-   Register : accepted_sequence_spi_i0_i29
-   Register : init_shadow_i11
-   Register : accepted_sequence_spi_i0_i28
-   Register : accepted_sequence_spi_i0_i27
-   Register : accepted_sequence_spi_i0_i26
-   Register : accepted_sequence_spi_i0_i25
-   Register : accepted_sequence_spi_i0_i24
-   Register : accepted_sequence_spi_i0_i23
-   Register : init_shadow_i10
-   Register : accepted_sequence_spi_i0_i22
-
-                                   Page 15
-
-
-
-
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
-
-GSR Usage (cont)
-----------------
+   Register : mem_2962
+   Register : mic_warm_half_2749__i7
+   Register : mic_warm_half_2749__i6
+   Register : mic_warm_half_2749__i5
    Register : mem
-   Register : mic_sample_count_2932__i0
-   Register : init_shadow_i9
-   Register : mic_cfg_hold_spi_i0_i0
-   Register : rgb_values_i0_i0
-   Register : ws2812_settle_i0_i0
-   Register : accepted_sequence_spi_i0_i21
-   Register : accepted_sequence_spi_i0_i20
-   Register : phase_frac_i0
-   Register : accepted_sequence_spi_i0_i19
-   Register : accepted_sequence_spi_i0_i18
-   Register : rgb_hold__i1
-   Register : init_shadow_i8
-   Register : mic_bc_fill_2933__i6
-   Register : accepted_sequence_spi_i0_i0
-   Register : mem_3194
-   Register : mem_3214
-   Register : accepted_sequence_spi_i0_i17
-   Register : accepted_sequence_spi_i0_i16
-   Register : mic_cfg_gap_i9
-   Register : mic_cfg_start_i0_i0
-   Register : mic_bc_fill_2933__i5
-   Register : mic_bc_fill_2933__i4
-   Register : mem_3197
-   Register : mic_bc_fill_2933__i3
-   Register : mic_bc_fill_2933__i2
-   Register : mic_cfg_gap_i8
-   Register : init_shadow_i7
-   Register : mic_xor_q_3___i1
-   Register : init_shadow_i6
-   Register : init_shadow_i5
-   Register : mic_xor_i_3___i1
-   Register : frame_settle__i0
-   Register : mic_gate_index__i0
-   Register : us_tx__i1
-   Register : accepted_sequence_spi_i0_i15
-   Register : status_hold__i1
-   Register : accepted_sequence_i0
-   Register : init_shadow_i4
-   Register : phase_step_s1_1183
-   Register : phase_step_s2_1184
-   Register : phase_step_s3_1187
-   Register : swap_now_s3_1188
-   Register : active_bank_1189
-   Register : swap_pending_1190
-   Register : run_addr_s3_i0
-   Register : accepted_sequence_meta_i0
-   Register : phase_step_s4_1194
-   Register : swap_now_s4_1195
-   Register : phase_step_s5_1196
-   Register : swap_now_s5_1197
-   Register : frame_toggle_meta_1202
-   Register : frame_toggle_sync_1203
-   Register : stop_toggle_meta_1204
-   Register : stop_toggle_sync_1205
-   Register : ws2812_toggle_meta_1206
-
-                                   Page 16
-
-
-
-
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
-
-GSR Usage (cont)
-----------------
-   Register : ws2812_toggle_sync_1207
-   Register : accepted_sequence_sync_i0
-   Register : invalid_frame_meta_1212
-   Register : invalid_frame_sync_1213
-   Register : frame_req_1216
-   Register : init_shadow_i3
-   Register : ev_ch_i0
-   Register : build_phase_i0
-   Register : build_sum_i0
-   Register : ev_rd_hold_i0
-   Register : staging_rd_addr_i0
-   Register : pending_sequence_i0
-   Register : mic_shift_0_l_i0_i0
-   Register : mic_warm_edges__i0
-   Register : mic_shift_1_l_i0_i0
-   Register : mic_shift_0_r__i1
-   Register : mic_shift_1_r__i1
-   Register : mic_latest_i0_i0
-   Register : mic_win_i_3___i1
-   Register : mic_win_q_3___i1
-   Register : mic_gate_wait_i0_i0
-   Register : mic_cfg_meta_i1
-   Register : mic_cfg_toggle_meta_1258
-   Register : mic_cfg_toggle_sync_1259
-   Register : mic_cfg_sync_i1
-   Register : mic_cfg_settle_i0
-   Register : accepted_sequence_spi_i0_i14
-   Register : mic_cfg_width_i0
-   Register : mic_ram_wr_addr_i0_i0
-   Register : mic_done_1270
-   Register : mic_acc_state_i0
-   Register : accepted_sequence_spi_i0_i13
-   Register : mic_acc_busy_1277
-   Register : mic_ram_we_1280
-   Register : mic_acc_word_i0
-   Register : accepted_sequence_spi_i0_i12
-   Register : mic_lo_n__i0
-   Register : mic_cfg_count_i0
-   Register : mic_cfg_count_i6
-   Register : mic_cfg_width_i1
-   Register : mic_cfg_width_i2
-   Register : mic_cfg_width_i3
-   Register : mic_cfg_width_i4
-   Register : mic_cfg_width_i5
-   Register : mic_cfg_width_i6
-   Register : accepted_sequence_spi_i0_i11
-   Register : accepted_sequence_spi_i0_i10
-   Register : accepted_sequence_spi_i0_i9
-   Register : mem_3186
-   Register : accepted_sequence_spi_i0_i8
-   Register : mem_3184
-   Register : accepted_sequence_spi_i0_i7
-   Register : accepted_sequence_spi_i0_i6
-   Register : accepted_sequence_spi_i0_i5
-   Register : mic_pdm_hist_3___i1
-   Register : accepted_sequence_spi_i0_i4
-
-                                   Page 17
-
-
-
-
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
-
-GSR Usage (cont)
-----------------
-   Register : accepted_sequence_spi_i0_i3
-   Register : accepted_sequence_spi_i0_i2
-   Register : accepted_sequence_spi_i0_i1
-   Register : rgb_hold__i24
-   Register : rgb_hold__i23
-   Register : rgb_hold__i22
-   Register : rgb_hold__i21
-   Register : rgb_hold__i20
-   Register : rgb_hold__i19
-   Register : rgb_hold__i18
-   Register : mic_bc_fill_2933__i1
-   Register : rgb_hold__i17
-   Register : rgb_hold__i16
-   Register : mic_acc_gate__i1
-   Register : rgb_hold__i15
-   Register : rgb_hold__i14
-   Register : rgb_hold__i13
-   Register : rgb_hold__i12
-   Register : rgb_hold__i11
-   Register : rgb_hold__i10
-   Register : rgb_hold__i9
-   Register : rgb_hold__i8
-   Register : rgb_hold__i7
-   Register : rgb_hold__i6
-   Register : rgb_hold__i5
-   Register : rgb_hold__i4
-   Register : rgb_hold__i3
-   Register : rgb_hold__i2
-   Register : mem_3213
-   Register : init_shadow_i2
-   Register : ev_run_hold_s5_i0_i0
-   Register : mem_3212
-   Register : mem_3211
-   Register : mic_gate_active_1276
-   Register : mem_3210
-   Register : mem_3209
-   Register : mem_3208
-   Register : mem_3207
+   Register : phase_frac_i23
+   Register : mic_warm_half_2749__i4
+   Register : mic_warm_half_2749__i3
+   Register : mic_warm_half_2749__i2
+   Register : mic_warm_half_2749__i1
    Register : mic_acc_word_i2
-   Register : mem_3206
-   Register : mic_cfg_gap_i7
    Register : mic_acc_word_i1
    Register : mic_ram_wr_data_i0_i15
-   Register : mem_3205
    Register : mic_ram_wr_data_i0_i14
-   Register : mic_ram_wr_data_i0_i13
-   Register : mic_ram_wr_data_i0_i12
-   Register : mic_ram_wr_data_i0_i11
-   Register : mem_3204
-   Register : running_1191
-   Register : mic_ram_wr_data_i0_i10
-   Register : mic_ram_wr_data_i0_i9
-   Register : mic_cfg_gap_i6
-   Register : mem_3203
-   Register : mem_3202
-   Register : mem_3201
-
-                                   Page 18
-
-
-
-
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
-
-GSR Usage (cont)
-----------------
-   Register : mem_3200
-   Register : mem_3188
-   Register : mem_3192
-   Register : mic_acc_last_1279
-   Register : mem_3190
-   Register : mic_cfg_gap_i5
-   Register : phase_frac_i23
-   Register : init_shadow_i1
    Register : phase_frac_i22
    Register : phase_frac_i21
    Register : phase_frac_i20
@@ -1212,21 +960,238 @@ GSR Usage (cont)
    Register : phase_frac_i13
    Register : phase_frac_i12
    Register : phase_frac_i11
+   Register : mem_2984
+   Register : mem_2983
    Register : phase_frac_i10
+   Register : mem_2982
+   Register : mem_2981
+   Register : mem_2980
+   Register : init_shadow_i5
+   Register : mic_cfg_hold_spi_i0_i0
+   Register : rgb_values_i0_i0
+   Register : accepted_sequence_spi_i0_i0
+   Register : ws2812_settle_i0_i0
+   Register : phase_frac_i0
+   Register : rgb_hold__i1
+   Register : mic_ram_wr_data_i0_i13
+   Register : mic_cfg_start_i0_i0
+   Register : mic_cfg_gap_i4
+   Register : mic_warm_edges__i0
    Register : phase_frac_i9
    Register : phase_frac_i8
+   Register : mem_2964
+   Register : mic_ram_wr_data_i0_i12
+   Register : mic_ram_wr_data_i0_i11
    Register : phase_frac_i7
+   Register : mem_2967
+
+                                   Page 15
+
+
+
+
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
+
+GSR Usage (cont)
+----------------
+   Register : mic_xor_q_3___i1
+   Register : status_hold__i1
+   Register : init_shadow_i4
+   Register : frame_settle__i0
+   Register : mic_gate_index__i0
+   Register : mic_xor_i_3___i1
    Register : phase_frac_i6
+   Register : accepted_sequence_i0
+   Register : init_shadow_i3
+   Register : phase_step_s4_1034_rep_513
+   Register : init_shadow_i2
+   Register : phase_step_s1_1023
+   Register : phase_step_s2_1024
+   Register : phase_step_s3_1027
+   Register : swap_now_s3_1028
+   Register : active_bank_1029
+   Register : swap_pending_1030
+   Register : run_addr_s3_i0
+   Register : phase_step_s4_1034
+   Register : swap_now_s4_1035
+   Register : phase_step_s5_1036
+   Register : swap_now_s5_1037
+   Register : accepted_sequence_meta_i0
+   Register : frame_toggle_meta_1042
+   Register : frame_toggle_sync_1043
+   Register : stop_toggle_meta_1044
+   Register : stop_toggle_sync_1045
+   Register : ws2812_toggle_meta_1046
+   Register : ws2812_toggle_sync_1047
+   Register : accepted_sequence_sync_i0
+   Register : invalid_frame_meta_1052
+   Register : invalid_frame_sync_1053
+   Register : frame_req_1056
+   Register : init_shadow_i1
+   Register : ev_ch_i0
+   Register : build_phase_i0
+   Register : build_sum_i0
+   Register : ev_rd_hold_i0
+   Register : staging_rd_addr_i0
+   Register : pending_sequence_i0
+   Register : mic_shift_0_l_i0_i0
+   Register : mic_shift_1_l_i0_i0
+   Register : mic_cfg_count_i0
+   Register : mic_shift_0_r__i1
+   Register : mic_shift_1_r__i1
+   Register : mic_latest_i0_i0
+   Register : mic_win_i_3___i1
+   Register : mic_win_q_3___i1
+   Register : mic_gate_wait_i0_i0
+   Register : mic_cfg_meta_i1
+   Register : mic_cfg_toggle_meta_1095
+   Register : mic_cfg_toggle_sync_1096
+   Register : mic_cfg_sync_i1
+   Register : mic_cfg_settle_i0
+   Register : mic_cfg_width_i0
+   Register : mic_ram_wr_addr_i0_i0
+
+                                   Page 16
+
+
+
+
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
+
+GSR Usage (cont)
+----------------
+   Register : mic_done_1107
+   Register : mic_acc_state_i0
+   Register : mic_acc_busy_1114
+   Register : mic_ram_we_1117
+   Register : mic_acc_word_i0
    Register : phase_frac_i5
+   Register : mic_cfg_count_i6
+   Register : mic_cfg_width_i1
+   Register : mic_cfg_width_i2
+   Register : mic_cfg_width_i3
+   Register : mic_cfg_width_i4
+   Register : mic_cfg_width_i5
+   Register : mic_cfg_width_i6
+   Register : ev_ch_i6
+   Register : mem_2956
+   Register : mem_2954
    Register : phase_frac_i4
    Register : phase_frac_i3
    Register : phase_frac_i2
    Register : phase_frac_i1
+   Register : us_tx__i1
+   Register : mic_ram_wr_data_i0_i10
+   Register : mic_ram_wr_data_i0_i9
+   Register : accepted_sequence_spi_i0_i31
+   Register : mic_acc_gate__i1
+   Register : accepted_sequence_spi_i0_i30
+   Register : accepted_sequence_spi_i0_i29
+   Register : accepted_sequence_spi_i0_i28
+   Register : accepted_sequence_spi_i0_i27
+   Register : accepted_sequence_spi_i0_i26
+   Register : accepted_sequence_spi_i0_i25
+   Register : accepted_sequence_spi_i0_i24
+   Register : accepted_sequence_spi_i0_i23
+   Register : accepted_sequence_spi_i0_i22
+   Register : accepted_sequence_spi_i0_i21
+   Register : accepted_sequence_spi_i0_i20
+   Register : accepted_sequence_spi_i0_i19
+   Register : ev_run_hold_s5_i0_i0
+   Register : accepted_sequence_spi_i0_i18
+   Register : accepted_sequence_spi_i0_i17
+   Register : accepted_sequence_spi_i0_i16
+   Register : accepted_sequence_spi_i0_i15
+   Register : accepted_sequence_spi_i0_i14
+   Register : accepted_sequence_spi_i0_i13
+   Register : accepted_sequence_spi_i0_i12
+   Register : accepted_sequence_spi_i0_i11
+   Register : accepted_sequence_spi_i0_i10
+   Register : accepted_sequence_spi_i0_i9
+   Register : mem_2979
+   Register : accepted_sequence_spi_i0_i8
+   Register : accepted_sequence_spi_i0_i7
+   Register : accepted_sequence_spi_i0_i6
+   Register : accepted_sequence_spi_i0_i5
+   Register : accepted_sequence_spi_i0_i4
+   Register : accepted_sequence_spi_i0_i3
+   Register : accepted_sequence_spi_i0_i2
+
+                                   Page 17
+
+
+
+
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
+
+GSR Usage (cont)
+----------------
+   Register : accepted_sequence_spi_i0_i1
+   Register : mem_2978
+   Register : mem_2977
+   Register : mic_gate_active_1113
+   Register : mem_2976
+   Register : mem_2975
+   Register : mem_2974
+   Register : mem_2973
+   Register : mem_2972
+   Register : mem_2971
+   Register : mem_2970
+   Register : running_1031
+   Register : mem_2958
+   Register : mic_acc_last_1116
+   Register : mem_2960
+   Register : mic_ram_wr_data_i0_i8
+   Register : mic_ram_wr_data_i0_i7
+   Register : mic_ram_wr_data_i0_i6
+   Register : mic_ram_wr_data_i0_i5
+   Register : mic_ram_wr_data_i0_i4
+   Register : mic_ram_wr_data_i0_i3
+   Register : mic_ram_wr_data_i0_i2
+   Register : mic_ram_wr_data_i0_i1
+   Register : mic_acc_state_i2
+   Register : mic_run_state_i1
+   Register : mic_cfg_settle_i2
+   Register : ev_clear_addr_i7
+   Register : ev_clear_addr_i6
+   Register : ev_clear_addr_i5
+   Register : ev_clear_addr_i4
+   Register : ev_clear_addr_i3
+   Register : ev_clear_addr_i2
+   Register : mic_sample_count_2751__i0
+   Register : ev_clear_addr_i1
+   Register : init_shadow_i83
+   Register : init_shadow_i82
+   Register : init_shadow_i81
+   Register : init_shadow_i80
+   Register : init_shadow_i79
+   Register : init_shadow_i78
+   Register : init_shadow_i77
    Register : rgb_values_i0_i23
+   Register : init_shadow_i76
+   Register : init_shadow_i75
+   Register : init_shadow_i74
+   Register : init_shadow_i73
+   Register : init_shadow_i72
+   Register : init_shadow_i71
+   Register : init_shadow_i70
+   Register : init_shadow_i69
+   Register : init_shadow_i68
+   Register : mic_block_count_2755__i15
    Register : rgb_values_i0_i22
    Register : rgb_values_i0_i21
    Register : rgb_values_i0_i20
    Register : rgb_values_i0_i19
+
+                                   Page 18
+
+
+
+
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
+
+GSR Usage (cont)
+----------------
    Register : rgb_values_i0_i18
    Register : rgb_values_i0_i17
    Register : rgb_values_i0_i16
@@ -1245,19 +1210,10 @@ GSR Usage (cont)
    Register : rgb_values_i0_i3
    Register : rgb_values_i0_i2
    Register : rgb_values_i0_i1
+   Register : ev_ch_i5
    Register : mic_cfg_hold_spi_i0_i46
    Register : mic_cfg_hold_spi_i0_i45
    Register : mic_cfg_hold_spi_i0_i44
-
-                                   Page 19
-
-
-
-
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
-
-GSR Usage (cont)
-----------------
    Register : mic_cfg_hold_spi_i0_i43
    Register : mic_cfg_hold_spi_i0_i42
    Register : mic_cfg_hold_spi_i0_i41
@@ -1268,6 +1224,7 @@ GSR Usage (cont)
    Register : mic_cfg_hold_spi_i0_i36
    Register : mic_cfg_hold_spi_i0_i35
    Register : mic_cfg_hold_spi_i0_i34
+   Register : global_phase_s2_2745__i0
    Register : mic_cfg_hold_spi_i0_i33
    Register : mic_cfg_hold_spi_i0_i32
    Register : mic_cfg_hold_spi_i0_i31
@@ -1287,9 +1244,20 @@ GSR Usage (cont)
    Register : mic_cfg_hold_spi_i0_i17
    Register : mic_cfg_hold_spi_i0_i16
    Register : mic_cfg_hold_spi_i0_i15
+   Register : fpga_time_2746__i0
    Register : mic_cfg_hold_spi_i0_i14
    Register : mic_cfg_hold_spi_i0_i13
    Register : mic_cfg_hold_spi_i0_i12
+
+                                   Page 19
+
+
+
+
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
+
+GSR Usage (cont)
+----------------
    Register : mic_cfg_hold_spi_i0_i11
    Register : mic_cfg_hold_spi_i0_i10
    Register : mic_cfg_hold_spi_i0_i9
@@ -1298,79 +1266,64 @@ GSR Usage (cont)
    Register : mic_cfg_hold_spi_i0_i5
    Register : mic_cfg_hold_spi_i0_i4
    Register : mic_cfg_hold_spi_i0_i3
+   Register : time_divider_2747__i0
    Register : mic_cfg_hold_spi_i0_i2
    Register : mic_cfg_hold_spi_i0_i1
-   Register : mic_ram_wr_data_i0_i8
-   Register : mic_ram_wr_data_i0_i7
-   Register : mic_ram_wr_data_i0_i6
-   Register : mic_ram_wr_data_i0_i5
-   Register : mic_ram_wr_data_i0_i4
-   Register : global_phase_s2_2926__i0
-   Register : mic_ram_wr_data_i0_i3
-   Register : fpga_time_2927__i0
-   Register : mic_ram_wr_data_i0_i2
-   Register : mic_ram_wr_data_i0_i1
-   Register : mic_acc_state_i2
-   Register : time_divider_2928__i0
-   Register : mic_run_state_i1
-   Register : mic_cfg_settle_i2
+   Register : mic_boot_count_2748__i0
+   Register : mic_cfg_toggle_seen_1099
+   Register : mic_ultrasonic_1078
+   Register : stop_toggle_seen_1062
+   Register : ws2812_toggle_seen_1060
+   Register : frame_toggle_seen_1054
+   Register : invalid_frame_spi_1018
+   Register : frame_toggle_spi_1015
+   Register : rgb_hold__i2
+   Register : init_shadow_i67
+   Register : init_shadow_i66
+   Register : init_shadow_i65
+   Register : init_shadow_i64
+   Register : init_shadow_i63
+   Register : init_shadow_i62
+   Register : init_shadow_i61
+   Register : init_shadow_i60
+   Register : init_shadow_i59
+   Register : init_shadow_i58
+   Register : init_shadow_i57
+   Register : rgb_hold__i3
+   Register : rgb_hold__i4
+   Register : rgb_hold__i5
+   Register : rgb_hold__i6
+   Register : rgb_hold__i7
+   Register : rgb_hold__i8
+   Register : rgb_hold__i9
+   Register : rgb_hold__i10
+   Register : rgb_hold__i11
+   Register : rgb_hold__i12
+   Register : rgb_hold__i13
+   Register : rgb_hold__i14
+   Register : rgb_hold__i15
+   Register : rgb_hold__i16
+   Register : rgb_hold__i17
+   Register : rgb_hold__i18
+   Register : rgb_hold__i19
+   Register : rgb_hold__i20
+   Register : rgb_hold__i21
+   Register : rgb_hold__i22
+   Register : rgb_hold__i23
+   Register : rgb_hold__i24
+   Register : mic_cfg_start_i0_i1
+   Register : mic_cfg_gap_i3
+   Register : mic_cfg_start_i0_i2
 
                                    Page 20
 
 
 
 
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
 
 GSR Usage (cont)
 ----------------
-   Register : ev_clear_addr_i7
-   Register : ev_clear_addr_i6
-   Register : mic_boot_count_2929__i0
-   Register : ev_clear_addr_i5
-   Register : ev_clear_addr_i4
-   Register : ev_clear_addr_i3
-   Register : ev_clear_addr_i2
-   Register : ev_clear_addr_i1
-   Register : init_shadow_i83
-   Register : init_shadow_i82
-   Register : init_shadow_i81
-   Register : init_shadow_i80
-   Register : init_shadow_i79
-   Register : init_shadow_i78
-   Register : init_shadow_i77
-   Register : init_shadow_i76
-   Register : init_shadow_i75
-   Register : init_shadow_i74
-   Register : init_shadow_i73
-   Register : init_shadow_i72
-   Register : init_shadow_i71
-   Register : init_shadow_i70
-   Register : init_shadow_i69
-   Register : init_shadow_i68
-   Register : init_shadow_i67
-   Register : init_shadow_i66
-   Register : mic_cfg_toggle_seen_1262
-   Register : mic_ultrasonic_1238
-   Register : stop_toggle_seen_1222
-   Register : ws2812_toggle_seen_1220
-   Register : frame_toggle_seen_1214
-   Register : mic_sample_count_2932__i4
-   Register : invalid_frame_spi_1178
-   Register : mic_sample_count_2932__i3
-   Register : mic_sample_count_2932__i2
-   Register : mic_sample_count_2932__i1
-   Register : frame_toggle_spi_1175
-   Register : mic_lo_q_d40_r_1244
-   Register : ev_ch_i6
-   Register : ev_ch_i5
-   Register : ev_ch_i4
-   Register : ev_ch_i3
-   Register : mic_cfg_start_i0_i1
-   Register : init_shadow_i65
-   Register : mic_cfg_gap_i4
-   Register : ev_ch_i2
-   Register : mic_cfg_start_i0_i2
    Register : mic_cfg_start_i0_i3
    Register : mic_cfg_start_i0_i4
    Register : mic_cfg_start_i0_i5
@@ -1380,149 +1333,30 @@ GSR Usage (cont)
    Register : mic_cfg_start_i0_i9
    Register : mic_cfg_start_i0_i10
    Register : mic_cfg_start_i0_i11
-
-                                   Page 21
-
-
-
-
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
-
-GSR Usage (cont)
-----------------
    Register : mic_cfg_start_i0_i12
    Register : mic_cfg_start_i0_i13
    Register : mic_cfg_start_i0_i14
    Register : mic_cfg_start_i0_i15
-   Register : ev_ch_i1
-   Register : ev_state_i3
-   Register : ev_state_i2
-   Register : ev_state_i1
-   Register : frame_settle__i3
-   Register : mic_phase_2931__i1
-   Register : mic_stream_i/shift_register_i24
-   Register : mic_stream_i/bit_count_i0
-   Register : mic_stream_i/bit_count_i3
-   Register : mic_stream_i/bit_count_i2
-   Register : mic_stream_i/shift_register_i44
-   Register : mic_stream_i/shift_register_i71
-   Register : mic_stream_i/shift_register_i43
-   Register : mic_stream_i/shift_register_i1
-   Register : mic_stream_i/shift_register_i2
-   Register : mic_stream_i/shift_register_i3
-   Register : mic_stream_i/shift_register_i4
-   Register : mic_stream_i/shift_register_i5
-   Register : mic_stream_i/shift_register_i6
-   Register : mic_stream_i/shift_register_i7
-   Register : mic_stream_i/shift_register_i8
-   Register : mic_stream_i/shift_register_i9
-   Register : mic_stream_i/shift_register_i10
-   Register : mic_stream_i/shift_register_i11
-   Register : mic_stream_i/shift_register_i12
-   Register : mic_stream_i/shift_register_i13
-   Register : mic_stream_i/shift_register_i14
-   Register : mic_stream_i/shift_register_i15
-   Register : mic_stream_i/shift_register_i16
-   Register : mic_stream_i/shift_register_i17
-   Register : mic_stream_i/shift_register_i18
-   Register : mic_stream_i/shift_register_i25
-   Register : mic_stream_i/shift_register_i26
-   Register : mic_stream_i/shift_register_i27
-   Register : mic_stream_i/shift_register_i28
-   Register : mic_stream_i/shift_register_i29
-   Register : mic_stream_i/shift_register_i30
-   Register : mic_stream_i/shift_register_i31
-   Register : mic_stream_i/shift_register_i32
-   Register : mic_stream_i/shift_register_i33
-   Register : mic_stream_i/shift_register_i34
-   Register : mic_stream_i/shift_register_i35
-   Register : mic_stream_i/shift_register_i36
-   Register : mic_stream_i/shift_register_i37
-   Register : mic_stream_i/shift_register_i38
-   Register : mic_stream_i/shift_register_i39
-   Register : mic_stream_i/shift_register_i40
-   Register : mic_stream_i/shift_register_i42
-   Register : mic_stream_i/shift_register_i49
-   Register : mic_stream_i/shift_register_i50
-   Register : mic_stream_i/shift_register_i51
-   Register : mic_stream_i/shift_register_i52
-
-                                   Page 22
-
-
-
-
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
-
-GSR Usage (cont)
-----------------
-   Register : mic_stream_i/shift_register_i53
-   Register : mic_stream_i/shift_register_i54
-   Register : mic_stream_i/shift_register_i55
-   Register : mic_stream_i/shift_register_i56
-   Register : mic_stream_i/shift_register_i57
-   Register : mic_stream_i/shift_register_i58
-   Register : mic_stream_i/shift_register_i59
-   Register : mic_stream_i/shift_register_i60
-   Register : mic_stream_i/shift_register_i61
-   Register : mic_stream_i/shift_register_i62
-   Register : mic_stream_i/shift_register_i63
-   Register : mic_stream_i/shift_register_i64
-   Register : mic_stream_i/shift_register_i65
-   Register : mic_stream_i/shift_register_i73
-   Register : mic_stream_i/shift_register_i74
-   Register : mic_stream_i/shift_register_i75
-   Register : mic_stream_i/shift_register_i76
-   Register : mic_stream_i/shift_register_i77
-   Register : mic_stream_i/shift_register_i78
-   Register : mic_stream_i/shift_register_i79
-   Register : mic_stream_i/shift_register_i80
-   Register : mic_stream_i/shift_register_i81
-   Register : mic_stream_i/shift_register_i82
-   Register : mic_stream_i/shift_register_i83
-   Register : mic_stream_i/shift_register_i84
-   Register : mic_stream_i/shift_register_i85
-   Register : mic_stream_i/shift_register_i86
-   Register : mic_stream_i/shift_register_i87
-   Register : mic_stream_i/shift_register_i88
-   Register : mic_stream_i/shift_register_i23
-   Register : mic_stream_i/shift_register_i22
-   Register : mic_stream_i/shift_register_i21
-   Register : mic_stream_i/shift_register_i70
-   Register : mic_stream_i/shift_register_i41
-   Register : mic_stream_i/shift_register_i69
-   Register : mic_stream_i/shift_register_i68
-   Register : mic_stream_i/shift_register_i67
-   Register : mic_stream_i/bit_count_i1
-   Register : mic_stream_i/shift_register_i66
-   Register : mic_stream_i/shift_register_i48
-   Register : mic_stream_i/shift_register_i20
-   Register : mic_stream_i/shift_register_i95
-   Register : mic_stream_i/shift_register_i47
-   Register : mic_stream_i/shift_register_i94
-   Register : mic_stream_i/shift_register_i93
-   Register : mic_stream_i/shift_register_i19
-   Register : mic_stream_i/shift_register_i92
-   Register : mic_stream_i/bit_count_i6
-   Register : mic_stream_i/shift_register_i46
-   Register : mic_stream_i/shift_register_i91
-   Register : mic_stream_i/shift_register_i90
-   Register : mic_stream_i/bit_count_i5
-   Register : mic_stream_i/bit_count_i4
-   Register : mic_stream_i/shift_register_i89
-   Register : mic_stream_i/shift_register_i45
-   Register : mic_stream_i/shift_register_i72
-
-                                   Page 23
-
-
-
-
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
-
-GSR Usage (cont)
-----------------
+   Register : mic_warm_edges__i1
+   Register : mic_warm_edges__i2
+   Register : mic_warm_edges__i3
+   Register : mic_warm_edges__i4
+   Register : mic_warm_edges__i5
+   Register : mic_warm_edges__i6
+   Register : mic_warm_edges__i7
+   Register : mic_warm_edges__i8
+   Register : mic_warm_edges__i9
+   Register : mic_warm_edges__i10
+   Register : mic_warm_edges__i11
+   Register : mic_warm_edges__i12
+   Register : mic_warm_edges__i13
    Register : mic_xor_q_3___i2
+   Register : init_shadow_i56
+   Register : mic_block_count_2755__i14
+   Register : mic_block_count_2755__i13
+   Register : mic_cfg_gap_i2
+   Register : ev_ch_i4
+   Register : ev_ch_i3
    Register : mic_xor_q_3___i3
    Register : mic_xor_q_3___i4
    Register : mic_xor_q_3___i5
@@ -1546,149 +1380,20 @@ GSR Usage (cont)
    Register : mic_xor_q_3___i23
    Register : mic_xor_q_3___i24
    Register : mic_xor_q_3___i25
+
+                                   Page 21
+
+
+
+
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
+
+GSR Usage (cont)
+----------------
    Register : mic_xor_q_3___i26
    Register : mic_xor_q_3___i27
    Register : mic_xor_q_3___i28
-   Register : mic_xor_i_3___i2
-   Register : mic_xor_i_3___i3
-   Register : mic_xor_i_3___i4
-   Register : mic_xor_i_3___i5
-   Register : mic_xor_i_3___i6
-   Register : mic_xor_i_3___i7
-   Register : mic_xor_i_3___i8
-   Register : mic_xor_i_3___i9
-   Register : mic_xor_i_3___i10
-   Register : mic_xor_i_3___i11
-   Register : mic_xor_i_3___i12
-   Register : mic_xor_i_3___i13
-   Register : mic_xor_i_3___i14
-   Register : mic_xor_i_3___i15
-   Register : mic_xor_i_3___i16
-   Register : mic_xor_i_3___i17
-   Register : mic_xor_i_3___i18
-   Register : mic_xor_i_3___i19
-   Register : mic_xor_i_3___i20
-   Register : mic_xor_i_3___i21
-   Register : mic_xor_i_3___i22
-   Register : mic_xor_i_3___i23
-   Register : mic_xor_i_3___i24
-   Register : mic_xor_i_3___i25
-   Register : mic_xor_i_3___i26
-   Register : mic_xor_i_3___i27
-   Register : mic_xor_i_3___i28
-   Register : frame_settle__i1
-   Register : frame_settle__i2
-
-                                   Page 24
-
-
-
-
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
-
-GSR Usage (cont)
-----------------
-   Register : mic_gate_index__i1
-   Register : mic_gate_index__i2
-   Register : mic_gate_index__i3
-   Register : mic_gate_index__i4
-   Register : mic_gate_index__i5
-   Register : mic_gate_index__i6
-   Register : us_tx__i2
-   Register : us_tx__i3
-   Register : us_tx__i4
-   Register : us_tx__i5
-   Register : us_tx__i6
-   Register : us_tx__i7
-   Register : us_tx__i8
-   Register : us_tx__i9
-   Register : us_tx__i10
-   Register : us_tx__i11
-   Register : us_tx__i12
-   Register : us_tx__i13
-   Register : us_tx__i14
-   Register : us_tx__i15
-   Register : us_tx__i16
-   Register : us_tx__i17
-   Register : us_tx__i18
-   Register : us_tx__i19
-   Register : us_tx__i20
-   Register : us_tx__i21
-   Register : us_tx__i22
-   Register : us_tx__i23
-   Register : us_tx__i24
-   Register : us_tx__i25
-   Register : us_tx__i26
-   Register : us_tx__i27
-   Register : us_tx__i28
-   Register : us_tx__i29
-   Register : us_tx__i30
-   Register : us_tx__i31
-   Register : us_tx__i32
-   Register : us_tx__i33
-   Register : us_tx__i34
-   Register : us_tx__i35
-   Register : us_tx__i36
-   Register : us_tx__i37
-   Register : us_tx__i38
-   Register : us_tx__i39
-   Register : us_tx__i40
-   Register : us_tx__i41
-   Register : us_tx__i42
-   Register : us_tx__i43
-   Register : us_tx__i44
-   Register : us_tx__i45
-   Register : us_tx__i46
-   Register : us_tx__i47
-   Register : us_tx__i48
-   Register : us_tx__i49
-   Register : us_tx__i50
-   Register : us_tx__i51
-
-                                   Page 25
-
-
-
-
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
-
-GSR Usage (cont)
-----------------
-   Register : us_tx__i52
-   Register : us_tx__i53
-   Register : us_tx__i54
-   Register : us_tx__i55
-   Register : us_tx__i56
-   Register : us_tx__i57
-   Register : us_tx__i58
-   Register : us_tx__i59
-   Register : us_tx__i60
-   Register : us_tx__i61
-   Register : us_tx__i62
-   Register : us_tx__i63
-   Register : us_tx__i64
-   Register : us_tx__i65
-   Register : us_tx__i66
-   Register : us_tx__i67
-   Register : us_tx__i68
-   Register : us_tx__i69
-   Register : us_tx__i70
-   Register : us_tx__i71
-   Register : us_tx__i72
-   Register : us_tx__i73
-   Register : us_tx__i74
-   Register : us_tx__i75
-   Register : us_tx__i76
-   Register : us_tx__i77
-   Register : us_tx__i78
-   Register : us_tx__i79
-   Register : us_tx__i80
-   Register : us_tx__i81
-   Register : us_tx__i82
-   Register : us_tx__i83
-   Register : us_tx__i84
    Register : status_hold__i2
-   Register : mic_cfg_gap_i3
    Register : status_hold__i3
    Register : status_hold__i4
    Register : status_hold__i5
@@ -1710,16 +1415,6 @@ GSR Usage (cont)
    Register : status_hold__i21
    Register : status_hold__i22
    Register : status_hold__i23
-
-                                   Page 26
-
-
-
-
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
-
-GSR Usage (cont)
-----------------
    Register : status_hold__i24
    Register : status_hold__i25
    Register : status_hold__i26
@@ -1751,6 +1446,16 @@ GSR Usage (cont)
    Register : status_hold__i52
    Register : status_hold__i53
    Register : status_hold__i54
+
+                                   Page 22
+
+
+
+
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
+
+GSR Usage (cont)
+----------------
    Register : status_hold__i55
    Register : status_hold__i56
    Register : status_hold__i57
@@ -1765,27 +1470,64 @@ GSR Usage (cont)
    Register : status_hold__i66
    Register : status_hold__i67
    Register : status_hold__i68
+   Register : frame_settle__i1
+   Register : frame_settle__i2
+   Register : mic_gate_index__i1
+   Register : mic_gate_index__i2
+   Register : mic_gate_index__i3
+   Register : mic_gate_index__i4
+   Register : mic_gate_index__i5
+   Register : mic_gate_index__i6
+   Register : mic_xor_i_3___i2
+   Register : mic_xor_i_3___i3
+   Register : mic_xor_i_3___i4
+   Register : mic_xor_i_3___i5
+   Register : mic_xor_i_3___i6
+   Register : mic_xor_i_3___i7
+   Register : mic_xor_i_3___i8
+   Register : mic_xor_i_3___i9
+   Register : mic_xor_i_3___i10
+   Register : mic_xor_i_3___i11
+   Register : mic_xor_i_3___i12
+   Register : mic_xor_i_3___i13
+   Register : mic_xor_i_3___i14
+   Register : mic_xor_i_3___i15
+   Register : mic_xor_i_3___i16
+   Register : mic_xor_i_3___i17
+   Register : mic_xor_i_3___i18
+   Register : mic_xor_i_3___i19
+   Register : mic_xor_i_3___i20
+   Register : mic_xor_i_3___i21
+   Register : mic_xor_i_3___i22
+   Register : mic_xor_i_3___i23
+   Register : mic_xor_i_3___i24
+   Register : mic_xor_i_3___i25
+   Register : mic_xor_i_3___i26
+   Register : mic_xor_i_3___i27
+   Register : mic_xor_i_3___i28
    Register : accepted_sequence_i1
-   Register : init_shadow_i64
-   Register : mic_cfg_gap_i2
+   Register : ev_ch_i2
+   Register : ev_ch_i1
+   Register : mic_cfg_gap_i1
+   Register : init_shadow_i55
    Register : accepted_sequence_i2
    Register : accepted_sequence_i3
+
+                                   Page 23
+
+
+
+
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
+
+GSR Usage (cont)
+----------------
    Register : accepted_sequence_i4
    Register : accepted_sequence_i5
    Register : accepted_sequence_i6
    Register : accepted_sequence_i7
    Register : accepted_sequence_i8
    Register : accepted_sequence_i9
-
-                                   Page 27
-
-
-
-
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
-
-GSR Usage (cont)
-----------------
    Register : accepted_sequence_i10
    Register : accepted_sequence_i11
    Register : accepted_sequence_i12
@@ -1836,22 +1578,22 @@ GSR Usage (cont)
    Register : accepted_sequence_meta_i18
    Register : accepted_sequence_meta_i19
    Register : accepted_sequence_meta_i20
+
+                                   Page 24
+
+
+
+
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
+
+GSR Usage (cont)
+----------------
    Register : accepted_sequence_meta_i21
    Register : accepted_sequence_meta_i22
    Register : accepted_sequence_meta_i23
    Register : accepted_sequence_meta_i24
    Register : accepted_sequence_meta_i25
    Register : accepted_sequence_meta_i26
-
-                                   Page 28
-
-
-
-
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
-
-GSR Usage (cont)
-----------------
    Register : accepted_sequence_meta_i27
    Register : accepted_sequence_meta_i28
    Register : accepted_sequence_meta_i29
@@ -1902,22 +1644,22 @@ GSR Usage (cont)
    Register : build_sum_i5
    Register : build_sum_i6
    Register : build_sum_i7
+
+                                   Page 25
+
+
+
+
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
+
+GSR Usage (cont)
+----------------
    Register : build_sum_i8
    Register : ev_rd_hold_i1
    Register : ev_rd_hold_i2
    Register : ev_rd_hold_i3
    Register : ev_rd_hold_i4
    Register : ev_rd_hold_i5
-
-                                   Page 29
-
-
-
-
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
-
-GSR Usage (cont)
-----------------
    Register : ev_rd_hold_i6
    Register : ev_rd_hold_i7
    Register : ev_rd_hold_i8
@@ -1968,22 +1710,22 @@ GSR Usage (cont)
    Register : ev_rd_hold_i53
    Register : ev_rd_hold_i54
    Register : ev_rd_hold_i55
+
+                                   Page 26
+
+
+
+
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
+
+GSR Usage (cont)
+----------------
    Register : ev_rd_hold_i56
    Register : ev_rd_hold_i57
    Register : ev_rd_hold_i58
    Register : ev_rd_hold_i59
    Register : ev_rd_hold_i60
    Register : ev_rd_hold_i61
-
-                                   Page 30
-
-
-
-
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
-
-GSR Usage (cont)
-----------------
    Register : ev_rd_hold_i62
    Register : ev_rd_hold_i63
    Register : ev_rd_hold_i64
@@ -2034,22 +1776,22 @@ GSR Usage (cont)
    Register : pending_sequence_i20
    Register : pending_sequence_i21
    Register : pending_sequence_i22
+
+                                   Page 27
+
+
+
+
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
+
+GSR Usage (cont)
+----------------
    Register : pending_sequence_i23
    Register : pending_sequence_i24
    Register : pending_sequence_i25
    Register : pending_sequence_i26
    Register : pending_sequence_i27
    Register : pending_sequence_i28
-
-                                   Page 31
-
-
-
-
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
-
-GSR Usage (cont)
-----------------
    Register : pending_sequence_i29
    Register : pending_sequence_i30
    Register : pending_sequence_i31
@@ -2068,19 +1810,6 @@ GSR Usage (cont)
    Register : mic_shift_0_l_i0_i13
    Register : mic_shift_0_l_i0_i14
    Register : mic_shift_0_l_i0_i15
-   Register : mic_warm_edges__i1
-   Register : mic_warm_edges__i2
-   Register : mic_warm_edges__i3
-   Register : mic_warm_edges__i4
-   Register : mic_warm_edges__i5
-   Register : mic_warm_edges__i6
-   Register : mic_warm_edges__i7
-   Register : mic_warm_edges__i8
-   Register : mic_warm_edges__i9
-   Register : mic_warm_edges__i10
-   Register : mic_warm_edges__i11
-   Register : mic_warm_edges__i12
-   Register : mic_warm_edges__i13
    Register : mic_shift_1_l_i0_i1
    Register : mic_shift_1_l_i0_i2
    Register : mic_shift_1_l_i0_i3
@@ -2106,16 +1835,6 @@ GSR Usage (cont)
    Register : mic_shift_0_r__i9
    Register : mic_shift_0_r__i10
    Register : mic_shift_0_r__i11
-
-                                   Page 32
-
-
-
-
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
-
-GSR Usage (cont)
-----------------
    Register : mic_shift_0_r__i12
    Register : mic_shift_0_r__i13
    Register : mic_shift_0_r__i14
@@ -2123,6 +1842,16 @@ GSR Usage (cont)
    Register : mic_shift_1_r__i2
    Register : mic_shift_1_r__i3
    Register : mic_shift_1_r__i4
+
+                                   Page 28
+
+
+
+
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
+
+GSR Usage (cont)
+----------------
    Register : mic_shift_1_r__i5
    Register : mic_shift_1_r__i6
    Register : mic_shift_1_r__i7
@@ -2172,16 +1901,6 @@ GSR Usage (cont)
    Register : mic_latest_i0_i36
    Register : mic_latest_i0_i37
    Register : mic_latest_i0_i38
-
-                                   Page 33
-
-
-
-
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
-
-GSR Usage (cont)
-----------------
    Register : mic_latest_i0_i39
    Register : mic_latest_i0_i40
    Register : mic_latest_i0_i41
@@ -2189,6 +1908,16 @@ GSR Usage (cont)
    Register : mic_latest_i0_i43
    Register : mic_latest_i0_i44
    Register : mic_latest_i0_i45
+
+                                   Page 29
+
+
+
+
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
+
+GSR Usage (cont)
+----------------
    Register : mic_latest_i0_i46
    Register : mic_latest_i0_i47
    Register : mic_latest_i0_i48
@@ -2238,16 +1967,6 @@ GSR Usage (cont)
    Register : mic_win_q_3___i3
    Register : mic_win_q_3___i4
    Register : mic_win_q_3___i5
-
-                                   Page 34
-
-
-
-
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
-
-GSR Usage (cont)
-----------------
    Register : mic_win_q_3___i6
    Register : mic_win_q_3___i7
    Register : mic_win_q_3___i8
@@ -2255,6 +1974,16 @@ GSR Usage (cont)
    Register : mic_win_q_3___i10
    Register : mic_win_q_3___i11
    Register : mic_win_q_3___i12
+
+                                   Page 30
+
+
+
+
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
+
+GSR Usage (cont)
+----------------
    Register : mic_win_q_3___i13
    Register : mic_win_q_3___i14
    Register : mic_win_q_3___i15
@@ -2304,16 +2033,6 @@ GSR Usage (cont)
    Register : mic_cfg_meta_i17
    Register : mic_cfg_meta_i18
    Register : mic_cfg_meta_i19
-
-                                   Page 35
-
-
-
-
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
-
-GSR Usage (cont)
-----------------
    Register : mic_cfg_meta_i20
    Register : mic_cfg_meta_i21
    Register : mic_cfg_meta_i22
@@ -2321,6 +2040,16 @@ GSR Usage (cont)
    Register : mic_cfg_meta_i24
    Register : mic_cfg_meta_i25
    Register : mic_cfg_meta_i26
+
+                                   Page 31
+
+
+
+
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
+
+GSR Usage (cont)
+----------------
    Register : mic_cfg_meta_i27
    Register : mic_cfg_meta_i28
    Register : mic_cfg_meta_i29
@@ -2370,16 +2099,6 @@ GSR Usage (cont)
    Register : mic_cfg_sync_i28
    Register : mic_cfg_sync_i29
    Register : mic_cfg_sync_i30
-
-                                   Page 36
-
-
-
-
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
-
-GSR Usage (cont)
-----------------
    Register : mic_cfg_sync_i31
    Register : mic_cfg_sync_i32
    Register : mic_cfg_sync_i33
@@ -2387,6 +2106,16 @@ GSR Usage (cont)
    Register : mic_cfg_sync_i35
    Register : mic_cfg_sync_i36
    Register : mic_cfg_sync_i37
+
+                                   Page 32
+
+
+
+
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
+
+GSR Usage (cont)
+----------------
    Register : mic_cfg_sync_i38
    Register : mic_cfg_sync_i39
    Register : mic_cfg_sync_i40
@@ -2413,218 +2142,244 @@ GSR Usage (cont)
    Register : mic_gate_fill_i5
    Register : mic_gate_fill_i6
    Register : mic_acc_state_i1
-   Register : mic_lo_n__i1
-   Register : mic_lo_n__i2
-   Register : mic_lo_n__i3
-   Register : mic_lo_n__i4
-   Register : mic_lo_n__i5
-   Register : mic_lo_n__i6
-   Register : mic_pdm_hist_3___i2
-   Register : mic_phase_2931__i2
-   Register : mic_pdm_hist_3___i3
-   Register : mic_pdm_hist_3___i4
-   Register : mic_pdm_hist_3___i5
-   Register : mic_pdm_hist_3___i6
-   Register : mic_pdm_hist_3___i7
-   Register : mic_pdm_hist_3___i8
-   Register : mic_pdm_hist_3___i9
-   Register : mic_pdm_hist_3___i10
-   Register : mic_pdm_hist_3___i11
-   Register : mic_pdm_hist_3___i12
-   Register : mic_pdm_hist_3___i13
-   Register : mic_pdm_hist_3___i14
-   Register : mic_pdm_hist_3___i15
-   Register : mic_pdm_hist_3___i16
-   Register : mic_pdm_hist_3___i17
+   Register : ev_state_i3
+   Register : ev_state_i2
+   Register : ev_state_i1
+   Register : frame_settle__i3
+   Register : ws2812_toggle_spi_1020
+   Register : stop_toggle_spi_1019
+   Register : mic_stream_i/shift_register_i23
+   Register : mic_stream_i/bit_count_i0
+   Register : mic_stream_i/shift_register_i66
+   Register : mic_stream_i/bit_count_i2
+   Register : mic_stream_i/bit_count_i1
+   Register : mic_stream_i/shift_register_i92
+   Register : mic_stream_i/shift_register_i48
+   Register : mic_stream_i/shift_register_i1
+   Register : mic_stream_i/shift_register_i2
+   Register : mic_stream_i/shift_register_i3
+   Register : mic_stream_i/shift_register_i4
+   Register : mic_stream_i/shift_register_i5
+   Register : mic_stream_i/shift_register_i6
+   Register : mic_stream_i/shift_register_i7
+   Register : mic_stream_i/shift_register_i8
+   Register : mic_stream_i/shift_register_i9
+   Register : mic_stream_i/shift_register_i10
+   Register : mic_stream_i/shift_register_i11
+   Register : mic_stream_i/shift_register_i12
+   Register : mic_stream_i/shift_register_i13
+   Register : mic_stream_i/shift_register_i14
+   Register : mic_stream_i/shift_register_i15
+   Register : mic_stream_i/shift_register_i16
+   Register : mic_stream_i/shift_register_i17
 
-                                   Page 37
-
-
-
-
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
-
-GSR Usage (cont)
-----------------
-   Register : mic_pdm_hist_3___i18
-   Register : mic_pdm_hist_3___i19
-   Register : mic_pdm_hist_3___i20
-   Register : mic_pdm_hist_3___i21
-   Register : mic_pdm_hist_3___i22
-   Register : mic_pdm_hist_3___i23
-   Register : mic_pdm_hist_3___i24
-   Register : mic_pdm_hist_3___i25
-   Register : mic_pdm_hist_3___i26
-   Register : mic_pdm_hist_3___i27
-   Register : mic_pdm_hist_3___i28
-   Register : mic_pdm_hist_3___i29
-   Register : mic_pdm_hist_3___i30
-   Register : mic_pdm_hist_3___i31
-   Register : mic_pdm_hist_3___i32
-   Register : mic_pdm_hist_3___i33
-   Register : mic_pdm_hist_3___i34
-   Register : mic_pdm_hist_3___i35
-   Register : mic_pdm_hist_3___i36
-   Register : mic_pdm_hist_3___i37
-   Register : mic_pdm_hist_3___i38
-   Register : mic_pdm_hist_3___i39
-   Register : mic_pdm_hist_3___i40
-   Register : mic_pdm_hist_3___i41
-   Register : mic_pdm_hist_3___i42
-   Register : mic_pdm_hist_3___i43
-   Register : mic_pdm_hist_3___i44
-   Register : mic_pdm_hist_3___i45
-   Register : mic_pdm_hist_3___i46
-   Register : mic_pdm_hist_3___i47
-   Register : mic_pdm_hist_3___i48
-   Register : mic_pdm_hist_3___i49
-   Register : mic_pdm_hist_3___i50
-   Register : mic_pdm_hist_3___i51
-   Register : mic_pdm_hist_3___i52
-   Register : mic_pdm_hist_3___i53
-   Register : mic_pdm_hist_3___i54
-   Register : mic_pdm_hist_3___i55
-   Register : mic_pdm_hist_3___i56
-   Register : mic_pdm_hist_3___i57
-   Register : mic_pdm_hist_3___i58
-   Register : mic_pdm_hist_3___i59
-   Register : mic_pdm_hist_3___i60
-   Register : mic_pdm_hist_3___i61
-   Register : mic_pdm_hist_3___i62
-   Register : mic_pdm_hist_3___i63
-   Register : mic_pdm_hist_3___i64
-   Register : mic_pdm_hist_3___i65
-   Register : mic_pdm_hist_3___i66
-   Register : mic_pdm_hist_3___i67
-   Register : mic_pdm_hist_3___i68
-   Register : mic_pdm_hist_3___i69
-   Register : mic_pdm_hist_3___i70
-   Register : mic_pdm_hist_3___i71
-   Register : mic_pdm_hist_3___i72
-   Register : mic_pdm_hist_3___i73
-
-                                   Page 38
+                                   Page 33
 
 
 
 
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
 
 GSR Usage (cont)
 ----------------
-   Register : mic_pdm_hist_3___i74
-   Register : mic_pdm_hist_3___i75
-   Register : mic_pdm_hist_3___i76
-   Register : mic_pdm_hist_3___i77
-   Register : mic_pdm_hist_3___i78
-   Register : mic_pdm_hist_3___i79
-   Register : mic_pdm_hist_3___i80
-   Register : mic_pdm_hist_3___i81
-   Register : mic_pdm_hist_3___i82
-   Register : mic_pdm_hist_3___i83
-   Register : mic_pdm_hist_3___i84
-   Register : mic_pdm_hist_3___i85
-   Register : mic_pdm_hist_3___i86
-   Register : mic_pdm_hist_3___i87
-   Register : mic_pdm_hist_3___i88
-   Register : mic_pdm_hist_3___i89
-   Register : mic_pdm_hist_3___i90
-   Register : mic_pdm_hist_3___i91
-   Register : mic_pdm_hist_3___i92
-   Register : mic_pdm_hist_3___i93
-   Register : mic_pdm_hist_3___i94
-   Register : mic_pdm_hist_3___i95
-   Register : mic_pdm_hist_3___i96
-   Register : mic_pdm_hist_3___i97
-   Register : mic_pdm_hist_3___i98
-   Register : mic_pdm_hist_3___i99
-   Register : mic_pdm_hist_3___i100
-   Register : mic_pdm_hist_3___i101
-   Register : mic_pdm_hist_3___i102
-   Register : mic_pdm_hist_3___i103
-   Register : mic_pdm_hist_3___i104
-   Register : mic_pdm_hist_3___i105
-   Register : mic_pdm_hist_3___i106
-   Register : mic_pdm_hist_3___i107
-   Register : mic_pdm_hist_3___i108
-   Register : mic_pdm_hist_3___i109
-   Register : mic_pdm_hist_3___i110
-   Register : mic_pdm_hist_3___i111
-   Register : mic_pdm_hist_3___i112
-   Register : mic_pdm_hist_3___i113
-   Register : mic_pdm_hist_3___i114
-   Register : mic_pdm_hist_3___i115
-   Register : mic_pdm_hist_3___i116
-   Register : mic_pdm_hist_3___i117
-   Register : mic_pdm_hist_3___i118
-   Register : mic_pdm_hist_3___i119
-   Register : mic_pdm_hist_3___i120
-   Register : mic_pdm_hist_3___i121
-   Register : mic_pdm_hist_3___i122
-   Register : mic_pdm_hist_3___i123
-   Register : mic_pdm_hist_3___i124
-   Register : mic_pdm_hist_3___i125
-   Register : mic_pdm_hist_3___i126
-   Register : mic_pdm_hist_3___i127
-   Register : mic_pdm_hist_3___i128
-   Register : mic_pdm_hist_3___i129
+   Register : mic_stream_i/shift_register_i18
+   Register : mic_stream_i/shift_register_i25
+   Register : mic_stream_i/shift_register_i26
+   Register : mic_stream_i/shift_register_i27
+   Register : mic_stream_i/shift_register_i28
+   Register : mic_stream_i/shift_register_i29
+   Register : mic_stream_i/shift_register_i30
+   Register : mic_stream_i/shift_register_i31
+   Register : mic_stream_i/shift_register_i32
+   Register : mic_stream_i/shift_register_i33
+   Register : mic_stream_i/shift_register_i34
+   Register : mic_stream_i/shift_register_i35
+   Register : mic_stream_i/shift_register_i36
+   Register : mic_stream_i/shift_register_i37
+   Register : mic_stream_i/shift_register_i38
+   Register : mic_stream_i/shift_register_i39
+   Register : mic_stream_i/shift_register_i40
+   Register : mic_stream_i/shift_register_i42
+   Register : mic_stream_i/shift_register_i49
+   Register : mic_stream_i/shift_register_i50
+   Register : mic_stream_i/shift_register_i51
+   Register : mic_stream_i/shift_register_i52
+   Register : mic_stream_i/shift_register_i53
+   Register : mic_stream_i/shift_register_i54
+   Register : mic_stream_i/shift_register_i55
+   Register : mic_stream_i/shift_register_i56
+   Register : mic_stream_i/shift_register_i57
+   Register : mic_stream_i/shift_register_i58
+   Register : mic_stream_i/shift_register_i59
+   Register : mic_stream_i/shift_register_i60
+   Register : mic_stream_i/shift_register_i61
+   Register : mic_stream_i/shift_register_i62
+   Register : mic_stream_i/shift_register_i63
+   Register : mic_stream_i/shift_register_i64
+   Register : mic_stream_i/shift_register_i65
+   Register : mic_stream_i/shift_register_i73
+   Register : mic_stream_i/shift_register_i74
+   Register : mic_stream_i/shift_register_i75
+   Register : mic_stream_i/shift_register_i76
+   Register : mic_stream_i/shift_register_i77
+   Register : mic_stream_i/shift_register_i78
+   Register : mic_stream_i/shift_register_i79
+   Register : mic_stream_i/shift_register_i80
+   Register : mic_stream_i/shift_register_i81
+   Register : mic_stream_i/shift_register_i82
+   Register : mic_stream_i/shift_register_i83
+   Register : mic_stream_i/shift_register_i84
+   Register : mic_stream_i/shift_register_i85
+   Register : mic_stream_i/shift_register_i86
+   Register : mic_stream_i/shift_register_i87
+   Register : mic_stream_i/shift_register_i88
+   Register : mic_stream_i/shift_register_i22
+   Register : mic_stream_i/shift_register_i21
+   Register : mic_stream_i/shift_register_i20
+   Register : mic_stream_i/shift_register_i91
+   Register : mic_stream_i/shift_register_i47
 
-                                   Page 39
-
-
+                                   Page 34
 
 
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
+
+
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
 
 GSR Usage (cont)
 ----------------
-   Register : mic_pdm_hist_3___i130
-   Register : mic_pdm_hist_3___i131
-   Register : mic_pdm_hist_3___i132
-   Register : mic_pdm_hist_3___i133
-   Register : mic_pdm_hist_3___i134
-   Register : mic_pdm_hist_3___i135
-   Register : mic_pdm_hist_3___i136
-   Register : mic_pdm_hist_3___i137
-   Register : mic_pdm_hist_3___i138
-   Register : mic_pdm_hist_3___i139
-   Register : mic_pdm_hist_3___i140
-   Register : mic_pdm_hist_3___i141
-   Register : mic_pdm_hist_3___i142
-   Register : mic_pdm_hist_3___i143
-   Register : mic_pdm_hist_3___i144
-   Register : mic_pdm_hist_3___i145
-   Register : mic_pdm_hist_3___i146
-   Register : mic_pdm_hist_3___i147
-   Register : mic_pdm_hist_3___i148
-   Register : mic_pdm_hist_3___i149
-   Register : mic_pdm_hist_3___i150
-   Register : mic_pdm_hist_3___i151
-   Register : mic_pdm_hist_3___i152
-   Register : mic_pdm_hist_3___i153
-   Register : mic_pdm_hist_3___i154
-   Register : mic_pdm_hist_3___i155
-   Register : mic_pdm_hist_3___i156
-   Register : mic_pdm_hist_3___i157
-   Register : mic_pdm_hist_3___i158
-   Register : mic_pdm_hist_3___i159
-   Register : mic_pdm_hist_3___i160
-   Register : init_shadow_i63
+   Register : mic_stream_i/shift_register_i90
+   Register : mic_stream_i/shift_register_i46
+   Register : mic_stream_i/shift_register_i45
+   Register : mic_stream_i/shift_register_i44
+   Register : mic_stream_i/shift_register_i89
+   Register : mic_stream_i/shift_register_i43
+   Register : mic_stream_i/shift_register_i41
+   Register : mic_stream_i/shift_register_i72
+   Register : mic_stream_i/shift_register_i24
+   Register : mic_stream_i/shift_register_i71
+   Register : mic_stream_i/shift_register_i70
+   Register : mic_stream_i/shift_register_i19
+   Register : mic_stream_i/shift_register_i69
+   Register : mic_stream_i/bit_count_i6
+   Register : mic_stream_i/shift_register_i68
+   Register : mic_stream_i/bit_count_i5
+   Register : mic_stream_i/bit_count_i4
+   Register : mic_stream_i/shift_register_i67
+   Register : mic_stream_i/shift_register_i95
+   Register : mic_stream_i/shift_register_i94
+   Register : mic_stream_i/bit_count_i3
+   Register : mic_stream_i/shift_register_i93
+   Register : us_tx__i2
+   Register : init_shadow_i54
+   Register : us_tx__i3
+   Register : us_tx__i4
+   Register : us_tx__i5
+   Register : us_tx__i6
+   Register : us_tx__i7
+   Register : us_tx__i8
+   Register : us_tx__i9
+   Register : us_tx__i10
+   Register : us_tx__i11
+   Register : us_tx__i12
+   Register : us_tx__i13
+   Register : us_tx__i14
+   Register : us_tx__i15
+   Register : us_tx__i16
+   Register : us_tx__i17
+   Register : us_tx__i18
+   Register : us_tx__i19
+   Register : us_tx__i20
+   Register : us_tx__i21
+   Register : us_tx__i22
+   Register : us_tx__i23
+   Register : us_tx__i24
+   Register : us_tx__i25
+   Register : us_tx__i26
+   Register : us_tx__i27
+   Register : us_tx__i28
+   Register : us_tx__i29
+   Register : us_tx__i30
+   Register : us_tx__i31
+   Register : us_tx__i32
+   Register : us_tx__i33
+   Register : us_tx__i34
+
+                                   Page 35
+
+
+
+
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
+
+GSR Usage (cont)
+----------------
+   Register : us_tx__i35
+   Register : us_tx__i36
+   Register : us_tx__i37
+   Register : us_tx__i38
+   Register : us_tx__i39
+   Register : us_tx__i40
+   Register : us_tx__i41
+   Register : us_tx__i42
+   Register : us_tx__i43
+   Register : us_tx__i44
+   Register : us_tx__i45
+   Register : us_tx__i46
+   Register : us_tx__i47
+   Register : us_tx__i48
+   Register : us_tx__i49
+   Register : us_tx__i50
+   Register : us_tx__i51
+   Register : us_tx__i52
+   Register : us_tx__i53
+   Register : us_tx__i54
+   Register : us_tx__i55
+   Register : us_tx__i56
+   Register : us_tx__i57
+   Register : us_tx__i58
+   Register : us_tx__i59
+   Register : us_tx__i60
+   Register : us_tx__i61
+   Register : us_tx__i62
+   Register : us_tx__i63
+   Register : us_tx__i64
+   Register : us_tx__i65
+   Register : us_tx__i66
+   Register : us_tx__i67
+   Register : us_tx__i68
+   Register : us_tx__i69
+   Register : us_tx__i70
+   Register : us_tx__i71
+   Register : us_tx__i72
+   Register : us_tx__i73
+   Register : us_tx__i74
+   Register : us_tx__i75
+   Register : us_tx__i76
+   Register : us_tx__i77
+   Register : us_tx__i78
+   Register : us_tx__i79
+   Register : us_tx__i80
+   Register : us_tx__i81
+   Register : us_tx__i82
+   Register : us_tx__i83
+   Register : us_tx__i84
    Register : mic_acc_gate__i2
    Register : mic_acc_gate__i3
    Register : mic_acc_gate__i4
    Register : mic_acc_gate__i5
    Register : mic_acc_gate__i6
-   Register : init_shadow_i62
-   Register : init_shadow_i61
-   Register : init_shadow_i60
-   Register : init_shadow_i59
-   Register : init_shadow_i58
-   Register : init_shadow_i57
-   Register : init_shadow_i56
-   Register : init_shadow_i55
-   Register : init_shadow_i54
    Register : init_shadow_i53
+
+                                   Page 36
+
+
+
+
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
+
+GSR Usage (cont)
+----------------
    Register : init_shadow_i52
    Register : init_shadow_i51
    Register : init_shadow_i50
@@ -2634,16 +2389,6 @@ GSR Usage (cont)
    Register : init_shadow_i46
    Register : init_shadow_i45
    Register : init_shadow_i44
-
-                                   Page 40
-
-
-
-
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
-
-GSR Usage (cont)
-----------------
    Register : init_shadow_i43
    Register : init_shadow_i42
    Register : init_shadow_i41
@@ -2667,11 +2412,23 @@ GSR Usage (cont)
    Register : init_shadow_i23
    Register : init_shadow_i22
    Register : init_shadow_i21
+   Register : init_shadow_i20
+   Register : init_shadow_i19
+   Register : init_shadow_i18
+   Register : init_shadow_i17
+   Register : init_shadow_i16
+   Register : init_shadow_i15
+   Register : init_shadow_i14
    Register : init_shadow_i13
-   Register : mic_cfg_gap_i1
-   Register : ev_run_hold_s5_i0_i1
    Register : init_shadow_i12
-   Register : mic_cfg_count_i5
+   Register : init_shadow_i11
+   Register : init_shadow_i10
+   Register : init_shadow_i9
+   Register : init_shadow_i8
+   Register : init_shadow_i7
+   Register : ev_run_hold_s5_i0_i1
+   Register : init_shadow_i6
+   Register : mic_block_count_2755__i12
    Register : ev_run_hold_s5_i0_i2
    Register : ev_run_hold_s5_i0_i3
    Register : ev_run_hold_s5_i0_i4
@@ -2679,6 +2436,16 @@ GSR Usage (cont)
    Register : ev_run_hold_s5_i0_i6
    Register : ev_run_hold_s5_i0_i7
    Register : ev_run_hold_s5_i0_i8
+
+                                   Page 37
+
+
+
+
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
+
+GSR Usage (cont)
+----------------
    Register : ev_run_hold_s5_i0_i9
    Register : ev_run_hold_s5_i0_i10
    Register : ev_run_hold_s5_i0_i11
@@ -2700,16 +2467,6 @@ GSR Usage (cont)
    Register : ev_run_hold_s5_i0_i27
    Register : ev_run_hold_s5_i0_i28
    Register : ev_run_hold_s5_i0_i29
-
-                                   Page 41
-
-
-
-
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
-
-GSR Usage (cont)
-----------------
    Register : ev_run_hold_s5_i0_i30
    Register : ev_run_hold_s5_i0_i31
    Register : ev_run_hold_s5_i0_i32
@@ -2745,6 +2502,16 @@ GSR Usage (cont)
    Register : ev_run_hold_s5_i0_i62
    Register : ev_run_hold_s5_i0_i63
    Register : ev_run_hold_s5_i0_i64
+
+                                   Page 38
+
+
+
+
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
+
+GSR Usage (cont)
+----------------
    Register : ev_run_hold_s5_i0_i65
    Register : ev_run_hold_s5_i0_i66
    Register : ev_run_hold_s5_i0_i67
@@ -2764,234 +2531,189 @@ GSR Usage (cont)
    Register : ev_run_hold_s5_i0_i81
    Register : ev_run_hold_s5_i0_i82
    Register : ev_run_hold_s5_i0_i83
+   Register : mic_cfg_count_i5
    Register : mic_cfg_count_i4
    Register : mic_cfg_count_i3
+   Register : mic_cfg_count_i2
+   Register : mic_sample_count_2751__i1
+   Register : mic_sample_count_2751__i2
+   Register : mic_sample_count_2751__i3
+   Register : mic_sample_count_2751__i4
+   Register : mic_lo_q_r_1082
+   Register : mic_bc_valid_1084
+   Register : mic_cfg_toggle_spi_1021
+   Register : mic_block_count_2755__i11
+   Register : mic_block_count_2755__i10
+   Register : mic_cfg_count_i1
+   Register : mic_lo_i_r_1081
+   Register : mic_lo_n_i6
+   Register : mic_block_count_2755__i0
+   Register : mic_lo_n_i5
+   Register : mic_lo_n_i4
+   Register : mic_window_count_2753__i0
+   Register : mic_lo_n_i3
+   Register : mic_lo_n_i2
+   Register : mic_phase_2750__i0
+   Register : mic_clock_reg_1074
+   Register : mic_block_count_2755__i9
+   Register : mic_block_count_2755__i8
+   Register : wrap_s2_1026
+   Register : mic_block_count_2755__i7
+   Register : mic_block_count_2755__i6
+   Register : mic_block_count_2755__i5
+   Register : mic_block_count_2755__i4
+   Register : mic_block_count_2755__i3
+   Register : mic_block_count_2755__i2
+   Register : mic_block_count_2755__i1
+   Register : mic_window_count_2753__i6
+   Register : mic_window_count_2753__i5
+   Register : ws2812_settle_i0_i1
 
-                                   Page 42
+                                   Page 39
 
 
 
 
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
 
 GSR Usage (cont)
 ----------------
-   Register : mic_phase_2931__i3
-   Register : mic_cfg_count_i2
-   Register : mic_cfg_count_i1
-   Register : ws2812_toggle_spi_1180
-   Register : stop_toggle_spi_1179
-   Register : mic_lo_i_d40_r_1243
-   Register : mic_bc_valid_1246
-   Register : mic_ram_wr_data_i0_i0
-   Register : mic_gate_fill_i0
-   Register : mic_cfg_toggle_spi_1181
-   Register : mic_lo_q_r_1242
-   Register : mic_lo_i_r_1241
-   Register : mic_warm_half_2930__i0
-   Register : mic_warm_half_2930__i7
-   Register : mic_warm_half_2930__i6
-   Register : mic_warm_half_2930__i5
-   Register : mic_warm_half_2930__i4
-   Register : mic_warm_half_2930__i3
-   Register : mic_block_count_2935__i15
-   Register : mic_block_count_2935__i14
-   Register : mic_warm_half_2930__i2
-   Register : mic_block_count_2935__i13
-   Register : mic_run_state_i0
-   Register : mic_cfg_gap_i0
-   Register : ws2812_settle_i0_i1
-   Register : mic_block_count_2935__i12
-   Register : ws2812_settle_i0_i2
-   Register : mic_block_count_2935__i11
-   Register : mic_block_count_2935__i10
-   Register : mic_block_count_2935__i9
-   Register : mic_warm_half_2930__i1
-   Register : mic_block_count_2935__i8
-   Register : mic_block_count_2935__i7
-   Register : mic_block_count_2935__i6
-   Register : mic_block_count_2935__i5
-   Register : ws2812_settle_i0_i3
-   Register : mic_block_count_2935__i4
-   Register : mic_clock_reg_1234
-   Register : wrap_s2_1186
-   Register : mic_block_count_2935__i3
-   Register : mic_block_count_2935__i0
-   Register : mic_block_count_2935__i2
-   Register : mic_warm_1235
-   Register : ev_clear_addr_i0
    Register : init_shadow_i0
-   Register : ev_state_i0
-   Register : mic_block_count_2935__i1
-   Register : mic_bc_fill_2933__i0
+   Register : mem_2969
+   Register : ws2812_settle_i0_i2
+   Register : mic_window_count_2753__i4
+   Register : mic_window_count_2753__i3
+   Register : mic_window_count_2753__i2
+   Register : ws2812_settle_i0_i3
+   Register : mic_window_count_2753__i1
+   Register : mic_lo_n_i1
+   Register : mic_lo_n_i0
+   Register : mic_ram_wr_data_i0_i0
+   Register : phase_step_s4_1034_rep_500
+   Register : mic_gate_fill_i0
+   Register : mic_cfg_gap_i0
+   Register : mic_phase_2750__i3
+   Register : mic_warm_half_2749__i0
    Register : mic_cfg_gap_i15
    Register : mic_cfg_gap_i14
-   Register : mic_phase_2931__i0
    Register : mic_cfg_gap_i13
-   Register : init_shadow_i20
-   Register : init_shadow_i19
-   Register : global_phase_s2_2926__i1
-   Register : global_phase_s2_2926__i2
-
-                                   Page 43
-
-
-
-
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
-
-GSR Usage (cont)
-----------------
-   Register : global_phase_s2_2926__i3
-   Register : global_phase_s2_2926__i4
-   Register : global_phase_s2_2926__i5
-   Register : global_phase_s2_2926__i6
-   Register : global_phase_s2_2926__i7
-   Register : fpga_time_2927__i1
-   Register : fpga_time_2927__i2
-   Register : fpga_time_2927__i3
-   Register : fpga_time_2927__i4
-   Register : fpga_time_2927__i5
-   Register : fpga_time_2927__i6
-   Register : fpga_time_2927__i7
-   Register : fpga_time_2927__i8
-   Register : fpga_time_2927__i9
-   Register : fpga_time_2927__i10
-   Register : fpga_time_2927__i11
-   Register : fpga_time_2927__i12
-   Register : fpga_time_2927__i13
-   Register : fpga_time_2927__i14
-   Register : fpga_time_2927__i15
-   Register : fpga_time_2927__i16
-   Register : fpga_time_2927__i17
-   Register : fpga_time_2927__i18
-   Register : fpga_time_2927__i19
-   Register : fpga_time_2927__i20
-   Register : fpga_time_2927__i21
-   Register : fpga_time_2927__i22
-   Register : fpga_time_2927__i23
-   Register : fpga_time_2927__i24
-   Register : fpga_time_2927__i25
-   Register : fpga_time_2927__i26
-   Register : fpga_time_2927__i27
-   Register : fpga_time_2927__i28
-   Register : fpga_time_2927__i29
-   Register : fpga_time_2927__i30
-   Register : fpga_time_2927__i31
-   Register : time_divider_2928__i1
-   Register : time_divider_2928__i2
-   Register : time_divider_2928__i3
-   Register : time_divider_2928__i4
-   Register : time_divider_2928__i5
-   Register : time_divider_2928__i6
-   Register : mic_boot_count_2929__i1
-   Register : mic_boot_count_2929__i2
-   Register : mic_boot_count_2929__i3
-   Register : mic_boot_count_2929__i4
-   Register : mic_boot_count_2929__i5
-   Register : mic_boot_count_2929__i6
-   Register : mic_boot_count_2929__i7
-   Register : mic_boot_count_2929__i8
-   Register : mic_boot_count_2929__i9
-   Register : mic_boot_count_2929__i10
-   Register : mic_boot_count_2929__i11
-   Register : mic_boot_count_2929__i12
-   Register : mic_boot_count_2929__i13
-   Register : mic_boot_count_2929__i14
-
-                                   Page 44
-
-
-
-
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
-
-GSR Usage (cont)
-----------------
-   Register : mic_boot_count_2929__i15
-   Register : mic_boot_count_2929__i16
-   Register : mic_boot_count_2929__i17
-   Register : mic_boot_count_2929__i18
-   Register : mic_boot_count_2929__i19
-   Register : mic_boot_count_2929__i20
-   Register : mic_boot_count_2929__i21
-   Register : mic_boot_count_2929__i22
-   Register : mic_boot_count_2929__i23
-   Register : mic_boot_count_2929__i24
-   Register : mic_boot_count_2929__i25
-   Register : mic_boot_count_2929__i26
-   Register : mic_boot_count_2929__i27
-   Register : mic_boot_count_2929__i28
-   Register : mic_boot_count_2929__i29
-   Register : mic_boot_count_2929__i30
-   Register : mic_boot_count_2929__i31
-   Register : mem_3199
    Register : mic_cfg_gap_i12
-   Register : init_shadow_i18
-   Register : init_shadow_i17
-   Register : init_shadow_i16
-   Register : init_shadow_i15
-   Register : phase_step_s4_1194_rep_490
-   Register : init_shadow_i14
-   Register : staging_ram/mem_3193
-   Register : staging_ram/mem_3195
-   Register : staging_ram/rd_data_i0
-   Register : staging_ram/mem_3187
-   Register : staging_ram/mem_3185
-   Register : staging_ram/mem_3183
-   Register : staging_ram/mem_3191
-   Register : staging_ram/mem_3189
-   Register : staging_ram/rd_data_i1
-   Register : staging_ram/rd_data_i2
-   Register : staging_ram/rd_data_i3
-   Register : staging_ram/rd_data_i4
-   Register : staging_ram/rd_data_i5
-   Register : staging_ram/rd_data_i6
-   Register : staging_ram/rd_data_i7
-   Register : staging_ram/rd_data_i8
-   Register : staging_ram/rd_data_i9
-   Register : staging_ram/rd_data_i10
-   Register : staging_ram/rd_data_i11
-   Register : staging_ram/rd_data_i12
-   Register : staging_ram/rd_data_i13
-   Register : staging_ram/rd_data_i14
-   Register : staging_ram/rd_data_i15
    Register : mic_cfg_gap_i11
    Register : mic_cfg_gap_i10
-   Register : phase_step_s4_1194_rep_489
-   Register : ws2812_i/state__i0
-   Register : ws2812_i/reset_count__i15
-   Register : ws2812_i/reset_count__i14
-   Register : ws2812_i/reset_count__i13
-   Register : ws2812_i/reset_count__i12
+   Register : mic_run_state_i0
+   Register : ev_state_i0
+   Register : mic_cfg_gap_i9
+   Register : global_phase_s2_2745__i1
+   Register : global_phase_s2_2745__i2
+   Register : global_phase_s2_2745__i3
+   Register : global_phase_s2_2745__i4
+   Register : global_phase_s2_2745__i5
+   Register : global_phase_s2_2745__i6
+   Register : global_phase_s2_2745__i7
+   Register : fpga_time_2746__i1
+   Register : fpga_time_2746__i2
+   Register : fpga_time_2746__i3
+   Register : fpga_time_2746__i4
+   Register : fpga_time_2746__i5
+   Register : fpga_time_2746__i6
+   Register : fpga_time_2746__i7
+   Register : fpga_time_2746__i8
+   Register : fpga_time_2746__i9
+   Register : fpga_time_2746__i10
+   Register : fpga_time_2746__i11
+   Register : fpga_time_2746__i12
+   Register : fpga_time_2746__i13
+   Register : fpga_time_2746__i14
+   Register : fpga_time_2746__i15
+   Register : fpga_time_2746__i16
+   Register : fpga_time_2746__i17
+   Register : fpga_time_2746__i18
+   Register : fpga_time_2746__i19
+   Register : fpga_time_2746__i20
+   Register : fpga_time_2746__i21
+   Register : fpga_time_2746__i22
+   Register : fpga_time_2746__i23
+   Register : fpga_time_2746__i24
 
-                                   Page 45
+                                   Page 40
 
 
 
 
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
 
 GSR Usage (cont)
 ----------------
-   Register : ws2812_i/reset_count__i11
-   Register : ws2812_i/reset_count__i10
-   Register : ws2812_i/reset_count__i9
-   Register : ws2812_i/reset_count__i8
-   Register : ws2812_i/reset_count__i7
-   Register : ws2812_i/reset_count__i6
-   Register : ws2812_i/reset_count__i5
-   Register : ws2812_i/reset_count__i4
-   Register : ws2812_i/reset_count__i3
-   Register : ws2812_i/reset_count__i2
-   Register : ws2812_i/reset_count__i1
+   Register : fpga_time_2746__i25
+   Register : fpga_time_2746__i26
+   Register : fpga_time_2746__i27
+   Register : fpga_time_2746__i28
+   Register : fpga_time_2746__i29
+   Register : fpga_time_2746__i30
+   Register : fpga_time_2746__i31
+   Register : phase_step_s4_1034_rep_499
+   Register : time_divider_2747__i1
+   Register : time_divider_2747__i2
+   Register : time_divider_2747__i3
+   Register : time_divider_2747__i4
+   Register : time_divider_2747__i5
+   Register : time_divider_2747__i6
+   Register : mic_boot_count_2748__i1
+   Register : mic_boot_count_2748__i2
+   Register : mic_boot_count_2748__i3
+   Register : mic_boot_count_2748__i4
+   Register : mic_boot_count_2748__i5
+   Register : mic_boot_count_2748__i6
+   Register : mic_boot_count_2748__i7
+   Register : mic_boot_count_2748__i8
+   Register : mic_boot_count_2748__i9
+   Register : mic_boot_count_2748__i10
+   Register : mic_boot_count_2748__i11
+   Register : mic_boot_count_2748__i12
+   Register : mic_boot_count_2748__i13
+   Register : mic_boot_count_2748__i14
+   Register : mic_boot_count_2748__i15
+   Register : mic_boot_count_2748__i16
+   Register : mic_boot_count_2748__i17
+   Register : mic_boot_count_2748__i18
+   Register : mic_boot_count_2748__i19
+   Register : mic_boot_count_2748__i20
+   Register : mic_boot_count_2748__i21
+   Register : mic_boot_count_2748__i22
+   Register : mic_boot_count_2748__i23
+   Register : mic_boot_count_2748__i24
+   Register : mic_boot_count_2748__i25
+   Register : mic_boot_count_2748__i26
+   Register : mic_boot_count_2748__i27
+   Register : mic_boot_count_2748__i28
+   Register : mic_boot_count_2748__i29
+   Register : mic_boot_count_2748__i30
+   Register : mic_boot_count_2748__i31
+   Register : mic_warm_1075
+   Register : mic_phase_2750__i2
+   Register : mic_cfg_gap_i8
+   Register : mic_cfg_gap_i7
+   Register : mic_phase_2750__i1
+   Register : ev_clear_addr_i0
+   Register : mic_cfg_gap_i6
    Register : ws2812_i/bit_cell_count_i0_i7
    Register : ws2812_i/bit_cell_count_i0_i6
    Register : ws2812_i/bit_cell_count_i0_i5
    Register : ws2812_i/bit_cell_count_i0_i4
+
+                                   Page 41
+
+
+
+
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
+
+GSR Usage (cont)
+----------------
    Register : ws2812_i/bit_cell_count_i0_i3
    Register : ws2812_i/bit_cell_count_i0_i2
    Register : ws2812_i/bit_cell_count_i0_i1
+   Register : ws2812_i/state__i0
    Register : ws2812_i/state__i1
    Register : ws2812_i/shift_register_i0_i1
    Register : ws2812_i/shift_register_i0_i2
@@ -3016,33 +2738,71 @@ GSR Usage (cont)
    Register : ws2812_i/shift_register_i0_i21
    Register : ws2812_i/shift_register_i0_i22
    Register : ws2812_i/shift_register_i0_i23
-   Register : ws2812_i/shift_register_i0_i0
-   Register : ws2812_i/bit_cell_count_i0_i0
-   Register : ws2812_i/data_out_reg_46
    Register : ws2812_i/bit_number_i0_i4
    Register : ws2812_i/bit_number_i0_i3
-   Register : ws2812_i/bit_number_i0_i0
-   Register : ws2812_i/reset_count__i0
    Register : ws2812_i/bit_number_i0_i2
    Register : ws2812_i/bit_number_i0_i1
-   Register : phase_step_s4_1194_rep_478
-   PDPW8KC : event_ram/mem1
-   PDPW8KC : event_ram/mem3
-   PDPW8KC : event_ram/mem2
-   PDPW8KC : event_ram/mem4
+   Register : ws2812_i/reset_count__i15
+   Register : ws2812_i/reset_count__i14
+   Register : ws2812_i/reset_count__i13
+   Register : ws2812_i/reset_count__i12
+   Register : ws2812_i/reset_count__i11
+   Register : ws2812_i/reset_count__i10
+   Register : ws2812_i/reset_count__i9
+   Register : ws2812_i/reset_count__i8
+   Register : ws2812_i/reset_count__i7
+   Register : ws2812_i/reset_count__i6
+   Register : ws2812_i/reset_count__i5
+   Register : ws2812_i/bit_number_i0_i0
+   Register : ws2812_i/reset_count__i4
+   Register : ws2812_i/reset_count__i3
+   Register : ws2812_i/shift_register_i0_i0
+   Register : ws2812_i/bit_cell_count_i0_i0
+   Register : ws2812_i/reset_count__i0
+   Register : ws2812_i/data_out_reg_46
+   Register : ws2812_i/reset_count__i2
+   Register : ws2812_i/reset_count__i1
+   Register : mic_cfg_gap_i5
+   Register : staging_ram/mem_2963
+   Register : staging_ram/mem_2965
+   Register : staging_ram/rd_data_i0
 
-                                   Page 46
+                                   Page 42
 
 
 
 
-Design:  umh_fpga_top                                  Date:  09/16/26  17:16:52
+Design:  umh_fpga_top                                  Date:  09/16/26  20:40:36
 
 GSR Usage (cont)
 ----------------
+   Register : staging_ram/mem_2957
+   Register : staging_ram/mem_2955
+   Register : staging_ram/mem_2953
+   Register : staging_ram/mem_2961
+   Register : staging_ram/mem_2959
+   Register : staging_ram/rd_data_i1
+   Register : staging_ram/rd_data_i2
+   Register : staging_ram/rd_data_i3
+   Register : staging_ram/rd_data_i4
+   Register : staging_ram/rd_data_i5
+   Register : staging_ram/rd_data_i6
+   Register : staging_ram/rd_data_i7
+   Register : staging_ram/rd_data_i8
+   Register : staging_ram/rd_data_i9
+   Register : staging_ram/rd_data_i10
+   Register : staging_ram/rd_data_i11
+   Register : staging_ram/rd_data_i12
+   Register : staging_ram/rd_data_i13
+   Register : staging_ram/rd_data_i14
+   Register : staging_ram/rd_data_i15
+   PDPW8KC : event_ram/mem1
+   PDPW8KC : event_ram/mem3
+   PDPW8KC : event_ram/mem2
    PDPW8KC : event_ram/mem0
-   PDPW8KC : staging_ram/mem0
+   PDPW8KC : event_ram/mem4
    PDPW8KC : mic_iq_ram/mem0
+   PDPW8KC : staging_ram/mem0
 
      Components with synchronous local reset also reset by asynchronous GSR
 ----------------------------------------------------------------------
@@ -3056,15 +2816,15 @@ GSR Usage (cont)
    Register = 2 
 
      Type and instance name of component: 
-   Register : spi_channel_field_2923__i0
-   Register : spi_channel_field_2923__i1
+   Register : spi_channel_field_2742__i0
+   Register : spi_channel_field_2742__i1
 
 Run Time and Memory Usage
 -------------------------
 
    Total CPU Time: 0 secs  
-   Total REAL Time: 2 secs  
-   Peak Memory Usage: 65 MB
+   Total REAL Time: 0 secs  
+   Peak Memory Usage: 63 MB
         
 
 
@@ -3073,31 +2833,7 @@ Run Time and Memory Usage
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-                                   Page 47
+                                   Page 43
 
 
 Copyright (c) 1991-1994 by NeoCAD Inc. All rights reserved.

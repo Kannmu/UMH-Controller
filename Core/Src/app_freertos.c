@@ -139,7 +139,7 @@ static const osThreadAttr_t ui_task_attributes = {
   .priority = osPriorityBelowNormal
 };
 static StaticTask_t calibration_task_cb;
-static StackType_t calibration_task_stack[768];
+static StackType_t calibration_task_stack[1024];
 static const osThreadAttr_t calibration_task_attributes = {
   .name = "cal", .cb_mem = &calibration_task_cb, .cb_size = sizeof(calibration_task_cb),
   .stack_mem = calibration_task_stack, .stack_size = sizeof(calibration_task_stack),

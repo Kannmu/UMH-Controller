@@ -19,6 +19,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "fmac.h"
+#include <string.h>
 
 /* USER CODE BEGIN 0 */
 
@@ -143,5 +144,82 @@ void HAL_FMAC_MspDeInit(FMAC_HandleTypeDef* fmacHandle)
 
 /* USER CODE BEGIN 1 */
 
-/* USER CODE END 1 */
+volatile uint16_t umh_fmac_debug_output_size;
+volatile int16_t umh_fmac_debug_last_output;
 
+/* One-shot Q1.15 FIR pass through the FMAC filter unit.  Coefficients are
+ * loaded into the coefficient buffer, the samples are streamed through
+ * polling mode and the complete causal output vector is presented to the
+ * caller.  Constraints: 1 <= taps <= 32, taps <= length <= 255.
+ *
+ * FMAC emits only N-P+1 results (y[P-1]..y[N-1]); this helper shifts those
+ * results to the tail and zero-fills the first P-1 samples, matching the
+ * CPU fallback used by cal_fmac_refine(). */
+int umh_fmac_fir_q15(const int16_t *coeff, uint8_t taps,
+                     const int16_t *input, uint16_t length,
+                     int16_t *output)
+{
+  FMAC_FilterConfigTypeDef config;
+  uint16_t input_size;
+  uint16_t output_size;
+  uint16_t produced;
+  HAL_StatusTypeDef status;
+
+  if (coeff == NULL || input == NULL || output == NULL) return -1;
+  if (taps == 0u || taps > 32u || length == 0u || length > 255u) return -1;
+  if (length < taps) return -1;
+  produced = (uint16_t)(length - taps + 1u);
+
+  memset(&config, 0, sizeof(config));
+  /* Internal FMAC memory is 256 16-bit words.  Layout: X1[0..63],
+   * X2[64..95], Y[96..159].  Only polling mode is used, so the DMA
+   * channels configured by MspInit stay idle. */
+  config.InputBaseAddress = 0u;
+  config.InputBufferSize = 64u;
+  config.InputThreshold = FMAC_THRESHOLD_NO_VALUE;
+  config.CoeffBaseAddress = 64u;
+  config.CoeffBufferSize = 32u;
+  config.OutputBaseAddress = 96u;
+  config.OutputBufferSize = 64u;
+  config.OutputThreshold = FMAC_THRESHOLD_NO_VALUE;
+  config.InputAccess = FMAC_BUFFER_ACCESS_POLLING;
+  config.OutputAccess = FMAC_BUFFER_ACCESS_POLLING;
+  config.Clip = FMAC_CLIP_DISABLED;
+  config.Filter = FMAC_FUNC_CONVO_FIR;
+  config.P = taps;
+  config.Q = 0u;
+  config.R = 0u;
+  config.pCoeffA = NULL;
+  config.CoeffASize = 0u;
+  config.pCoeffB = (int16_t *)coeff;
+  config.CoeffBSize = taps;
+
+  status = HAL_FMAC_FilterConfig(&hfmac, &config);
+  if (status != HAL_OK) return -2;
+
+  input_size = length;
+  output_size = length;
+  status = HAL_FMAC_FilterStart(&hfmac, output, &output_size);
+  if (status != HAL_OK) {
+    (void)HAL_FMAC_FilterStop(&hfmac);
+    return -3;
+  }
+  status = HAL_FMAC_AppendFilterData(&hfmac, (int16_t *)input, &input_size);
+  if (status != HAL_OK) {
+    (void)HAL_FMAC_FilterStop(&hfmac);
+    return -4;
+  }
+  status = HAL_FMAC_PollFilterData(&hfmac, 50u);
+  umh_fmac_debug_output_size = output_size;
+  umh_fmac_debug_last_output = (output_size != 0u) ? output[0] : (int16_t)0;
+  (void)HAL_FMAC_FilterStop(&hfmac);
+  if (status != HAL_OK) return -5;
+  if (output_size != produced) return -6;
+
+  /* Present the same full-length causal FIR vector as the CPU fallback. */
+  if (taps > 1u) {
+    memmove(&output[taps - 1u], output, (size_t)produced * sizeof(int16_t));
+    memset(output, 0, (size_t)(taps - 1u) * sizeof(int16_t));
+  }
+  return 0;
+}

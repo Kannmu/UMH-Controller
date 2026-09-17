@@ -61,15 +61,28 @@ static int send(oled_ssd1315_t *oled, uint8_t control, const uint8_t *data, uint
   if (oled == NULL || oled->i2c == NULL || length > OLED_WIDTH) return -1;
   oled->tx_buffer[0] = control;
   if (length != 0u && data != NULL) memcpy(&oled->tx_buffer[1], data, length);
+  /* Never start a transfer on a bus that a slave/reset left low: with a
+   * 129-byte OLED page and a slow per-byte HAL timeout that turns into a
+   * multi-second UI freeze.  If the bus stays dead, fail fast so the rest of
+   * the system (especially calibration) keeps running. */
+  if (i2c_bus_is_dead() != 0) return -1;
+  (void)i2c_bus_recover_if_stuck();
   if (i2c_bus_lock(100u) != 0) return -1;
   /* OLED transfers are short and periodic.  A blocking transaction keeps the
    * shared tx buffer and I2C state machine atomic and avoids an IRQ storm
    * when a DMA completion races with the next page refresh. */
   HAL_StatusTypeDef result = HAL_I2C_Master_Transmit(oled->i2c, OLED_I2C_ADDRESS,
                                                      oled->tx_buffer,
-                                                     (uint16_t)(length + 1u), 100u);
+                                                     (uint16_t)(length + 1u), 20u);
   i2c_bus_unlock();
-  return result == HAL_OK ? 0 : -1;
+  if (result != HAL_OK) {
+    /* A timed-out slave can hold SDA low; release it before the next frame,
+     * otherwise every following refresh would keep failing and the UI display
+     * would stay frozen on its last image. */
+    (void)i2c_bus_recover();
+    return -1;
+  }
+  return 0;
 }
 
 void oled_ssd1315_init(oled_ssd1315_t *oled, I2C_HandleTypeDef *i2c)

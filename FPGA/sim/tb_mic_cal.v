@@ -135,10 +135,8 @@ module tb_mic_cal;
         dut.mic_warm        = 1'b0;
         dut.mic_ultrasonic  = 1'b1;
         dut.mic_phase       = 4'd0;
-        dut.mic_lo_n        = 7'd0;
-        dut.mic_bc_fill     = 7'd0;
-        dut.mic_pdm_hist[0] = 40'd0; dut.mic_pdm_hist[1] = 40'd0;
-        dut.mic_pdm_hist[2] = 40'd0; dut.mic_pdm_hist[3] = 40'd0;
+        dut.mic_lo_n        = 7'd99;
+        dut.mic_window_count= 7'd0;
         dut.mic_xor_i[0] = 7'd0; dut.mic_xor_i[1] = 7'd0;
         dut.mic_xor_i[2] = 7'd0; dut.mic_xor_i[3] = 7'd0;
         dut.mic_xor_q[0] = 7'd0; dut.mic_xor_q[1] = 7'd0;
@@ -182,8 +180,8 @@ module tb_mic_cal;
             ival = {resp[24 + mic * 4], resp[25 + mic * 4]};
             qval = {resp[26 + mic * 4], resp[27 + mic * 4]};
             $display("MIC%0d I=%0d Q=%0d", mic, ival, qval);
-            if (ival > 16'sd320 || ival < -16'sd320 ||
-                qval > 16'sd320 || qval < -16'sd320) begin
+            if (ival > 16'sd512 || ival < -16'sd512 ||
+                qval > 16'sd512 || qval < -16'sd512) begin
                 $display("FAIL: gate value out of range");
                 failures = failures + 1;
             end

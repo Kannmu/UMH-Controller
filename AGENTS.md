@@ -52,18 +52,11 @@ $env:CLEAN_DIAMOND = '1'; cmd /d /c run_diamond.cmd; Remove-Item Env:CLEAN_DIAMO
   麦克风坐标由 `Core/Src/us_calibration.c` 的 `cal_mic_*_mm` 按上述槽位顺序维护，不能按编号顺序交换。
 - **FPGA 复解调**：4 MHz PDM 流与整数 40 kHz ±1 本振混频，40 点 boxcar（输出率 100 kHz）；本振/混频/boxcar 全为加、异或，不使用乘法器或 ROM。门累积放在 512×16 单 EBR 中（`umh_mic_iq_ram`，1 个 EBR）。
 - **新增 SPI1 命令**（`fpga_link.h`）：
-  - `0x14 MIC_CONFIG`：6 字节扩展 `{gate_count, start_lo, start_hi, step_lo, step_hi, width}`；三个时间量单位均为 100 kHz 采样（10 us）。
+  - `0x14 MIC_CONFIG`: six extension bytes `{gate_count, start_lo, start_hi, step_lo, step_hi, width}`; the three time fields are in 40 kHz samples (25 us), matching the FPGA one-carrier-period I/Q integrator.
   - `0x15 MIC_READ`：门号放在 header 的 frame-sequence 字段（字节 6..9），事务长度 40 字节；MISO 前 16 字节为常规 status，随后 24 字节为 `{status, block_count, gate_count, reserved, I0..I3, Q0..Q3}`（16 位大端，见 `fpga_link.h`）。
 - **EBR 占用 = 7/8**：事件表 5 + 麦克风 IQ 1 + 通道 staging 1。新增逻辑必须保持该预算，不能再引入 EBR。
-- **校准数据流**：UI `CALIB` 页第 7 项 `RUN` → 静置 1 s → 21 图案定位回波台阶 → 4 个 400 us 门、84 图案扫描 → 两阶段位姿/通道相位求解 → 规范固定 → 单图案阵列增益校验 → AT24C16 写入。校准结果只写 `record->phase[i]` 的高 8 位，`spatial_renderer` 路径自动生效；直接 `CHANNEL_STATE`/BLOCK 下发相位不受影响。
+- **Calibration flow**: UI CALIB RUN -> 1 s settle -> coarse/fine balanced-random echo survey (FMAC matched-filter leading edge) -> silent floor -> up to 9 s / 2048 i.i.d. +-1 random projections (full-rank R; stream b=R^H y only, never store A=R^H R) -> CG convex reconstruction of the 84 complex channel responses per microphone -> alternating rank-1 + common-mode mu fit and pose correction -> gauge fix -> one-pattern array-gain verification -> AT24C16 write. Only the high byte of record->phase[i] is written; spatial_renderer picks it up automatically, while direct CHANNEL_STATE/BLOCK phase commands are unaffected.
 - **EEPROM 记录版本 2**：`eeprom_profile_record_t` 在 `reserved[3]` 后增加 `cal_meta_valid..cal_time_ms`，payload 长度 = `offsetof(crc32)`；旧版本 1 记录在 `eeprom_profile_load()` 中自动升级。commit 流程仍是双副本 + generation + CRC32。
 - **烧录后刷新**：`pgrcmd -infile UMH_7_Programmer_File.xcf` 之后必须 `pgrcmd -infile UMH_7_Programmer_Refresh.xcf`；Refresh XCF 已补齐。
-- **正交码必须使用 84 阶 Paley Hadamard**（q=83 二次剩余），不能使用 128 阶 Sylvester 矩阵截取前 84 行/列，因为截断子矩阵不正交。码表由 `us_calibration.c` 的 `cal_code_sign()` 生成（相位 0 / 128 对应 ±1）。
+- **Calibration projections**: `cal_cs_row()` uses splitmix64 i.i.d. +-1 (no exact 42/42 balancing) so the 84-dimensional measurement matrix is full rank and A=C^H C is well conditioned; `cal_balanced_row()` (42/42 zero-mean) is used only by the echo survey to cancel common-mode LC ring-down. The final static-phase rank-1 fit carries a per-microphone common-mode nuisance mu (`cal_mu_*`) and alternates "rank-1+mu fit -> subtract mu -> pose refinement", so residual common-mode LC ring cannot corrupt the channel phases. The code matrix is regenerated from (pattern,channel) at acquisition and reconstruction time and is never stored. Do not revert to the old Paley/truncated-Hadamard scheme.
 
-## 校准自检与上机记录（2026-09-16）
-
-- 校准发射已改为**脉冲模式**：每个图案先发射约 1 ms 的 40 kHz 相位图案，随后 STOP 关闭发射，再在回波到达门内采样；`cal_submit_pattern()` 中的 STOP 关闭不依赖事件表 swap。
-- 每个图案在正式测量前会先测一次**全静默门功率**（`cal_survey_noise` / `cal_final_noise`），回波检测和 `echo_ratio` 使用扣除静默底后的净功率。
-- EEPROM 写入增加 **I2C 总线恢复**（9 个 SCL 时钟 + STOP + `MX_I2C1_Init`），解决 AT24C16 写周期/超时后 SCL 被拉低、后续写入永久超时的问题。
-- `CAL_QUALITY_RELAXED` 当前为 **1**（首轮上机/没有标准平面的 bring-up 模式）：完整的测量/求解/EEPROM 流程会执行，但质量门不阻断写入，且跳过硬件阵列增益校验。现场对准平面后应改为 **0**，恢复严格质量门和 `cal_verify()`。
-- 已实机验证：校准页面运行 → UI 显示 OK → `AT24C16` 记录有效（version 2、generation 递增、`cal_meta_valid=1`、`phase[i]` 高 8 位写入）→ 复位后 `eeprom_profile_load()` 自动把相位加载到 `renderer.calibration[]`。

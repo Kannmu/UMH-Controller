@@ -8,6 +8,13 @@
 #define EEPROM_READY_TIMEOUT 20u
 #define EEPROM_IO_RETRIES 3u
 
+volatile uint32_t eeprom_dbg_write_ok, eeprom_dbg_write_fail, eeprom_dbg_write_busy;
+volatile uint32_t eeprom_dbg_read_ok, eeprom_dbg_read_fail, eeprom_dbg_read_busy;
+volatile uint32_t eeprom_dbg_ready_fail;
+volatile uint32_t eeprom_dbg_read_last_status;
+volatile uint32_t eeprom_dbg_read_last_error;
+volatile uint32_t eeprom_dbg_read_last_isr;
+
 /* First-generation record layout, kept only to migrate an existing EEPROM
  * in place.  The common prefix is byte-identical to version 2. */
 typedef struct __attribute__((packed)) {
@@ -37,39 +44,6 @@ static uint16_t eeprom_address(uint16_t address)
   return (uint16_t)(EEPROM_PROFILE_I2C_ADDRESS | ((address >> 8) & 0x07u));
 }
 
-/* Bit-bang 9 clocks and a STOP to release a slave that is holding SDA/SCL,
- * then re-init the I2C peripheral.  Used only after a bus timeout. */
-static void eeprom_i2c_recover(I2C_HandleTypeDef *i2c)
-{
-  GPIO_InitTypeDef gpio = {0};
-  uint8_t i;
-  if (i2c == NULL) return;
-  (void)HAL_I2C_DeInit(i2c);
-  gpio.Mode = GPIO_MODE_OUTPUT_OD;
-  gpio.Pull = GPIO_NOPULL;
-  gpio.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-  gpio.Pin = GPIO_PIN_7;
-  HAL_GPIO_Init(GPIOB, &gpio);
-  gpio.Pin = GPIO_PIN_15;
-  HAL_GPIO_Init(GPIOA, &gpio);
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_7, GPIO_PIN_SET);
-  for (i = 0u; i < 9u; ++i) {
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_RESET);
-    HAL_Delay(1u);
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_SET);
-    HAL_Delay(1u);
-  }
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_7, GPIO_PIN_RESET);
-  HAL_Delay(1u);
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_SET);
-  HAL_Delay(1u);
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_7, GPIO_PIN_SET);
-  HAL_Delay(1u);
-  HAL_GPIO_DeInit(GPIOB, GPIO_PIN_7);
-  HAL_GPIO_DeInit(GPIOA, GPIO_PIN_15);
-  MX_I2C1_Init();
-}
-
 static int eeprom_read(I2C_HandleTypeDef *i2c, uint16_t address, void *data, uint16_t length)
 {
   uint8_t *dst = (uint8_t *)data;
@@ -78,12 +52,25 @@ static int eeprom_read(I2C_HandleTypeDef *i2c, uint16_t address, void *data, uin
   while (length != 0u) {
     block_remaining = (uint16_t)(256u - (address & 0xFFu));
     chunk = length < block_remaining ? length : block_remaining;
-    if (chunk > 255u) chunk = 255u;
+    /* Keep read transactions short; large reads have been observed to
+     * leave the shared I2C peripheral BUSY/TXIS on this board. */
+    if (chunk > 32u) chunk = 32u;
     uint8_t attempt;
+    if (i2c_bus_is_dead() != 0) return -1;
     for (attempt = 0u; attempt < EEPROM_IO_RETRIES; ++attempt) {
-      if (HAL_I2C_Mem_Read(i2c, (uint16_t)(eeprom_address(address) << 1), address & 0xFFu,
-                           I2C_MEMADD_SIZE_8BIT, dst, chunk, 100u) == HAL_OK) break;
-      eeprom_i2c_recover(i2c);
+      i2c_bus_recover_locked();
+      if (i2c_bus_is_dead() != 0) return -1;
+      {
+        HAL_StatusTypeDef rd = HAL_I2C_Mem_Read(i2c, (uint16_t)(eeprom_address(address) << 1), address & 0xFFu,
+                                                I2C_MEMADD_SIZE_8BIT, dst, chunk, 20u);
+        if (rd == HAL_OK) { ++eeprom_dbg_read_ok; break; }
+        ++eeprom_dbg_read_fail;
+        if (rd == HAL_BUSY) ++eeprom_dbg_read_busy;
+        eeprom_dbg_read_last_status = (uint32_t)rd;
+        eeprom_dbg_read_last_error = (uint32_t)HAL_I2C_GetError(i2c);
+        eeprom_dbg_read_last_isr = (uint32_t)i2c->Instance->ISR;
+      }
+      i2c_bus_recover_locked();
       HAL_Delay(1u);
     }
     if (attempt == EEPROM_IO_RETRIES) return -1;
@@ -106,16 +93,24 @@ static int eeprom_write(I2C_HandleTypeDef *i2c, uint16_t address, const void *da
     block_remaining = (uint16_t)(256u - (address & 0xFFu));
     if (chunk > block_remaining) chunk = block_remaining;
     uint8_t attempt;
+    if (i2c_bus_is_dead() != 0) return -1;
     for (attempt = 0u; attempt < EEPROM_IO_RETRIES; ++attempt) {
       HAL_StatusTypeDef wr;
+      i2c_bus_recover_locked();
+      if (i2c_bus_is_dead() != 0) return -1;
       wr = HAL_I2C_Mem_Write(i2c, (uint16_t)(eeprom_address(address) << 1), address & 0xFFu,
-                             I2C_MEMADD_SIZE_8BIT, (uint8_t *)src, chunk, 100u);
+                             I2C_MEMADD_SIZE_8BIT, (uint8_t *)src, chunk, 20u);
       if (wr == HAL_OK) {
+        ++eeprom_dbg_write_ok;
         HAL_Delay(6u); /* AT24C16 write-cycle guard */
         if (HAL_I2C_IsDeviceReady(i2c, (uint16_t)(eeprom_address(address) << 1),
                                   EEPROM_IO_RETRIES, EEPROM_READY_TIMEOUT * 4u) == HAL_OK) break;
+        ++eeprom_dbg_ready_fail;
+      } else {
+        ++eeprom_dbg_write_fail;
+        if (wr == HAL_BUSY) ++eeprom_dbg_write_busy;
       }
-      eeprom_i2c_recover(i2c);
+      i2c_bus_recover_locked();
       HAL_Delay(1u);
     }
     if (attempt == EEPROM_IO_RETRIES) return -1;

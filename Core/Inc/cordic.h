@@ -41,6 +41,20 @@ extern CORDIC_HandleTypeDef hcordic;
 void MX_CORDIC_Init(void);
 int umh_cordic_phase8(float real, float imag, uint8_t *phase);
 
+/* Batch hardware trigonometry / square-root helpers used by the ultrasound
+ * calibration solvers.  All of them return 0 on success and a negative value
+ * when the CORDIC unit is unavailable or reports an error; callers must keep
+ * a scalar math fallback.  They process arbitrary counts by internally
+ * chunking the work through a small static Q1.31 staging buffer. */
+int umh_cordic_sincos_batch(const float *angles, float *sin_out, float *cos_out,
+                            uint32_t count);
+int umh_cordic_phase_batch(const float *real, const float *imag, float *phase_rad,
+                           uint32_t count);
+int umh_cordic_sqrt_batch(const float *values, float *roots, uint32_t count);
+int umh_cordic_sincos(float angle, float *sin_out, float *cos_out);
+int umh_cordic_phase(float real, float imag, float *phase_rad);
+int umh_cordic_sqrt(float value, float *root);
+
 /* USER CODE BEGIN Prototypes */
 
 /* USER CODE END Prototypes */

@@ -1,30 +1,13 @@
 NOTE Copyright (C), 1992-2010, Lattice Semiconductor Corporation *
 NOTE All Rights Reserved *
-NOTE DATE CREATED: Wed Sep 16 17:17:15 2026 *
+NOTE DATE CREATED: Wed Sep 16 20:40:56 2026 *
 NOTE DESIGN NAME: umh_fpga_top *
 NOTE DEVICE NAME: LCMXO2-2000HC-4CSBGA132 *
 NOTE PIN ASSIGNMENTS *
-NOTE PINS us_tx[70] : P2 : out *
-NOTE PINS us_tx[71] : N3 : out *
-NOTE PINS us_tx[56] : M11 : out *
-NOTE PINS us_tx[57] : M9 : out *
-NOTE PINS us_tx[58] : M8 : out *
-NOTE PINS us_tx[59] : N13 : out *
-NOTE PINS us_tx[60] : P12 : out *
-NOTE PINS us_tx[61] : N9 : out *
 NOTE PINS us_tx[72] : N8 : out *
 NOTE PINS us_tx[73] : N2 : out *
-NOTE PINS us_tx[62] : N10 : out *
-NOTE PINS us_tx[63] : P3 : out *
-NOTE PINS us_tx[64] : N4 : out *
-NOTE PINS us_tx[65] : M4 : out *
-NOTE PINS us_tx[66] : M5 : out *
-NOTE PINS us_tx[67] : K3 : out *
 NOTE PINS us_tx[74] : M3 : out *
 NOTE PINS us_tx[75] : M2 : out *
-NOTE PINS us_tx[68] : N6 : out *
-NOTE PINS us_tx[69] : M7 : out *
-NOTE PINS us_tx[55] : M14 : out *
 NOTE PINS us_tx[76] : P4 : out *
 NOTE PINS us_tx[77] : N5 : out *
 NOTE PINS us_tx[78] : P7 : out *
@@ -34,6 +17,23 @@ NOTE PINS us_tx[81] : P6 : out *
 NOTE PINS us_tx[82] : N7 : out *
 NOTE PINS us_tx[83] : P8 : out *
 NOTE PINS spi1_miso : J1 : out *
+NOTE PINS us_tx[71] : N3 : out *
+NOTE PINS us_tx[70] : P2 : out *
+NOTE PINS us_tx[69] : M7 : out *
+NOTE PINS us_tx[68] : N6 : out *
+NOTE PINS us_tx[67] : K3 : out *
+NOTE PINS us_tx[66] : M5 : out *
+NOTE PINS us_tx[65] : M4 : out *
+NOTE PINS us_tx[64] : N4 : out *
+NOTE PINS us_tx[63] : P3 : out *
+NOTE PINS us_tx[62] : N10 : out *
+NOTE PINS us_tx[61] : N9 : out *
+NOTE PINS us_tx[60] : P12 : out *
+NOTE PINS us_tx[59] : N13 : out *
+NOTE PINS us_tx[58] : M8 : out *
+NOTE PINS us_tx[57] : M9 : out *
+NOTE PINS us_tx[56] : M11 : out *
+NOTE PINS us_tx[55] : M14 : out *
 NOTE PINS us_tx[54] : L14 : out *
 NOTE PINS us_tx[53] : J12 : out *
 NOTE PINS us_tx[52] : P11 : out *

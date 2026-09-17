@@ -1,16 +1,16 @@
 ----------------------------------------------------------------------
 Report for cell umh_fpga_top.TECH
-Register bits:  1882 of 2427 (77.544%)
+Register bits:  1720 of 2427 (70.869%)
 I/O cells:      96
                                   Cell usage:
                                cell     count   Res Usage(%)
-                              CCU2D       255          100.0
+                              CCU2D       215          100.0
                             EHXPLLJ         1          100.0
                             FD1P3AX       942          100.0
-                            FD1P3AY         5          100.0
+                            FD1P3AY         4          100.0
                             FD1P3DX       101          100.0
-                            FD1P3IX       539          100.0
-                            FD1P3JX         8          100.0
+                            FD1P3IX       374          100.0
+                            FD1P3JX        12          100.0
                             FD1S3AX       271          100.0
                             FD1S3DX         1          100.0
                             FD1S3IX        12          100.0
@@ -19,19 +19,19 @@ I/O cells:      96
                                  IB         8          100.0
                                 INV         2          100.0
                             L6MUX21        24          100.0
-                               LUT4      1350          100.0
+                               LUT4      1353          100.0
                               MUX21         1          100.0
                                  OB        87          100.0
                                 OBZ         1          100.0
                             PDPW8KC         7          100.0
-                              PFUMX        60          100.0
+                              PFUMX        57          100.0
 SUB MODULES
                      spi_mic_stream         1
                   umh_channel_ram18         1
                      umh_mic_iq_ram         1
                    umh_toggle_ram84         1
                       ws2812_stream         1
-                              TOTAL      3684
+                              TOTAL      3482
 ----------------------------------------------------------------------
 Report for cell umh_toggle_ram84.v1
 Instance Path : event_ram
@@ -49,6 +49,25 @@ Instance Path : mic_stream_i
                                LUT4       110            8.1
                               TOTAL       212
 ----------------------------------------------------------------------
+Report for cell umh_mic_iq_ram.v1
+Instance Path : mic_iq_ram
+                                  Cell usage:
+                               cell     count   Res Usage(%)
+                            PDPW8KC         1           14.3
+                              TOTAL         1
+----------------------------------------------------------------------
+Report for cell ws2812_stream.v1
+Instance Path : ws2812_i
+                                  Cell usage:
+                               cell     count   Res Usage(%)
+                              CCU2D        14            6.5
+                            FD1P3AX        24            2.5
+                            FD1P3IX        30            8.0
+                            FD1S3AX         2            0.7
+                               LUT4        65            4.8
+                              PFUMX         1            1.8
+                              TOTAL       136
+----------------------------------------------------------------------
 Report for cell umh_channel_ram18.v1
 Instance Path : staging_ram
                                   Cell usage:
@@ -56,22 +75,3 @@ Instance Path : staging_ram
                             FD1S3AX        23            8.5
                             PDPW8KC         1           14.3
                               TOTAL        24
-----------------------------------------------------------------------
-Report for cell ws2812_stream.v1
-Instance Path : ws2812_i
-                                  Cell usage:
-                               cell     count   Res Usage(%)
-                              CCU2D        14            5.5
-                            FD1P3AX        24            2.5
-                            FD1P3IX        30            5.6
-                            FD1S3AX         2            0.7
-                               LUT4        60            4.4
-                              PFUMX         1            1.7
-                              TOTAL       131
-----------------------------------------------------------------------
-Report for cell umh_mic_iq_ram.v1
-Instance Path : mic_iq_ram
-                                  Cell usage:
-                               cell     count   Res Usage(%)
-                            PDPW8KC         1           14.3
-                              TOTAL         1

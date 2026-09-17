@@ -1,19 +1,13 @@
 `timescale 1ns/1ps
 
-/* Per-microphone update of the 40-tap boxcar state.  M is a constant
- * microphone slot and S is the PDM bit for this sample. */
+/* Per-microphone update of the one-carrier-period PDM mixer.  M is a
+ * constant microphone slot and S is the PDM bit for this sample. */
 `define MIC_UPDATE(M,S) \
-    mic_pdm_hist[M] <= {mic_pdm_hist[M][38:0], (S)}; \
-    if (mic_bc_fill >= 7'd40) begin \
-        mic_xor_i[M] <= mic_xor_i[M] + ((S) ^ mic_lo_i_r) - (mic_pdm_hist[M][39] ^ mic_lo_i_d40_r); \
-        mic_xor_q[M] <= mic_xor_q[M] + ((S) ^ mic_lo_q_r) - (mic_pdm_hist[M][39] ^ mic_lo_q_d40_r); \
-    end else begin \
-        mic_xor_i[M] <= mic_xor_i[M] + ((S) ^ mic_lo_i_r); \
-        mic_xor_q[M] <= mic_xor_q[M] + ((S) ^ mic_lo_q_r); \
-    end
+    if ((S) ^ mic_lo_i_r) mic_xor_i[M] <= mic_xor_i[M] + 7'd1; \
+    if ((S) ^ mic_lo_q_r) mic_xor_q[M] <= mic_xor_q[M] + 7'd1;
 
-/* Advance or complete the gate sequence after one 100 kHz sample has been
- * accumulated and handed to the EBR store registers. */
+/* Advance or complete the gate sequence after one 40 kHz I/Q sample has
+ * been accumulated and handed to the EBR store registers. */
 `define MIC_FINISH_GATE \
     mic_gate_active <= 1'b0; \
     mic_gate_fill   <= 7'd0; \
@@ -252,21 +246,20 @@ module umh_fpga_top (
     reg  [4:0]  mic_sample_count;
     reg  [63:0] mic_latest;
 
-    /* 40 kHz local oscillator and 40-tap boxcar.  One PDM sample per
-     * microphone arrives every 250 ns; the boxcar therefore updates at
-     * exactly 100 kHz.  The mixer product is one bit, and the product sum
-     * over 40 PDM samples is simply 40 - 2*xor_count, so no multiplier is
+    /* 40 kHz local oscillator and one-carrier-period boxcar.  The PDM bit
+     * rate is 4 MHz and the LO period is 100 PDM samples (25 us).  XOR-ing
+     * the PDM bit with the +/-1 LO and integrating over exactly one LO period
+     * rejects every LO harmonic; the result is a true 40 kHz complex I/Q
+     * sample.  The product sum is 100 - 2*xor_count, so no multiplier is
      * needed anywhere in the microphone path. */
-    reg  [6:0]  mic_lo_n;              /* 0..99                        */
-    reg  [6:0]  mic_bc_fill;           /* 0..40 PDM samples in window  */
-    reg  [39:0] mic_pdm_hist [0:3];    /* raw PDM history per mic      */
+    reg  [6:0]  mic_lo_n;              /* 0..99 carrier LO phase       */
+    reg  [6:0]  mic_window_count;      /* 0..100 PDM samples in window */
     reg  [6:0]  mic_xor_i [0:3];       /* I mixer products equal to 1  */
     reg  [6:0]  mic_xor_q [0:3];       /* Q mixer products equal to 1  */
-    reg  signed [7:0] mic_win_i [0:3]; /* 40 - 2*xor, range -40..+40   */
+    reg  signed [7:0] mic_win_i [0:3]; /* 100 - 2*xor, range -100..100 */
     reg  signed [7:0] mic_win_q [0:3];
-    reg         mic_bc_valid;          /* 100 kHz envelope valid pulse */
+    reg         mic_bc_valid;          /* 40 kHz envelope valid pulse  */
     reg         mic_lo_i_r, mic_lo_q_r; /* registered LO for this PDM period */
-    reg         mic_lo_i_d40_r, mic_lo_q_d40_r;
 
     /* Registered local oscillator.  mic_lo_n advances on phase 0 and the
      * +/-1 LO bits for the new period (including the 40-sample-delayed bit
@@ -276,13 +269,7 @@ module umh_fpga_top (
     wire [6:0]  mic_lo_n_next = (mic_lo_n == 7'd99) ? 7'd0 : (mic_lo_n + 7'd1);
     wire        mic_lo_i_next = (mic_lo_n_next < 7'd25) || (mic_lo_n_next >= 7'd75);
     wire        mic_lo_q_next = (mic_lo_n_next < 7'd50);
-    wire [6:0]  mic_lo_n_d40_next = (mic_lo_n_next >= 7'd40)
-                                    ? (mic_lo_n_next - 7'd40) : (mic_lo_n_next + 7'd60);
-    wire        mic_lo_i_d40_next = (mic_lo_n_d40_next < 7'd25) ||
-                                    (mic_lo_n_d40_next >= 7'd75);
-    wire        mic_lo_q_d40_next = (mic_lo_n_d40_next < 7'd50);
-
-    /* Gate configuration is expressed in 100 kHz samples (10 us).  The
+    /* Gate configuration is expressed in 40 kHz samples (25 us).  The
      * sequence is re-armed automatically after every completed block, so
      * the STM32 can submit one pattern per block without reconfiguring. */
     reg  [6:0]  mic_cfg_count;         /* 1..64 gates per pattern      */
@@ -300,7 +287,7 @@ module umh_fpga_top (
     reg         mic_gate_active;
     /* The gate accumulators live in the microphone EBR.  A small read / add /
      * write-back engine services the eight 16-bit words of the active gate
-     * once per 100 kHz sample; the remaining ~600 cycles of the sample period
+     * once per 40 kHz sample; the remaining cycles of the sample period
      * are idle, so one shared adder replaces eight parallel accumulators. */
     reg         mic_acc_busy;
     reg  [2:0]  mic_acc_state;         /* 0 idle, 1 clear, 2 read, 3 write, 4 finish */
@@ -326,7 +313,7 @@ module umh_fpga_top (
                                     {9'd0, mic_cfg_count}, 16'd0};
     wire signed [7:0] mic_acc_win = mic_acc_word[2] ? mic_win_q[mic_acc_word[1:0]]
                                                     : mic_win_i[mic_acc_word[1:0]];
-    wire [15:0] mic_acc_addend = {{9{mic_acc_win[7]}}, mic_acc_win};
+    wire [15:0] mic_acc_addend = {{8{mic_acc_win[7]}}, mic_acc_win};
 
     /* MIC_CONFIG handshake.  The SCK-domain extension bytes are loaded by a
      * command-complete toggle; the 48-bit bus is synchronized before the
@@ -868,13 +855,10 @@ module umh_fpga_top (
                     mic_ultrasonic  <= 1'b1;
                     mic_clock_reg   <= 1'b0;
                     mic_phase       <= 4'd0;
-                    mic_lo_n        <= 7'd0;
-                    mic_lo_i_r      <= 1'b1; mic_lo_q_r <= 1'b1;
-                    mic_lo_i_d40_r  <= 1'b0; mic_lo_q_d40_r <= 1'b0;
-                    mic_bc_fill     <= 7'd0;
-                    mic_bc_valid    <= 1'b0;
-                    mic_pdm_hist[0] <= 40'd0; mic_pdm_hist[1] <= 40'd0;
-                    mic_pdm_hist[2] <= 40'd0; mic_pdm_hist[3] <= 40'd0;
+                    mic_lo_n           <= 7'd99;
+                    mic_lo_i_r         <= 1'b1; mic_lo_q_r <= 1'b1;
+                    mic_window_count   <= 7'd0;
+                    mic_bc_valid       <= 1'b0;
                     mic_xor_i[0] <= 7'd0; mic_xor_i[1] <= 7'd0;
                     mic_xor_i[2] <= 7'd0; mic_xor_i[3] <= 7'd0;
                     mic_xor_q[0] <= 7'd0; mic_xor_q[1] <= 7'd0;
@@ -898,8 +882,6 @@ module umh_fpga_top (
                 mic_lo_n <= mic_lo_n_next;
                 mic_lo_i_r <= mic_lo_i_next;
                 mic_lo_q_r <= mic_lo_q_next;
-                mic_lo_i_d40_r <= mic_lo_i_d40_next;
-                mic_lo_q_d40_r <= mic_lo_q_d40_next;
             end else if (mic_phase == 4'd8) begin
                 mic_clock_reg <= 1'b0;
             end
@@ -920,19 +902,29 @@ module umh_fpga_top (
                                    {mic_shift_0_r[14:0], mic_data_0},
                                    mic_shift_1_l,
                                    {mic_shift_1_r[14:0], mic_data_1}};
-                if (mic_bc_fill != 7'd40) mic_bc_fill <= mic_bc_fill + 7'd1;
+                if (mic_window_count != 7'd100)
+                    mic_window_count <= mic_window_count + 7'd1;
             end else if (mic_phase == 4'd13) begin
-                /* All xor counters now include this PDM period, so the
-                 * complex envelope is a pure register-to-register subtract. */
-                mic_win_i[0] <= 8'sd40 - {1'b0, mic_xor_i[0], 1'b0};
-                mic_win_q[0] <= 8'sd40 - {1'b0, mic_xor_q[0], 1'b0};
-                mic_win_i[1] <= 8'sd40 - {1'b0, mic_xor_i[1], 1'b0};
-                mic_win_q[1] <= 8'sd40 - {1'b0, mic_xor_q[1], 1'b0};
-                mic_win_i[2] <= 8'sd40 - {1'b0, mic_xor_i[2], 1'b0};
-                mic_win_q[2] <= 8'sd40 - {1'b0, mic_xor_q[2], 1'b0};
-                mic_win_i[3] <= 8'sd40 - {1'b0, mic_xor_i[3], 1'b0};
-                mic_win_q[3] <= 8'sd40 - {1'b0, mic_xor_q[3], 1'b0};
-                mic_bc_valid <= (mic_bc_fill >= 7'd40);
+                mic_bc_valid <= 1'b0;
+                if (mic_window_count >= 7'd100) begin
+                    /* The counters now contain exactly one LO period.  Hold
+                     * the result until the next complete window; the valid
+                     * pulse and the held value are consumed together. */
+                    mic_win_i[0] <= 8'sd100 - {mic_xor_i[0], 1'b0};
+                    mic_win_q[0] <= 8'sd100 - {mic_xor_q[0], 1'b0};
+                    mic_win_i[1] <= 8'sd100 - {mic_xor_i[1], 1'b0};
+                    mic_win_q[1] <= 8'sd100 - {mic_xor_q[1], 1'b0};
+                    mic_win_i[2] <= 8'sd100 - {mic_xor_i[2], 1'b0};
+                    mic_win_q[2] <= 8'sd100 - {mic_xor_q[2], 1'b0};
+                    mic_win_i[3] <= 8'sd100 - {mic_xor_i[3], 1'b0};
+                    mic_win_q[3] <= 8'sd100 - {mic_xor_q[3], 1'b0};
+                    mic_bc_valid    <= 1'b1;
+                    mic_window_count <= 7'd0;
+                    mic_xor_i[0] <= 7'd0; mic_xor_i[1] <= 7'd0;
+                    mic_xor_i[2] <= 7'd0; mic_xor_i[3] <= 7'd0;
+                    mic_xor_q[0] <= 7'd0; mic_xor_q[1] <= 7'd0;
+                    mic_xor_q[2] <= 7'd0; mic_xor_q[3] <= 7'd0;
+                end
             end
         end
 
@@ -991,7 +983,7 @@ module umh_fpga_top (
             mic_saturated   <= 1'b0;
         end
 
-        /* Every 100 kHz sample either decrements the inter-gate wait, starts
+        /* Every 40 kHz sample either decrements the inter-gate wait, starts
          * a gate (its EBR words are cleared first) or launches one read /
          * add / write-back pass over the eight words of the active gate. */
         if (mic_bc_valid && mic_run_state == 2'd2 && !mic_acc_busy) begin
@@ -1136,11 +1128,8 @@ module umh_fpga_top (
         /* Microphone demodulator and gate accumulator.  LSE has no reset, so
          * every state element is spelled out here: an uninitialised gate
          * configuration would otherwise leak into the first MIC_READ. */
-        mic_lo_n = 7'd0; mic_bc_fill = 7'd0; mic_bc_valid = 1'b0;
+        mic_lo_n = 7'd99; mic_window_count = 7'd0; mic_bc_valid = 1'b0;
         mic_lo_i_r = 1'b1; mic_lo_q_r = 1'b1;
-        mic_lo_i_d40_r = 1'b0; mic_lo_q_d40_r = 1'b0;
-        mic_pdm_hist[0] = 40'd0; mic_pdm_hist[1] = 40'd0;
-        mic_pdm_hist[2] = 40'd0; mic_pdm_hist[3] = 40'd0;
         mic_xor_i[0] = 7'd0; mic_xor_i[1] = 7'd0;
         mic_xor_i[2] = 7'd0; mic_xor_i[3] = 7'd0;
         mic_xor_q[0] = 7'd0; mic_xor_q[1] = 7'd0;
@@ -1150,7 +1139,7 @@ module umh_fpga_top (
         mic_win_q[0] = 8'sd0; mic_win_q[1] = 8'sd0;
         mic_win_q[2] = 8'sd0; mic_win_q[3] = 8'sd0;
         mic_cfg_count = 7'd64; mic_cfg_start = 16'd0;
-        mic_cfg_step = 16'd30; mic_cfg_width = 7'd20; mic_cfg_gap = 16'd10;
+        mic_cfg_step = 16'd12; mic_cfg_width = 7'd8; mic_cfg_gap = 16'd4;
         mic_run_state = 2'd0; mic_done = 1'b0; mic_saturated = 1'b0;
         mic_block_count = 16'd0; mic_gate_index = 7'd0; mic_gate_fill = 7'd0;
         mic_gate_wait = 16'd0; mic_gate_active = 1'b0;
