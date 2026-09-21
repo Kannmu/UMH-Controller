@@ -38,7 +38,11 @@ typedef enum {
   UMH_MSG_ACK                 = 0x70,
   UMH_MSG_NACK                = 0x71,
   UMH_MSG_CAL_DUMP            = 0x80,
-  UMH_MSG_CAL_RESULT          = 0x81
+  UMH_MSG_CAL_RESULT          = 0x81,
+  UMH_MSG_CAL_START           = 0x82, /* bench/debug: start calibration */
+  UMH_MSG_CAL_RAW             = 0x83, /* bench/debug: stream raw per-pattern I/Q */
+  UMH_MSG_CAL_SELFTEST        = 0x84, /* run independent built-in phase self-test */
+  UMH_MSG_CAL_SELFTEST_RESULT = 0x85  /* query last self-test result */
 } umh_message_type_t;
 
 typedef enum {

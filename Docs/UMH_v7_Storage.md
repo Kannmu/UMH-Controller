@@ -29,3 +29,7 @@ HEART 由健康任务以低优先级驱动心跳指示。LED1 至 LED4 保持电
 ## 设计资料核对
 
 84 路阵元坐标和 `E## -> Tn -> FPGA ball` 关系来自 `Reference/UMH 7 Element Layout`，固件按稳定阵元 ID 顺序装载并开启 `GEOMETRY_VALID`。坐标采用理论六角晶格的整数微米值，实际声学中心误差仍需加工后测量校准。生产资料中的 FPGA 料号和网表封装字符串仍需复核。所有状态、错误和资源额度都通过 `DeviceProfile`、`STATUS`、`FPGA_STATUS` 和 `ERROR_COUNTERS` 提供给主机。
+
+## 自校准元数据（v3）
+
+`EEPROM_PROFILE_VERSION=3` 与 v2 布局完全相同，仍只把 `phase[]` 高字节作为 8 位修正；CRC 和双副本机制不变。v3 的 `cal_tilt_x_x10` 槽位改存实测聚焦增益乘 10，`cal_tilt_y_x10` 改存跨麦克风一致性乘 10；`cal_reserved` 保存 `patterns_used`、门起始、门宽、电平档、几何假设、候选符号和距离分段残差趋势。`cal_meta_valid=1` 时启动后自动覆盖到空间渲染器。

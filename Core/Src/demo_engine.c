@@ -1,19 +1,30 @@
 #include "demo_engine.h"
 #include "spatiotemporal_block.h"
+#include "system_status.h"
 #include <math.h>
 #include <string.h>
 
 #define DEMO_FRAME_COUNT UMH_DEVICE_FRAME_RING_SLOTS
-#define DEMO_PERIOD_US 5000u
+#define DEMO_TRAJECTORY_PERIOD_US 5000u
 #define DEMO_STRENGTH 255u
 #define DEMO_PHASE 0u
 #define DEMO_Z_UM 100000
 #define DEMO_TRIGGER_MASK 0x01u
 
+/* Every demo must cover the same total path length in one 5 ms trajectory
+ * period.  The tactile requirement is 30 mm per period:
+ *   ULM: one unidirectional 30 mm sweep.
+ *   LML: 15 mm end-to-end stroke (one way), 15 mm back, 30 mm total.
+ *   LMC: full circumference 30 mm -> radius 30000/(2*pi) = 4.77465 mm. */
+#define DEMO_TOTAL_PATH_UM        30000.0f
+#define DEMO_ULM_HALF_UM          15000.0f
+#define DEMO_LML_HALF_UM           7500.0f
+#define DEMO_LMC_RADIUS_UM        (DEMO_TOTAL_PATH_UM / 6.28318530717958647692f)
+
 static const umh_demo_descriptor_t demos[UMH_DEMO_COUNT] = {
-  { UMH_DEMO_ULM, "ULM", "15 mm linear sweep" },
-  { UMH_DEMO_LML, "LML", "7.5 mm linear sweep" },
-  { UMH_DEMO_LMC, "LMC", "4.77 mm circular sweep" }
+  { UMH_DEMO_ULM, "ULM", "30 mm unidirectional sweep" },
+  { UMH_DEMO_LML, "LML", "15 mm end-to-end, 30 mm round trip" },
+  { UMH_DEMO_LMC, "LMC", "30 mm circumference (r=4.775 mm)" }
 };
 
 const umh_demo_descriptor_t *demo_engine_descriptor(uint8_t id)
@@ -25,21 +36,35 @@ uint8_t demo_engine_count(void) { return UMH_DEMO_COUNT; }
 
 static void point_for(uint8_t id, uint16_t index, umh_spatial_point_t *point)
 {
-  float t = (float)index / (float)DEMO_FRAME_COUNT;
   float x = 0.0f;
   float y = 0.0f;
+  const uint16_t last = (uint16_t)(DEMO_FRAME_COUNT - 1u);
   if (id == UMH_DEMO_LMC) {
+    /* Full circle: sample t in [0,1] inclusive.  Frame 23 duplicates frame 0
+     * at the loop boundary, so one period covers the complete circumference
+     * continuously (r = 4.77465 mm -> 30.000 mm). */
+    const float t = (float)index / (float)last;
     const float angle = 6.28318530717958647692f * t;
-    x = 4770.0f * cosf(angle);
-    y = 4770.0f * sinf(angle);
+    x = DEMO_LMC_RADIUS_UM * cosf(angle);
+    y = DEMO_LMC_RADIUS_UM * sinf(angle);
+  } else if (id == UMH_DEMO_ULM) {
+    /* One unidirectional +15 mm -> -15 mm sweep, total 30 mm.  The loop
+     * returns to +15 mm as the next period starts (snap-back). */
+    const float t = (float)index / (float)last;
+    y = DEMO_ULM_HALF_UM * (1.0f - 2.0f * t);
   } else {
-    const float span = id == UMH_DEMO_LML ? 7500.0f : 15000.0f;
-    /* One complete period is a forward and backward pass. */
-    const float phase = t < 0.5f ? t * 2.0f : (1.0f - t) * 2.0f;
-    y = span * (1.0f - 2.0f * phase);
+    /* Triangle wave with exactly +7.5 mm and -7.5 mm endpoints sampled.
+     * Down leg: 12 intervals, up leg: 11 intervals; both legs are 15 mm, so
+     * the total path is 30 mm per 5 ms period.  The tiny speed asymmetry
+     * keeps both endpoints exact inside the fixed 24-frame ring. */
+    if (index <= 12u) {
+      y = DEMO_LML_HALF_UM - (2.0f * DEMO_LML_HALF_UM * (float)index / 12.0f);
+    } else {
+      y = -DEMO_LML_HALF_UM + (2.0f * DEMO_LML_HALF_UM * (float)(index - 12u) / 11.0f);
+    }
   }
-  point->x_um = (int32_t)x;
-  point->y_um = (int32_t)y;
+  point->x_um = (int32_t)lroundf(x);
+  point->y_um = (int32_t)lroundf(y);
   point->z_um = DEMO_Z_UM;
   point->level = DEMO_STRENGTH;
   point->phase = DEMO_PHASE;
@@ -60,7 +85,8 @@ int demo_engine_build(uint8_t id, umh_spatial_renderer_t *renderer,
     if (slot == NULL) return -2;
     memset(slot, 0, sizeof(*slot));
     point_for(id, i, &point);
-    slot->deadline = origin_time + (uint64_t)i * DEMO_PERIOD_US;
+    slot->deadline = origin_time +
+                     ((uint64_t)i * DEMO_TRAJECTORY_PERIOD_US) / DEMO_FRAME_COUNT;
     slot->sequence = i;
     if (spatial_renderer_point(renderer, &point, slot) != 0) {
       frame_ring_init(frames);
@@ -78,6 +104,16 @@ int demo_engine_build(uint8_t id, umh_spatial_renderer_t *renderer,
   }
   {
     umh_playback_plan_wire_t wire;
+    uint64_t start_time = system_time_us();
+    uint64_t shift;
+    /* The frame generator needs a few milliseconds to render all channels
+     * with sinf/cosf.  Deadlines that were anchored before that work are
+     * already stale when playback begins, so the render task would spend
+     * every loop catching up and never yield to the lower-priority UI
+     * task.  Re-anchor the completed frame set to the real start time. */
+    if (start_time < origin_time) start_time = origin_time;
+    shift = start_time - origin_time;
+    for (i = 0u; i < DEMO_FRAME_COUNT; ++i) frames->slots[i].deadline += shift;
     memset(&wire, 0, sizeof(wire));
     wire.block_id = 0x44454D00u | id;
     wire.start_mode = UMH_PLAN_START_IMMEDIATE;
@@ -89,8 +125,8 @@ int demo_engine_build(uint8_t id, umh_spatial_renderer_t *renderer,
     wire.prebuffer_frames = DEMO_FRAME_COUNT;
     wire.loop_count = 0u;
     if (playback_plan_set(plan, &wire) != 0 ||
-        playback_plan_start(plan, origin_time, DEMO_FRAME_COUNT, origin_time) != 0 ||
-        frame_ring_snapshot(frames, (uint64_t)DEMO_FRAME_COUNT * DEMO_PERIOD_US) != 0)
+        playback_plan_start(plan, start_time, DEMO_FRAME_COUNT, start_time) != 0 ||
+        frame_ring_snapshot(frames, DEMO_TRAJECTORY_PERIOD_US) != 0)
       return -4;
   }
   return 0;

@@ -62,6 +62,12 @@ typedef struct __attribute__((packed)) {
 
 _Static_assert(sizeof(umh_device_profile_t) == 1118u, "device profile wire size");
 
+/* Logical protocol/renderer channel order is E01..E84.  The FPGA us_tx bit
+ * order is the fixed LPF/netlist order, which is a permutation of that.
+ * Frame serialization applies this table so every other subsystem can stay
+ * in the documented E## order. */
+extern const uint8_t umh_device_logical_to_physical[UMH_DEVICE_CHANNEL_COUNT];
+
 void device_profile_init(umh_device_profile_t *profile);
 const umh_device_profile_t *device_profile_get(void);
 void device_profile_set_serial(const char *serial);

@@ -31,7 +31,7 @@ static uint8_t page_item_count(const device_gui_t *gui)
     case DEVICE_GUI_HOME: return 6u;
     case DEVICE_GUI_PLAYBACK: return 6u;
     case DEVICE_GUI_DEVICE: return 7u;
-    case DEVICE_GUI_CALIBRATION: return 7u;
+    case DEVICE_GUI_CALIBRATION: return 8u;
     case DEVICE_GUI_STORAGE: return 6u;
     case DEVICE_GUI_DIAGNOSTICS: return 32u;
     case DEVICE_GUI_SYSTEM: return (uint8_t)(4u + uxTaskGetNumberOfTasks());
@@ -218,26 +218,34 @@ static void render_calibration(device_gui_t *gui)
     number(value, sizeof(value), record != NULL ? record->generation : 0u); line(gui, 2u, "GEN", value);
     (void)snprintf(value, sizeof(value), "%u%%", (unsigned)gui->calibration_progress);
     line(gui, 3u, "PROG", value);
-    number(value, sizeof(value), s != NULL ? s->cal_rms_deg_x10 : 0u); line(gui, 4u, "RMS X10", value);
+    number(value, sizeof(value), s != NULL ? s->cal_rms_deg_x10 : 0u); line(gui, 4u, "FITRMS", value);
     if (s != NULL) {
       int16_t t = s->cal_tilt_x_x10;
       (void)snprintf(value, sizeof(value), "%d.%d", (int)(t / 10), (int)((t < 0 ? -t : t) % 10));
     } else (void)snprintf(value, sizeof(value), "-");
-    line(gui, 5u, "TILT", value);
+    line(gui, 5u, "GAIN", value);
     line(gui, 6u, "RUN", gui->calibration_state == DEVICE_GUI_CAL_FAIL ? "RETRY" : "BUSY");
+    if (s != NULL && s->self_test_valid != 0u)
+      line(gui, 7u, "STEST", s->self_test_pass != 0u ? "PASS" : "FAIL");
+    else
+      line(gui, 7u, "STEST", "WAIT");
   } else {
     line(gui, 0u, "STATE", gui->eeprom != NULL && gui->eeprom->present != 0u ?
          (gui->eeprom->valid != 0u ? "VALID" : "DEFAULT") : "OFFLINE");
     number(value, sizeof(value), record != NULL ? record->version : 0u); line(gui, 1u, "VERSION", value);
     number(value, sizeof(value), record != NULL ? record->generation : 0u); line(gui, 2u, "GEN", value);
     number(value, sizeof(value), enabled); line(gui, 3u, "ENABLED", value);
-    number(value, sizeof(value), s != NULL ? s->cal_rms_deg_x10 : 0u); line(gui, 4u, "RMS X10", value);
+    number(value, sizeof(value), s != NULL ? s->cal_rms_deg_x10 : 0u); line(gui, 4u, "FITRMS", value);
     if (s != NULL && s->cal_state == DEVICE_GUI_CAL_OK) {
       int16_t t = s->cal_tilt_x_x10;
       (void)snprintf(value, sizeof(value), "%d.%d", (int)(t / 10), (int)((t < 0 ? -t : t) % 10));
     } else (void)snprintf(value, sizeof(value), "-");
-    line(gui, 5u, "TILT", value);
+    line(gui, 5u, "GAIN", value);
     line(gui, 6u, "RUN", "PRESS OK");
+    if (s != NULL && s->self_test_valid != 0u)
+      line(gui, 7u, "STEST", s->self_test_pass != 0u ? "PASS" : "FAIL");
+    else
+      line(gui, 7u, "STEST", "RUN");
   }
 }
 static void render_storage(device_gui_t *gui)
@@ -354,6 +362,7 @@ void device_gui_init(device_gui_t *gui, oled_ssd1315_t *oled,
                      const flash_store_t *flash,
                      const eeprom_profile_t *eeprom,
                      device_gui_action_t calibration,
+                     device_gui_action_t self_test,
                      device_gui_action_t demo,
                      device_gui_action_t ws2812_set,
                      uint8_t demo_count,
@@ -364,6 +373,7 @@ void device_gui_init(device_gui_t *gui, oled_ssd1315_t *oled,
   gui->oled = oled; gui->profile = profile; gui->status = status; gui->plan = plan;
   gui->fpga = fpga; gui->flash = flash; gui->eeprom = eeprom;
   gui->demo = demo; gui->ws2812_set = ws2812_set; gui->calibration = calibration;
+  gui->self_test = self_test;
   gui->demo_count = demo_count;
   gui->action_context = action_context; gui->page = DEVICE_GUI_HOME;
   gui->cursor_y = GUI_BODY_Y + 1u;
@@ -437,6 +447,12 @@ void device_gui_handle_event(device_gui_t *gui, const input_event_t *event)
 
   if (gui->page == DEVICE_GUI_CALIBRATION && gui->row == 6u) {
     int result = gui->calibration != NULL ? gui->calibration(gui->action_context) : -1;
+    gui->action_message = result == 0 ? 1u : 2u;
+    gui->message_until = HAL_GetTick() + 3000u;
+    return;
+  }
+  if (gui->page == DEVICE_GUI_CALIBRATION && gui->row == 7u) {
+    int result = gui->self_test != NULL ? gui->self_test(gui->action_context) : -1;
     gui->action_message = result == 0 ? 1u : 2u;
     gui->message_until = HAL_GetTick() + 3000u;
     return;

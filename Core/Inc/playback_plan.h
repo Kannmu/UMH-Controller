@@ -73,6 +73,9 @@ void playback_plan_tick(umh_playback_plan_t *plan, uint64_t device_time,
 uint64_t playback_plan_map_time(const umh_playback_plan_t *plan, uint64_t output_time);
 uint8_t playback_plan_frame_due(umh_playback_plan_t *plan, uint64_t frame_source_time,
                                 uint64_t device_time);
+uint8_t playback_plan_frame_output_time(const umh_playback_plan_t *plan,
+                                    uint64_t frame_source_time,
+                                    uint64_t *output_time);
 void playback_plan_frame_submitted(umh_playback_plan_t *plan);
 void playback_plan_notify_trigger(umh_playback_plan_t *plan);
 int playback_plan_prepare_loop(umh_playback_plan_t *plan,

@@ -10,7 +10,7 @@
 #define EEPROM_PROFILE_PAGE_SIZE 16u
 #define EEPROM_PROFILE_I2C_ADDRESS 0x50u
 #define EEPROM_PROFILE_MAGIC 0x45505237u
-#define EEPROM_PROFILE_VERSION 2u
+#define EEPROM_PROFILE_VERSION 3u
 #define EEPROM_PROFILE_V1_PAYLOAD_LENGTH 291u
 
 typedef struct __attribute__((packed)) {
@@ -60,3 +60,4 @@ void eeprom_profile_defaults(eeprom_profile_record_t *record);
 const eeprom_profile_record_t *eeprom_profile_current(const eeprom_profile_t *profile);
 
 #endif
+

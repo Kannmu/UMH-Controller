@@ -80,6 +80,12 @@ typedef struct {
   volatile int16_t cal_tilt_y_x10;
   volatile uint16_t cal_good_mics;
   volatile uint32_t cal_last_ms;
+  volatile uint8_t self_test_valid;
+  volatile uint8_t self_test_pass;
+  volatile uint8_t self_test_good_mics;
+  volatile uint8_t self_test_reserved;
+  volatile int16_t self_test_gain_x10;
+  volatile uint16_t self_test_coherence_x1000;
   volatile uint8_t heartbeat;
 } umh_system_status_t;
 

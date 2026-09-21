@@ -20,9 +20,9 @@
 
 标志位为 `ACK_REQUIRED=0x01`、`FIRST=0x02`、`LAST=0x04`、`RESPONSE=0x08` 和 `ERROR=0x10`。事务号用于把响应关联到请求；块流的连续性由 `stream_sequence` 检查，USB 包边界不参与块解析。
 
-请求消息类型为：`GET_PROFILE=0x01`、`GET_STATUS=0x03`、`BLOCK_BEGIN=0x10`、`BLOCK_DATA=0x11`、`BLOCK_END=0x12`、`BLOCK_CANCEL=0x13`、`SET_PLAN=0x20`、`START_PLAN=0x21`、`STOP_PLAN=0x22`、`CLEAR_PLAN=0x23`、`FPGA_STATUS=0x30`、`EEPROM_READ=0x40`、`EEPROM_WRITE=0x41`、`EEPROM_COMMIT=0x42`、`FLASH_LIST=0x50`、`FLASH_READ=0x51`、`FLASH_WRITE=0x52`、`FLASH_DELETE=0x53`、`ERROR_COUNTERS=0x60` 和 `SET_DEMO=0x61`。
+请求消息类型为：`GET_PROFILE=0x01`、`GET_STATUS=0x03`、`BLOCK_BEGIN=0x10`、`BLOCK_DATA=0x11`、`BLOCK_END=0x12`、`BLOCK_CANCEL=0x13`、`SET_PLAN=0x20`、`START_PLAN=0x21`、`STOP_PLAN=0x22`、`CLEAR_PLAN=0x23`、`FPGA_STATUS=0x30`、`EEPROM_READ=0x40`、`EEPROM_WRITE=0x41`、`EEPROM_COMMIT=0x42`、`FLASH_LIST=0x50`、`FLASH_READ=0x51`、`FLASH_WRITE=0x52`、`FLASH_DELETE=0x53`、`ERROR_COUNTERS=0x60`、`SET_DEMO=0x61`、`CAL_DUMP=0x80`、`CAL_RESULT=0x81`、`CAL_START=0x82` 和 `CAL_RAW=0x83`。
 
-`SET_DEMO=0x61` 的载荷是一个 Demo ID：`0=ULM`、`1=LML`、`2=LMC`。设备以 `(0,0,100000µm)` 为中心焦点，使用当前校准和空间渲染器生成 32 帧，并以 `LOOP_RAM` 循环播放；成功 ACK 的载荷为 ASCII 名称。演示播放与普通块互斥，停止或清空计划后才可接收新的块。
+`SET_DEMO=0x61` 的载荷是一个 Demo ID：`0=ULM`、`1=LML`、`2=LMC`。设备以 `(0,0,100000µm)` 为中心焦点，使用当前校准和空间渲染器生成 24 帧轨迹，并在 5 ms（200 Hz）内播放完整轨迹后以 `LOOP_RAM` 循环。`ULM` 为 15 mm 单向扫描，`LML` 为 7.5 mm 往返扫描，`LMC` 为 4.77 mm 圆周；成功 ACK 的载荷为 ASCII 名称。演示播放与普通块互斥，停止或清空计划后才可接收新的块。
 
 成功响应通常为 `ACK=0x70`，查询类响应也可使用对应的响应类型，例如 `PROFILE=0x02`、`STATUS=0x04`、`FPGA_STATUS=0x30`。失败响应为 `NACK=0x71`。ACK/NACK 的无额外载荷形式包含 4 字节：状态码、当前帧数量、剩余帧槽数量和保留字节。状态码为 `OK=0`、`BAD_HEADER=1`、`BAD_LENGTH=2`、`BAD_SEQUENCE=3`、`NO_MEMORY=4`、`UNSUPPORTED=5`、`INVALID_STATE=6`、`BUSY=7`、`IO=8`、`CRC=9`。
 
@@ -94,3 +94,17 @@ uint8[payload_length] payload
 USB CDC 回调只把数据复制到 16 KiB 单生产者环形缓冲并通知协议任务。协议任务校验帧头、处理事务和块序号；编译任务执行轨道解析与空间解算；帧环使用 32 个固定 400 字节槽；FPGA 链路任务以 DMA 和 FIFO 信用额度提交原子输出帧。
 
 `GET_PROFILE` 返回 1118 字节 `DeviceProfile`，含 84 个整数微米坐标、84 路通道、4 个 RGB 输出、4 个麦克风、时间基准、载波、FPGA 时钟、RAM/FIFO 额度、校准生成号和能力位。麦克风数据不经 STM32 控制链路转发，而由 FPGA 采样后经 CH347T 独立 USB 链路上传。
+
+## 内置近场耦合相位自校准
+
+设备内置四颗 SPH0641LU4H-1，坐标由钻孔文件确定，换能器 GU1008C-40TR 的压电陶瓷位于 PCB 声孔平面之上 7.0 mm。STM32 通过 SPI1 的 `MIC_CONFIG=0x14` 和 `MIC_READ=0x15` 在发射 burst 稳态内部设置 400 us I/Q 门；不依赖反射面，也不要求 FPGA 改动。
+
+`CAL_START=0x82`：无载荷，触发一次完整自校准。流程为发射电平自检、burst 尾段稳定门选择、逐通道 phase-0/180 差分复响应 H 测量、以生产空间渲染器几何为约束的四麦克风相位一致优化，然后对候选修正做一次差分聚焦实测（正/反相 180° 消除共模本底），并仅在所有麦克风实际相干性达标后写 EEPROM v3。成功结果通过 `CAL_RESULT=0x81` 请求读取。
+
+`CAL_DUMP=0x80`：载荷为 `offset u32, length u16, section u8`（section 可省略，默认 0）。分三次返回：
+
+- section 0：重构后的 `[mic][channel][I,Q]` float32。
+- section 1：B 阶段 64 点瞬态剖面 `[gate][mic][I,Q]` int16。
+- section 2：拟合指标、各麦克风 mu/rho、通道 a、量化修正字节和 4 个候选实测增益。
+
+`CAL_RAW=0x83`：仅做 C 阶段发射和采集并把原始门采样流式回传，用于离线算法开发。载荷 8 字节：`level u8, gate_start u16, gate_width u8, burst_us u16, patterns u16`。数据帧仍为 `CAL_RAW=0x83`，`stream_sequence` 为块内第一个图案索引，载荷 layout 为 `[pattern][mic][I,Q]` int16 little-endian，每帧 64 个图案。投影矩阵不发送，PC 端用与固件相同的 splitmix64 种子按 pattern index 重生成。离线工具见 `Utiles/umh_cal_dump_check.py`。

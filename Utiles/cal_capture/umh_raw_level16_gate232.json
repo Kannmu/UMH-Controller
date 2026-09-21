@@ -1,0 +1,9 @@
+{
+  "level": 16,
+  "gate_start": 232,
+  "gate_width": 16,
+  "burst_us": 6400,
+  "patterns": 1024,
+  "raw_layout": "[pattern][mic][I,Q] little-endian int16",
+  "pattern_generator": "splitmix64 cal_cs_row seed 0x243F6A8885A308D3, pattern index p, phase128=-1"
+}

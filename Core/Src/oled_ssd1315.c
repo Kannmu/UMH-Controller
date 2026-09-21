@@ -71,9 +71,13 @@ static int send(oled_ssd1315_t *oled, uint8_t control, const uint8_t *data, uint
   /* OLED transfers are short and periodic.  A blocking transaction keeps the
    * shared tx buffer and I2C state machine atomic and avoids an IRQ storm
    * when a DMA completion races with the next page refresh. */
+  /* A 129-byte page transfer takes ~12 ms at 100 kHz.  The old 20 ms
+   * timeout was consumed by normal RTOS preemption from the render task,
+   * leaving the SSD1315 half-programmed with display off.  Allow several
+   * transfer times so scheduling latency cannot turn into a display reset. */
   HAL_StatusTypeDef result = HAL_I2C_Master_Transmit(oled->i2c, OLED_I2C_ADDRESS,
                                                      oled->tx_buffer,
-                                                     (uint16_t)(length + 1u), 20u);
+                                                     (uint16_t)(length + 1u), 100u);
   i2c_bus_unlock();
   if (result != HAL_OK) {
     /* A timed-out slave can hold SDA low; release it before the next frame,

@@ -78,6 +78,10 @@ typedef struct {
   StaticSemaphore_t mutex_memory;
 } fpga_link_t;
 
+/* Runtime logical-channel -> us_tx bit permutation.  Initialized to identity
+ * by fpga_link_init(); bench code may overwrite it with the board mapping. */
+extern uint8_t fpga_logical_to_physical[UMH_DEVICE_CHANNEL_COUNT];
+
 void fpga_link_init(fpga_link_t *link, SPI_HandleTypeDef *spi);
 int fpga_link_submit(fpga_link_t *link, const umh_output_frame_t *frame);
 int fpga_link_poll_status(fpga_link_t *link);

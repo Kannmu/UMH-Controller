@@ -8,6 +8,33 @@ _Static_assert((sizeof(UMH7_ELEMENTS) / sizeof(UMH7_ELEMENTS[0])) == UMH_DEVICE_
 static umh_device_profile_t profile;
 static umh_device_profile_t *active_profile;
 
+const uint8_t umh_device_logical_to_physical[UMH_DEVICE_CHANNEL_COUNT] = {
+  21, 53, 34, 37, 20, 57, 43, 48, 47, 23, 29, 30,
+  11,  5, 13,  4, 69, 58, 61, 56, 45, 42, 44, 33,
+  24, 25, 41, 10, 17,  8, 14, 16, 66, 77, 82, 72,
+  79, 62,  3, 49, 46, 54, 28, 36, 22, 31, 27,  6,
+  18,  1,  0, 15,  7, 67, 65, 71, 63, 64, 68, 83,
+  52, 60, 51, 59, 50, 55, 38, 26, 39, 32, 40, 19,
+   9,  2, 12, 35, 80, 75, 74, 73, 70, 76, 81, 78,
+};
+
+static const struct { float x_mm, y_mm; } measured_element_position[UMH_DEVICE_CHANNEL_COUNT] = {
+  {  -26.0f,  -35.0f}, {  -43.3f,  -15.0f}, {    8.6f,  -45.0f}, {   -0.0f,  -30.0f}, {  -26.0f,  -25.0f}, {   -0.0f,  -10.0f},
+  {  -26.0f,   -5.0f}, {   -0.0f,  -40.0f}, {  -17.4f,  -30.0f}, {  -17.4f,  -20.0f}, {  -17.3f,  -10.0f}, {  -43.3f,   -5.0f},
+  {   -8.7f,  -35.0f}, {  -34.7f,  -30.0f}, {  -34.7f,  -20.0f}, {   -8.7f,  -25.0f}, {   -8.7f,  -15.0f}, {  -26.0f,  -15.0f},
+  {  -34.7f,  -10.0f}, {  -34.7f,    0.0f}, {   -8.7f,   -5.0f}, {    0.0f,   10.0f}, {  -17.3f,    0.0f}, {    0.0f,   30.0f},
+  {   -8.7f,   25.0f}, {   -8.7f,    5.0f}, {  -34.7f,   10.0f}, {  -26.0f,   25.0f}, {   -8.7f,   45.0f}, {  -17.3f,   40.0f},
+  {  -26.0f,    5.0f}, {  -43.3f,   15.0f}, {  -26.0f,   35.0f}, {   -8.7f,   35.0f}, {   -8.7f,   15.0f}, {  -34.7f,   20.0f},
+  {  -17.3f,   30.0f}, {  -17.3f,   20.0f}, {  -26.0f,   15.0f}, {  -17.3f,   10.0f}, {  -43.3f,    5.0f}, {  -34.6f,   30.0f},
+  {    0.0f,   20.0f}, {   43.3f,   15.0f}, {    0.0f,   40.0f}, {   17.4f,   40.0f}, {   26.0f,   35.0f}, {    8.7f,   45.0f},
+  {    8.7f,   25.0f}, {   17.3f,   30.0f}, {    8.7f,    5.0f}, {   34.7f,   -0.0f}, {   34.7f,   10.0f}, {    8.7f,   35.0f},
+  {   17.3f,   20.0f}, {    8.7f,   15.0f}, {   17.3f,   10.0f}, {   17.4f,   -0.0f}, {   34.7f,   30.0f}, {   26.0f,   25.0f},
+  {   34.7f,   20.0f}, {   26.0f,   15.0f}, {   26.0f,    5.0f}, {    8.6f,  -35.0f}, {   26.0f,  -25.0f}, {   -0.0f,  -20.0f},
+  {   26.0f,  -15.0f}, {   17.3f,  -20.0f}, {   43.3f,  -15.0f}, {   26.0f,   -5.0f}, {   -8.7f,  -45.0f}, {   26.0f,  -35.0f},
+  {   43.3f,    5.0f}, {  -17.4f,  -40.0f}, {   17.3f,  -30.0f}, {   17.3f,  -40.0f}, {   34.7f,  -30.0f}, {   34.7f,  -20.0f},
+  {   17.4f,  -10.0f}, {   43.3f,   -5.0f}, {    8.6f,  -25.0f}, {    8.6f,  -15.0f}, {   34.7f,  -10.0f}, {    8.7f,   -5.0f},
+};
+
 void device_profile_init(umh_device_profile_t *target)
 {
   uint16_t i;
@@ -39,13 +66,18 @@ void device_profile_init(umh_device_profile_t *target)
                              UMH_PROFILE_CAP_LOOP_RAM |
                              UMH_PROFILE_CAP_LOOP_STREAM |
                              UMH_PROFILE_CAP_GEOMETRY_VALID;
-  /* The Reference table is indexed by stable element ID (E01..E84), which is
-   * also the renderer's firmware channel order.  Keep z at the transducer
-   * plane so spatial blocks can use a single documented user coordinate frame. */
+  /* Channel order is the FPGA us_tx bit / SPI serialization order.  The x/y
+   * values are the measured transducer positions recovered from the 4-mic
+   * short-burst time-of-flight mapping (2026-09 bench).  The theoretical
+   * hex-lattice E## table in Reference/UMH 7 Element Layout is kept as a
+   * sanity reference, but the physical board is rotated relative to that
+   * table and the netlist us_tx order is not E01..E84, so the measured table
+   * is authoritative for focusing.  GU1008C-40TR piezo ceramic sits 7.0 mm
+   * above the PCB microphone-port plane, hence z=+7000 um. */
   for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
-    target->coordinates[i].x_um = UMH7_ELEMENTS[i].x_um;
-    target->coordinates[i].y_um = UMH7_ELEMENTS[i].y_um;
-    target->coordinates[i].z_um = 0;
+    target->coordinates[i].x_um = (int32_t)(measured_element_position[i].x_mm * 1000.0f + (measured_element_position[i].x_mm >= 0.0f ? 0.5f : -0.5f));
+    target->coordinates[i].y_um = (int32_t)(measured_element_position[i].y_mm * 1000.0f + (measured_element_position[i].y_mm >= 0.0f ? 0.5f : -0.5f));
+    target->coordinates[i].z_um = 7000;
   }
   active_profile = target;
 }

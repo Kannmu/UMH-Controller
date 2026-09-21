@@ -58,3 +58,9 @@ BOM 指定 FPGA 为 `LCMXO2-2000HC-4MG132C`，现有网表封装字符串却为 
 
 
 麦克风采样补充：MIC_CLK 约为 4 MHz，FPGA 在每个完整周期的两个边沿分别锁存两条数据线，形成四个 16 位窗口。CH347T 每次片选读取固定 12 字节快照，由四个三字节记录组成：source_id、样本高字节、样本低字节。source_id 0/1 对应 MIC_DATA_0 上升沿/下降沿，2/3 对应 MIC_DATA_1 上升沿/下降沿。主机应按标记分发样本，阵列几何位置由设备配置中的麦克风坐标描述。
+
+## 内置麦克风自校准数据路径
+
+麦克风不仅可经 CH347T 独立上传，FPGA 还提供 `MIC_CONFIG=0x14` 和 `MIC_READ=0x15` SPI1 命令给 STM32 自校准使用。`MIC_CONFIG` 的三个时间字段单位为 40 kHz 采样（25 us）：门数、起始、步进、宽度。`MIC_READ` 用帧序号字段作为门号，单事务返回 40 字节，其中前 16 字节为常规状态，之后为 `{status, block_count, gate_count, reserved, I0..I3, Q0..Q3}` 大端 16 位。
+
+自校准在发射 burst 的稳态内部开一个 400 us 门；门内只有直达声和静态本底，不依赖反射面。换能器 GU1008C-40TR 的压电陶瓷在 PCB 麦克风声孔平面之上 7.0 mm，固件 DeviceProfile 的 z 坐标因此为 7000 um；麦克风声孔在 PCB 平面，聚焦到声孔的几何距离必须包含这 7 mm。原始每图案数据可由 `UMH_MSG_CAL_RAW=0x83` 从 STM32 USB CDC 流式回传到 PC，FPGA RTL 不需要改动。

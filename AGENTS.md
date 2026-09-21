@@ -43,20 +43,16 @@ $env:CLEAN_DIAMOND = '1'; cmd /d /c run_diamond.cmd; Remove-Item Env:CLEAN_DIAMO
 
 清理模式只删除 `UMH_7_1/` 下的生成实现文件，不删除 RTL、约束或工程文件。若仍失败，检查 `pnmainc.log` 最后一条错误以及 `.mrp`、`.twr` 报告。一次只运行一个 Diamond 实例。PLL 必须保持 `FEEDBK_PATH("INT_DIVA")` 和相位匹配的 `CLKOP_CPHASE`，源时钟约束保留在 `UMH_7.lpf`。
 
-## 四麦克风回波自校准（2026-09-16 增加）
+## 内置近场耦合相位自校准（2026-09-17 v2）
 
-- **麦克风**：4 颗 SPH0641LU4H-1，Ultrasonic Mode（fCLOCK 3.072..4.8 MHz）。上电/唤醒必须按定序：**上电后 mic_clk 先保持低 10 ms → 200 kHz 运行 20 ms → 4 MHz**；禁止直接上电到 4 MHz。FPGA 已内置该定序器（`MIC_BOOT_CYCLES` / `MIC_WARM_EDGES`）。
-- **PDM 配对与槽位**（U181/U204 SELECT 接 VDD，U180/U182 SELECT 接 GND）：
-  - slot 0 = MIC_DATA_0 上升沿（U181），slot 1 = MIC_DATA_0 下降沿（U180）；
-  - slot 2 = MIC_DATA_1 上升沿（U204），slot 3 = MIC_DATA_1 下降沿（U182）。
-  麦克风坐标由 `Core/Src/us_calibration.c` 的 `cal_mic_*_mm` 按上述槽位顺序维护，不能按编号顺序交换。
-- **FPGA 复解调**：4 MHz PDM 流与整数 40 kHz ±1 本振混频，40 点 boxcar（输出率 100 kHz）；本振/混频/boxcar 全为加、异或，不使用乘法器或 ROM。门累积放在 512×16 单 EBR 中（`umh_mic_iq_ram`，1 个 EBR）。
-- **新增 SPI1 命令**（`fpga_link.h`）：
-  - `0x14 MIC_CONFIG`: six extension bytes `{gate_count, start_lo, start_hi, step_lo, step_hi, width}`; the three time fields are in 40 kHz samples (25 us), matching the FPGA one-carrier-period I/Q integrator.
-  - `0x15 MIC_READ`：门号放在 header 的 frame-sequence 字段（字节 6..9），事务长度 40 字节；MISO 前 16 字节为常规 status，随后 24 字节为 `{status, block_count, gate_count, reserved, I0..I3, Q0..Q3}`（16 位大端，见 `fpga_link.h`）。
-- **EBR 占用 = 7/8**：事件表 5 + 麦克风 IQ 1 + 通道 staging 1。新增逻辑必须保持该预算，不能再引入 EBR。
-- **Calibration flow**: UI CALIB RUN -> 1 s settle -> coarse/fine balanced-random echo survey (FMAC matched-filter leading edge) -> silent floor -> up to 9 s / 2048 i.i.d. +-1 random projections (full-rank R; stream b=R^H y only, never store A=R^H R) -> CG convex reconstruction of the 84 complex channel responses per microphone -> alternating rank-1 + common-mode mu fit and pose correction -> gauge fix -> one-pattern array-gain verification -> AT24C16 write. Only the high byte of record->phase[i] is written; spatial_renderer picks it up automatically, while direct CHANNEL_STATE/BLOCK phase commands are unaffected.
-- **EEPROM 记录版本 2**：`eeprom_profile_record_t` 在 `reserved[3]` 后增加 `cal_meta_valid..cal_time_ms`，payload 长度 = `offsetof(crc32)`；旧版本 1 记录在 `eeprom_profile_load()` 中自动升级。commit 流程仍是双副本 + generation + CRC32。
-- **烧录后刷新**：`pgrcmd -infile UMH_7_Programmer_File.xcf` 之后必须 `pgrcmd -infile UMH_7_Programmer_Refresh.xcf`；Refresh XCF 已补齐。
-- **Calibration projections**: `cal_cs_row()` uses splitmix64 i.i.d. +-1 (no exact 42/42 balancing) so the 84-dimensional measurement matrix is full rank and A=C^H C is well conditioned; `cal_balanced_row()` (42/42 zero-mean) is used only by the echo survey to cancel common-mode LC ring-down. The final static-phase rank-1 fit carries a per-microphone common-mode nuisance mu (`cal_mu_*`) and alternates "rank-1+mu fit -> subtract mu -> pose refinement", so residual common-mode LC ring cannot corrupt the channel phases. The code matrix is regenerated from (pattern,channel) at acquisition and reconstruction time and is never stored. Do not revert to the old Paley/truncated-Hadamard scheme.
-
+- **目标**: 只把 84 路在麦克风声孔处看到的静态相位基准校准到一致，不求解绝对相位、不依赖环境反射面。四颗 SPH0641 接收 84 路阵元的平面内近场直达声；门放在每个发射 burst 的稳态内部，15 cm 以外反射来不及到达。
+- **物理坐标**: 换能器 GU1008C-40TR 的压电陶瓷在 PCB 麦克风声孔平面之上 7.0 mm；Core/Src/device_profile.c 因此把 84 路 z_um 设为 7000。麦克风声孔仍取钻孔坐标表: slot0=U181(-43.305,24.994)、slot1=U180(43.298,24.994)、slot2=U204(0,0)、slot3=U182(-0.004,-49.994)。不得退回全 z=0。
+- **采集**: cal_cs_row 使用 splitmix64 i.i.d. ±1，不要改成 Paley/均衡 H。每个图案在 FPGA pattern swap 后按 MIC_CONFIG(gate_count=1,start=gate_start,step=gate_width,width=16) 在 burst 稳态内取一个 400 us I/Q 门；C 阶段累计 Sy_m、Sk_i、Sxy_mi，用中心化最小二乘 + 复数 CG 解 84x4 的 Z_mi。矩阵按 pattern index 现场重生成，不存 R^H R。
+- **发射档位**: A1 使用 5 档 {128,64,32,16,8}，按幅度-电平线性度、单图案重复相干性和 SNR 选择档位。本硬件近场耦合很强，正常工作点常在 level=16/8，不要强行固定 128。
+- **门自整定**: B 阶段发 8 次长 burst，MIC_CONFIG(64,0,step=4,width=2) 覆盖 0..6.4 ms；取 burst 尾段稳定窗，幅度距 tail 均值不超过 15%，相邻相位差不超过 5 度，至少 6 个 profile gate，避免把 LC 起振瞬态当稳态。
+- **相位拟合**: E 阶段对 Z_mi 乘 exp(±j*k*r_mi) 做逐麦克风共模 mu 加 rank-1 a_i*rho_m 交替加权拟合。cal_fit_direct 当前为 24 轮乘 8 次迭代，共 192 次，并在每轮更新 mu；早期 32 次迭代版本会停在约 20 度 RMS，不要退回。拟合后由 cal_gauge 去掉公共相位和平面项，得到修正字节约 q=负 arg(a_i)。
+- **四候选消歧**: 直接枚举 {解旋+ 乘 q, 解旋+ 乘 -q, 解旋- 乘 q, 解旋- 乘 -q}。F 阶段用生产 spatial_renderer_point 分别聚焦到四个麦克风声孔，实测 4 颗接收功率；所有候选都不优于基线才失败。rms_before 小于 20 度时不强制 6 dB 增益和 3 麦正增益，否则按严格门限。
+- **原始数据回放**: UMH_MSG_CAL_RAW=0x83 可只做 C 阶段发射采集并把原始 [pattern][mic][I,Q] int16 按 64 图案每帧流式回传到 PC，用于离线算法迭代。参数 8 字节: level u8, gate_start u16, gate_width u8, burst_us u16, patterns u16。离线工具: python Utiles/umh_cal_dump_check.py --raw Utiles/cal_capture/umh_raw_level16_gate232.bin --patterns 1024 --sign both。
+- **EEPROM v3**: EEPROM_PROFILE_VERSION=3，布局仍与 v2 相同，phase 高字节为修正。cal_meta_valid=1，cal_level 为 level_used，cal_rms_deg_x10 为 fit_rms；cal_tilt_x_x10 槽位存 verify_gain_db 乘 10，cal_tilt_y_x10 存 mic_consistency 乘 10；cal_reserved 存 patterns、gate_start、gate_width、level、geom、sign、band_trend。
+- **调试命令**: UMH_MSG_CAL_START=0x82 用于 CLI 触发一次正常校准，等价于 GUI 的 CALIB RUN。UMH_MSG_CAL_DUMP=0x80 支持 6/7 字节请求，section 0 为重构 Z float32、section 1 为 B 剖面 int16、section 2 为拟合和候选指标。
+- **不退回**: 不要恢复平面回波 pose 搜索、FISTA/L1 分支、旧 Paley 码、z=0、32 次 rank 迭代或只验证一种候选；FPGA RTL 不动。

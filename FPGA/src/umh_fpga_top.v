@@ -222,6 +222,11 @@ module umh_fpga_top (
 
     reg  [31:0] fpga_time;
     reg  [6:0]  time_divider;
+    /* SPI link watchdog: a running output must receive either frame or status
+     * traffic at least this often.  If the STM32 resets or hangs, the FPGA
+     * clears the output instead of holding the last frame forever. */
+    localparam [31:0] LINK_TIMEOUT_US = 32'd25_000;
+    reg  [31:0] link_idle_us;
 
     /* ------------------------------------------------------------------
      * SPH0641LU4H-1 clock sequencer and 40 kHz coherent I/Q demodulator.
@@ -422,6 +427,7 @@ module umh_fpga_top (
     reg  [95:0] rgb_hold;
     reg  [15:0] rgb_update_flags_hold;
     wire stop_event = (stop_toggle_sync != stop_toggle_seen);
+    wire link_timeout = (link_idle_us >= LINK_TIMEOUT_US);
 
     /* Status is latched in the output domain while CS is high and only read
      * afterwards, so the SCK side always sees one static 16-byte snapshot. */
@@ -674,6 +680,14 @@ module umh_fpga_top (
             time_divider <= time_divider + 7'd1;
         end
 
+        /* Any SPI chip-select assertion proves the STM32 is alive.  Keep the
+         * counter saturated so link_timeout remains stable until re-armed. */
+        if (cs_fall) begin
+            link_idle_us <= 32'd0;
+        end else if (time_divider == 7'd63 && link_idle_us < LINK_TIMEOUT_US) begin
+            link_idle_us <= link_idle_us + 32'd1;
+        end
+
         /* Refresh the response only while CS is inactive.  At the next
          * transaction it is already valid before the first SCK edge; once
          * CS goes low it remains constant for the whole SPI frame. */
@@ -745,6 +759,14 @@ module umh_fpga_top (
             /* STOP belongs to the ultrasound engine.  WS2812 is an
              * independent output and must retain its last commanded colour
              * across Demo preparation and ultrasound stops. */
+            running       <= 1'b0;
+            frame_req     <= 1'b0;
+            frame_settle  <= 4'd0;
+            swap_pending  <= 1'b0;
+            ev_state      <= EV_IDLE;
+        end else if (link_timeout) begin
+            /* Link-loss failsafe.  Do not touch stop_toggle_seen: a later
+             * explicit STOP must still be recognised when the MCU reboots. */
             running       <= 1'b0;
             frame_req     <= 1'b0;
             frame_settle  <= 4'd0;
@@ -981,6 +1003,23 @@ module umh_fpga_top (
             mic_gate_wait   <= mic_cfg_start;
             mic_done        <= 1'b0;
             mic_saturated   <= 1'b0;
+            /* Re-lock the PDM demodulator to each calibration pattern swap.
+             * The transmit DDS and the 4 MHz PDM clock are both derived from
+             * the same 64 MHz oscillator, but the DDS nominal carrier is
+             * 40000.0066 Hz while the PDM LO is exactly 40 kHz.  Without this
+             * re-lock the relative phase drifts ~2.4 deg/s, so H-matrix
+             * phases are not repeatable and phase calibration is meaningless.
+             * Frame swaps already occur on a transmit-carrier wrap. */
+            mic_phase        <= 4'd0;
+            mic_lo_n         <= 7'd99;
+            mic_lo_i_r       <= 1'b1;
+            mic_lo_q_r       <= 1'b1;
+            mic_window_count <= 7'd0;
+            mic_bc_valid     <= 1'b0;
+            mic_xor_i[0] <= 7'd0; mic_xor_i[1] <= 7'd0;
+            mic_xor_i[2] <= 7'd0; mic_xor_i[3] <= 7'd0;
+            mic_xor_q[0] <= 7'd0; mic_xor_q[1] <= 7'd0;
+            mic_xor_q[2] <= 7'd0; mic_xor_q[3] <= 7'd0;
         end
 
         /* Every 40 kHz sample either decrements the inter-gate wait, starts
@@ -1114,6 +1153,7 @@ module umh_fpga_top (
         swap_now_s4 = 1'b0; ev_run_hold_s5 = 84'd0; phase_step_s5 = 1'b0;
         swap_now_s5 = 1'b0;
         fpga_time = 32'd0; time_divider = 7'd0;
+        link_idle_us = 32'd0;
         ev_state = EV_IDLE; ev_clear_addr = 8'd0; ev_ch = 7'd0;
         init_shadow = 84'd0; ev_rd_hold = 84'd0; staging_rd_addr = 7'd0;
         build_phase = 8'd0; build_sum = 9'd0; build_zero = 1'b0;

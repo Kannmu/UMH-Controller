@@ -43,7 +43,45 @@ static oled_ssd1315_t oled;
 static umh_protocol_parser_t protocol_parser;
 static device_gui_t device_gui;
 static umh_calibration_result_t calibration_result;
+static umh_cal_self_test_result_t calibration_self_test_result;
 static osThreadId_t calibration_task_handle;
+static volatile uint8_t calibration_raw_mode;
+static volatile uint8_t calibration_selftest_mode;
+static uint8_t calibration_raw_level;
+static uint16_t calibration_raw_gate_start;
+static uint8_t calibration_raw_gate_width;
+static uint16_t calibration_raw_burst_us;
+static uint16_t calibration_raw_patterns;
+
+/* --------------------------------------------------------------------------
+ * Bench mailbox.
+ *
+ * The ST-Link/OpenOCD bench session cannot use USB CDC on every setup.  These
+ * words are deliberately plain globals so a debugger can write a command and
+ * poll the status/side effects while the calibration task services it.
+ * They have no effect in production until a debugger writes umh_bench_cmd.
+ * -------------------------------------------------------------------------- */
+enum {
+  UMH_BENCH_CMD_NONE = 0u,
+  UMH_BENCH_CMD_SELFTEST = 1u,
+  UMH_BENCH_CMD_CALIBRATE = 2u,
+  UMH_BENCH_CMD_MEASURE_H = 3u,
+  UMH_BENCH_CMD_APPLY_PHASE = 4u,
+  UMH_BENCH_CMD_COMMIT = 5u,
+  UMH_BENCH_CMD_START_DEMO = 6u,
+  UMH_BENCH_CMD_PROFILE = 7u,
+  UMH_BENCH_CMD_PROFILE_ALL = 8u,
+  UMH_BENCH_CMD_PATTERN = 9u
+};
+volatile uint32_t umh_bench_cmd;
+volatile uint32_t umh_bench_status;   /* 0 idle, 1 busy, 2 done, 3 error */
+volatile uint32_t umh_bench_result;   /* last command return code        */
+volatile uint32_t umh_bench_arg[16];
+volatile uint8_t  umh_bench_phase[UMH_DEVICE_CHANNEL_COUNT];
+volatile uint8_t  umh_bench_level[UMH_DEVICE_CHANNEL_COUNT];
+volatile float    umh_bench_frame_i[UMH_DEVICE_MIC_COUNT];
+volatile float    umh_bench_frame_q[UMH_DEVICE_MIC_COUNT];
+us_cal_profile_peak_t umh_bench_peaks[UMH_DEVICE_CHANNEL_COUNT][UMH_DEVICE_MIC_COUNT];
 
 typedef struct {
   umh_protocol_frame_t frame;
@@ -83,10 +121,33 @@ typedef struct __attribute__((packed)) {
 
 _Static_assert(sizeof(umh_cal_result_wire_t) == 135u, "cal result wire size");
 
+typedef struct __attribute__((packed)) {
+  uint8_t valid;
+  uint8_t pass;
+  uint8_t good_mics;
+  uint8_t fault;
+  uint16_t channels_measured;
+  uint16_t used_gate_start;
+  uint8_t used_level;
+  uint8_t used_gate_width;
+  uint8_t reserved[2];
+  int16_t focus_gain_db_x10;
+  uint16_t coherence_x1000;
+  int16_t predicted_gain_db_x10;
+  int16_t actual_vs_predicted_db_x10;
+  int16_t per_mic_gain_db_x10[UMH_DEVICE_MIC_COUNT];
+  uint16_t per_mic_coherence_x1000[UMH_DEVICE_MIC_COUNT];
+} umh_cal_self_test_wire_t;
+
+_Static_assert(sizeof(umh_cal_self_test_wire_t) == 36u, "cal self-test wire size");
+
 static uint8_t calibration_dump_buffer[512];
 static uint8_t block_stream_active;
 static uint32_t block_stream_expected_sequence;
 static volatile uint8_t demo_building;
+static TaskHandle_t render_task_handle;
+static TIM_HandleTypeDef render_timer;
+static volatile uint8_t render_timer_ready;
 
 static umh_fault_code_t fault_code_for_status(umh_status_t status, uint8_t message_type)
 {
@@ -154,6 +215,7 @@ static const osThreadAttr_t health_task_attributes = {
 static void send_response(const umh_protocol_frame_t *request, uint8_t type,
                           const void *payload, uint16_t length);
 static void application_init(void);
+static int gui_demo(void *context);
 
 static uint32_t read_u32(const uint8_t *p)
 {
@@ -201,6 +263,17 @@ static int gui_calibration(void *context)
   return 0;
 }
 
+static int gui_selftest(void *context)
+{
+  (void)context;
+  if (calibration_task_handle == NULL) return -1;
+  device_gui_calibration_begin(&device_gui);
+  calibration_selftest_mode = 1u;
+  calibration_raw_mode = 0u;
+  (void)xTaskNotifyGive((TaskHandle_t)calibration_task_handle);
+  return 0;
+}
+
 static void calibration_progress(uint8_t state, uint8_t progress, void *context)
 {
   (void)context;
@@ -213,6 +286,100 @@ static void calibration_fail(umh_fault_code_t code, uint32_t argument)
 {
   calibration_progress(DEVICE_GUI_CAL_FAIL, 100u, NULL);
   system_status_fault(code, argument, UMH_FAULT_WARNING);
+}
+
+static int calibration_raw_tx(uint32_t first_pattern, const uint8_t *data,
+                              uint16_t length, void *context)
+{
+  uint8_t encoded[UMH_PROTOCOL_HEADER_SIZE + UMH_PROTOCOL_MAX_PAYLOAD];
+  uint16_t encoded_length;
+  (void)context;
+  encoded_length = umh_protocol_encode(UMH_MSG_CAL_RAW, UMH_FLAG_RESPONSE,
+                                       0x00524157u, first_pattern,
+                                       data, length, encoded, sizeof(encoded));
+  if (encoded_length == 0u) return -1;
+  while (umh_usb_tx_enqueue(encoded, encoded_length) == 0u) {
+    umh_usb_tx_service();
+    osDelay(1u);
+  }
+  umh_usb_tx_service();
+  return 0;
+}
+
+static void calibration_raw_session(void)
+{
+  int rc;
+  device_gui_calibration_begin(&device_gui);
+  playback_plan_stop(&playback_plan);
+  (void)fpga_link_safe_stop(&fpga_link);
+  block_parser_cancel(&block_parser);
+  frame_ring_init(&frame_ring);
+  block_stream_active = 0u;
+  demo_building = 1u;
+  calibration_progress(DEVICE_GUI_CAL_WAIT, 0u, NULL);
+  osDelay(1000u);
+  rc = us_calibration_capture_raw(&fpga_link, calibration_raw_level,
+                                  calibration_raw_gate_start,
+                                  calibration_raw_gate_width,
+                                  calibration_raw_burst_us,
+                                  calibration_raw_patterns,
+                                  calibration_raw_tx, NULL);
+  if (rc != 0) {
+    calibration_fail(rc == -2 ? UMH_FAULT_CAL_MIC_SILENT : UMH_FAULT_CAL_SOLVER,
+                     (uint32_t)(-rc));
+  } else {
+    calibration_progress(DEVICE_GUI_CAL_OK, 100u, NULL);
+  }
+  (void)fpga_link_safe_stop(&fpga_link);
+  demo_building = 0u;
+}
+
+static void calibration_selftest_session(void)
+{
+  int rc;
+  const eeprom_profile_record_t *record = eeprom_profile_current(&eeprom_profile);
+  uint8_t level = (record != NULL && record->cal_level != 0u) ? (uint8_t)record->cal_level : 8u;
+  uint16_t gate_start = 0u;
+  uint8_t gate_width = 0u;
+  if (record != NULL && record->cal_meta_valid != 0u) {
+    /* Re-use the same steady-state gate that produced the stored record.  The
+     * acoustic self-test must measure the real calibrated array, not a
+     * different operating point chosen by the transient detector. */
+    memcpy(&gate_start, &record->cal_reserved[2], sizeof(gate_start));
+    gate_width = record->cal_reserved[4];
+  }
+  device_gui_calibration_begin(&device_gui);
+  playback_plan_stop(&playback_plan);
+  (void)fpga_link_safe_stop(&fpga_link);
+  block_parser_cancel(&block_parser);
+  frame_ring_init(&frame_ring);
+  block_stream_active = 0u;
+  demo_building = 1u;
+  calibration_progress(DEVICE_GUI_CAL_WAIT, 0u, NULL);
+  osDelay(300u);
+  rc = us_calibration_self_test(&fpga_link, device_profile_get(), renderer.calibration,
+                                level, gate_start, gate_width, 0u,
+                                calibration_progress, NULL,
+                                &calibration_self_test_result);
+  if (rc == 0) {
+    umh_system_status_t *st = system_status_get();
+    float coh = calibration_self_test_result.coherence * 1000.0f;
+    st->self_test_valid = 1u;
+    st->self_test_pass = calibration_self_test_result.pass;
+    st->self_test_good_mics = calibration_self_test_result.good_mics;
+    st->self_test_gain_x10 = (int16_t)lroundf(calibration_self_test_result.focus_gain_db * 10.0f);
+    if (coh > 65535.0f) coh = 65535.0f;
+    if (coh < 0.0f) coh = 0.0f;
+    st->self_test_coherence_x1000 = (uint16_t)lroundf(coh);
+    if (calibration_self_test_result.pass != 0u)
+      calibration_progress(DEVICE_GUI_CAL_OK, 100u, NULL);
+    else
+      calibration_fail(UMH_FAULT_CAL_QUALITY, 4u);
+  } else {
+    calibration_fail((umh_fault_code_t)calibration_self_test_result.fault, (uint32_t)(-rc));
+  }
+  (void)fpga_link_safe_stop(&fpga_link);
+  demo_building = 0u;
 }
 
 static void calibration_session(void)
@@ -244,15 +411,39 @@ static void calibration_session(void)
     }
     record.cal_meta_valid = 1u;
     {
-      float rms10 = calibration_result.rms_before_deg * 10.0f + 0.5f;
+      float rms10 = calibration_result.fit_rms_deg * 10.0f + 0.5f;
       if (rms10 > 255.0f) rms10 = 255.0f;
       record.cal_rms_deg_x10 = (uint8_t)rms10;
     }
-    record.cal_tilt_x_x10 = (int16_t)lroundf(calibration_result.tilt_x_deg * 10.0f);
-    record.cal_tilt_y_x10 = (int16_t)lroundf(calibration_result.tilt_y_deg * 10.0f);
+    {
+      float gx10 = calibration_result.verify_gain_db * 10.0f;
+      float cx10 = calibration_result.mic_consistency_deg * 10.0f;
+      if (gx10 > 127.0f) gx10 = 127.0f;
+      if (gx10 < -128.0f) gx10 = -128.0f;
+      if (cx10 > 127.0f) cx10 = 127.0f;
+      if (cx10 < -128.0f) cx10 = -128.0f;
+      record.cal_tilt_x_x10 = (int8_t)lroundf(gx10);
+      record.cal_tilt_y_x10 = (int8_t)lroundf(cx10);
+    }
     record.cal_carrier_hz10 = (uint16_t)(device_profile.carrier_hz / 10u);
-    record.cal_level = 128u;
+    record.cal_level = calibration_result.level_used;
     record.cal_time_ms = (uint32_t)(system_time_us() / 1000u);
+    memset(record.cal_reserved, 0, sizeof(record.cal_reserved));
+    {
+      uint16_t patterns = calibration_result.patterns_used;
+      uint16_t gate_start = calibration_result.used_gate_start;
+      int16_t trend10 = (int16_t)lroundf(calibration_result.band_trend_deg * 10.0f);
+      memcpy(&record.cal_reserved[0], &patterns, sizeof(patterns));
+      memcpy(&record.cal_reserved[2], &gate_start, sizeof(gate_start));
+      record.cal_reserved[4] = calibration_result.used_gate_width;
+      record.cal_reserved[5] = calibration_result.level_used;
+      record.cal_reserved[6] = calibration_result.geom_hypothesis;
+      record.cal_reserved[7] = calibration_result.sign_hypothesis;
+      memcpy(&record.cal_reserved[8], &trend10, sizeof(trend10));
+      record.reserved[0] = calibration_result.used_gate_count;
+      record.reserved[1] = 0u;
+      record.reserved[2] = 0u;
+    }
     if (eeprom_profile_commit(&eeprom_profile, &record) != 0) {
       calibration_fail(UMH_FAULT_EEPROM_IO, 3u);
     } else {
@@ -272,12 +463,157 @@ static void calibration_session(void)
   demo_building = 0u;
 }
 
+
+static void bench_service(void)
+{
+  uint32_t cmd = umh_bench_cmd;
+  int rc = 0;
+  uint16_t i;
+  if (cmd == UMH_BENCH_CMD_NONE) return;
+  umh_bench_cmd = UMH_BENCH_CMD_NONE;
+  umh_bench_status = 1u;
+  umh_bench_result = 0u;
+  switch (cmd) {
+    case UMH_BENCH_CMD_SELFTEST:
+      calibration_selftest_session();
+      break;
+    case UMH_BENCH_CMD_CALIBRATE:
+      calibration_session();
+      break;
+    case UMH_BENCH_CMD_MEASURE_H:
+      playback_plan_stop(&playback_plan);
+      (void)fpga_link_safe_stop(&fpga_link);
+      block_parser_cancel(&block_parser);
+      frame_ring_init(&frame_ring);
+      block_stream_active = 0u;
+      demo_building = 1u;
+      rc = us_calibration_measure_h(&fpga_link, device_profile_get(),
+                                    (uint8_t)umh_bench_arg[0],
+                                    (uint16_t)umh_bench_arg[1],
+                                    (uint8_t)umh_bench_arg[2],
+                                    umh_bench_arg[3],
+                                    (uint8_t)umh_bench_arg[4],
+                                    NULL, NULL);
+      (void)fpga_link_safe_stop(&fpga_link);
+      demo_building = 0u;
+      break;
+    case UMH_BENCH_CMD_PROFILE:
+      playback_plan_stop(&playback_plan);
+      (void)fpga_link_safe_stop(&fpga_link);
+      block_parser_cancel(&block_parser);
+      frame_ring_init(&frame_ring);
+      block_stream_active = 0u;
+      demo_building = 1u;
+      rc = us_calibration_measure_profile(&fpga_link,
+                                          (uint8_t)umh_bench_arg[0],
+                                          (uint8_t)umh_bench_arg[1],
+                                          (uint8_t)umh_bench_arg[2],
+                                          (uint8_t)umh_bench_arg[3],
+                                          (uint16_t)umh_bench_arg[4],
+                                          (uint16_t)umh_bench_arg[5],
+                                          (uint8_t)umh_bench_arg[6],
+                                          umh_bench_arg[7],
+                                          (uint8_t)umh_bench_arg[8]);
+      (void)fpga_link_safe_stop(&fpga_link);
+      demo_building = 0u;
+      break;
+    case UMH_BENCH_CMD_PATTERN:
+      playback_plan_stop(&playback_plan);
+      (void)fpga_link_safe_stop(&fpga_link);
+      block_parser_cancel(&block_parser);
+      frame_ring_init(&frame_ring);
+      block_stream_active = 0u;
+      demo_building = 1u;
+      rc = us_calibration_measure_pattern(&fpga_link,
+                                          (const uint8_t *)umh_bench_phase,
+                                          (const uint8_t *)umh_bench_level,
+                                          (uint16_t)umh_bench_arg[0],
+                                          (uint8_t)umh_bench_arg[1],
+                                          umh_bench_arg[2],
+                                          (uint8_t)umh_bench_arg[3],
+                                          (float *)umh_bench_frame_i,
+                                          (float *)umh_bench_frame_q);
+      (void)fpga_link_safe_stop(&fpga_link);
+      demo_building = 0u;
+      break;
+    case UMH_BENCH_CMD_PROFILE_ALL:
+      playback_plan_stop(&playback_plan);
+      (void)fpga_link_safe_stop(&fpga_link);
+      block_parser_cancel(&block_parser);
+      frame_ring_init(&frame_ring);
+      block_stream_active = 0u;
+      demo_building = 1u;
+      rc = us_calibration_measure_profile_all(&fpga_link,
+                                              (uint8_t)umh_bench_arg[0],
+                                              umh_bench_arg[1],
+                                              (uint8_t)umh_bench_arg[2],
+                                              (uint16_t)umh_bench_arg[3],
+                                              (uint16_t)umh_bench_arg[4],
+                                              (uint8_t)umh_bench_arg[5],
+                                              (uint8_t)umh_bench_arg[6],
+                                              (uint8_t)umh_bench_arg[7],
+                                              &umh_bench_peaks[0][0]);
+      (void)fpga_link_safe_stop(&fpga_link);
+      demo_building = 0u;
+      break;
+    case UMH_BENCH_CMD_APPLY_PHASE:
+      for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i)
+        renderer.calibration[i].phase = umh_bench_phase[i];
+      break;
+    case UMH_BENCH_CMD_START_DEMO:
+      device_gui.selected_demo = (uint8_t)umh_bench_arg[0];
+      rc = gui_demo(NULL);
+      break;
+    case UMH_BENCH_CMD_COMMIT:
+      {
+        eeprom_profile_record_t record = eeprom_profile.record;
+        record.version = EEPROM_PROFILE_VERSION;
+        for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
+          record.phase[i] = (uint16_t)((uint16_t)renderer.calibration[i].phase << 8);
+          record.enabled[i / 8u] |= (uint8_t)(1u << (i % 8u));
+          renderer.calibration[i].enabled = 1u;
+        }
+        record.cal_meta_valid = 1u;
+        record.cal_level = (uint16_t)umh_bench_arg[0];
+        record.cal_time_ms = (uint32_t)(system_time_us() / 1000u);
+        if (eeprom_profile_commit(&eeprom_profile, &record) == 0)
+          apply_calibration_from_eeprom();
+        else
+          rc = -1;
+      }
+      break;
+    default:
+      rc = -2;
+      break;
+  }
+  umh_bench_result = (uint32_t)rc;
+  umh_bench_status = (rc == 0) ? 2u : 3u;
+}
+
 static void calibration_task(void *argument)
 {
   (void)argument;
   for (;;) {
-    (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-    calibration_session();
+    /* Only an explicit GUI/bench notification may start an acoustic run.
+     * A timeout merely services the debugger mailbox.  Treating the timeout
+     * as a calibration request made every boot start an unattended sweep,
+     * which emitted ultrasound without any user action and starved the
+     * lower-priority UI task (OLED stayed blank/keys were ignored). */
+    BaseType_t notified = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(50));
+    if (umh_bench_cmd != UMH_BENCH_CMD_NONE) {
+      bench_service();
+      if (notified == 0) continue;
+    }
+    if (notified == 0) continue;
+    if (calibration_selftest_mode != 0u) {
+      calibration_selftest_mode = 0u;
+      calibration_selftest_session();
+    } else if (calibration_raw_mode != 0u) {
+      calibration_raw_mode = 0u;
+      calibration_raw_session();
+    } else {
+      calibration_session();
+    }
   }
 }
 
@@ -571,7 +907,13 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
     case UMH_MSG_EEPROM_COMMIT:
       if (frame->payload_size != 0u || eeprom_pending_valid == 0u ||
           eeprom_profile_commit(&eeprom_profile, &eeprom_pending) != 0) status = UMH_STATUS_IO;
-      else eeprom_pending_valid = 0u;
+      else {
+        eeprom_pending_valid = 0u;
+        /* Make a host-written calibration record effective immediately; the
+         * same hook is used by the on-device calibration task after it
+         * commits a successful run. */
+        apply_calibration_from_eeprom();
+      }
       break;
     case UMH_MSG_CAL_RESULT:
       if (frame->payload_size != 0u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
@@ -586,30 +928,115 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
         wire.used_gate_count = calibration_result.used_gate_count;
         wire.used_gate_width = calibration_result.used_gate_width;
         wire.used_gate_start = calibration_result.used_gate_start;
-        wire.block_count = calibration_result.final_block_count;
-        wire.rms_before_deg = calibration_result.rms_before_deg;
+        wire.block_count = calibration_result.patterns_used;
+        wire.rms_before_deg = calibration_result.fit_rms_deg;
         wire.rms_after_deg = calibration_result.rms_after_deg;
         wire.mic_consistency_deg = calibration_result.mic_consistency_deg;
         wire.residual = calibration_result.residual;
-        wire.distance_m = calibration_result.distance_m;
-        wire.tilt_x_deg = calibration_result.tilt_x_deg;
-        wire.tilt_y_deg = calibration_result.tilt_y_deg;
-        wire.echo_ratio = calibration_result.echo_ratio;
-        wire.mic_ratio = calibration_result.mic_ratio;
+        wire.distance_m = (float)calibration_result.patterns_used;
+        wire.tilt_x_deg = (float)calibration_result.level_used;
+        wire.tilt_y_deg = calibration_result.coupling_db;
+        wire.echo_ratio = calibration_result.band_trend_deg;
+        wire.mic_ratio = calibration_result.drift_deg;
         wire.verify_gain_db = calibration_result.verify_gain_db;
         send_response(frame, UMH_MSG_CAL_RESULT, &wire, (uint16_t)sizeof(wire));
         return;
       }
     case UMH_MSG_CAL_DUMP:
-      if (frame->payload_size != 6u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
+      if (frame->payload_size != 6u && frame->payload_size != 7u) {
+        send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return;
+      }
       {
         uint32_t offset = read_u32(&frame->payload[0]);
         uint16_t length = (uint16_t)((uint16_t)frame->payload[4] | ((uint16_t)frame->payload[5] << 8));
+        uint8_t section = (frame->payload_size == 7u) ? frame->payload[6] : 0u;
         int copied;
         if (length > sizeof(calibration_dump_buffer)) length = sizeof(calibration_dump_buffer);
-        copied = us_calibration_raw_read(offset, calibration_dump_buffer, length);
+        copied = us_calibration_dump_read(section, offset, calibration_dump_buffer, length);
         if (copied < 0) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
         send_response(frame, UMH_MSG_CAL_DUMP, calibration_dump_buffer, (uint16_t)copied);
+        return;
+      }
+    case UMH_MSG_CAL_RAW:
+      if (frame->payload_size != 8u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
+      if (calibration_raw_mode != 0u || device_gui_calibration_busy(&device_gui) != 0u) {
+        status = UMH_STATUS_BUSY;
+      } else if (frame->payload[0] == 0u || frame->payload[3] == 0u ||
+                 frame->payload[3] > 64u) {
+        status = UMH_STATUS_BAD_LENGTH;
+      } else {
+        calibration_raw_level = frame->payload[0];
+        calibration_raw_gate_start = (uint16_t)((uint16_t)frame->payload[1] |
+                                                ((uint16_t)frame->payload[2] << 8));
+        calibration_raw_gate_width = frame->payload[3];
+        calibration_raw_burst_us = (uint16_t)((uint16_t)frame->payload[4] |
+                                              ((uint16_t)frame->payload[5] << 8));
+        calibration_raw_patterns = (uint16_t)((uint16_t)frame->payload[6] |
+                                              ((uint16_t)frame->payload[7] << 8));
+        if (calibration_raw_patterns == 0u || calibration_raw_burst_us == 0u) {
+          status = UMH_STATUS_BAD_LENGTH;
+        } else {
+          calibration_raw_mode = 1u;
+          if (calibration_task_handle == NULL) status = UMH_STATUS_INVALID_STATE;
+          else {
+            (void)xTaskNotifyGive((TaskHandle_t)calibration_task_handle);
+            status = UMH_STATUS_OK;
+          }
+        }
+      }
+      break;
+    case UMH_MSG_CAL_START:
+      if (frame->payload_size != 0u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
+      if (calibration_task_handle == NULL) status = UMH_STATUS_INVALID_STATE;
+      else if (calibration_raw_mode != 0u ||
+               device_gui_calibration_busy(&device_gui) != 0u) status = UMH_STATUS_BUSY;
+      else {
+        device_gui_calibration_begin(&device_gui);
+        (void)xTaskNotifyGive((TaskHandle_t)calibration_task_handle);
+        status = UMH_STATUS_OK;
+      }
+      break;
+    case UMH_MSG_CAL_SELFTEST:
+      if (frame->payload_size != 0u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
+      if (calibration_task_handle == NULL) status = UMH_STATUS_INVALID_STATE;
+      else if (calibration_raw_mode != 0u || calibration_selftest_mode != 0u ||
+               device_gui_calibration_busy(&device_gui) != 0u) status = UMH_STATUS_BUSY;
+      else {
+        device_gui_calibration_begin(&device_gui);
+        calibration_selftest_mode = 1u;
+        (void)xTaskNotifyGive((TaskHandle_t)calibration_task_handle);
+        status = UMH_STATUS_OK;
+      }
+      break;
+    case UMH_MSG_CAL_SELFTEST_RESULT:
+      if (frame->payload_size != 0u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
+      {
+        umh_cal_self_test_wire_t wire;
+        float coh = calibration_self_test_result.coherence * 1000.0f;
+        if (coh > 65535.0f) coh = 65535.0f;
+        if (coh < 0.0f) coh = 0.0f;
+        memset(&wire, 0, sizeof(wire));
+        wire.valid = (calibration_self_test_result.progress == 100u &&
+                      calibration_self_test_result.channels_measured != 0u) ? 1u : 0u;
+        wire.pass = calibration_self_test_result.pass;
+        wire.good_mics = calibration_self_test_result.good_mics;
+        wire.fault = calibration_self_test_result.fault;
+        wire.channels_measured = calibration_self_test_result.channels_measured;
+        wire.used_gate_start = calibration_self_test_result.used_gate_start;
+        wire.used_level = calibration_self_test_result.used_level;
+        wire.used_gate_width = calibration_self_test_result.used_gate_width;
+        wire.focus_gain_db_x10 = (int16_t)lroundf(calibration_self_test_result.focus_gain_db * 10.0f);
+        wire.coherence_x1000 = (uint16_t)lroundf(coh);
+        wire.predicted_gain_db_x10 = (int16_t)lroundf(calibration_self_test_result.predicted_gain_db * 10.0f);
+        wire.actual_vs_predicted_db_x10 = (int16_t)lroundf(calibration_self_test_result.actual_vs_predicted_db * 10.0f);
+        for (uint8_t m = 0u; m < UMH_DEVICE_MIC_COUNT; ++m) {
+          float mc = calibration_self_test_result.per_mic_coherence[m] * 1000.0f;
+          if (mc > 65535.0f) mc = 65535.0f;
+          if (mc < 0.0f) mc = 0.0f;
+          wire.per_mic_gain_db_x10[m] = (int16_t)lroundf(calibration_self_test_result.per_mic_gain_db[m] * 10.0f);
+          wire.per_mic_coherence_x1000[m] = (uint16_t)lroundf(mc);
+        }
+        send_response(frame, UMH_MSG_CAL_SELFTEST_RESULT, &wire, (uint16_t)sizeof(wire));
         return;
       }
     case UMH_MSG_ERROR_COUNTERS:
@@ -673,6 +1100,87 @@ static void protocol_task(void *argument)
   }
 }
 
+#define RENDER_TIMER_CLOCK_HZ 1000000u
+#define RENDER_TIMER_MAX_WAIT_US 1500u
+
+static void render_timer_init(void)
+{
+  uint32_t timer_clock = HAL_RCC_GetPCLK1Freq();
+  /* On STM32G4 an APB1 prescaler > 1 doubles the timer kernel clock. */
+  if ((RCC->CFGR & RCC_CFGR_PPRE1) != 0u) timer_clock *= 2u;
+  if (timer_clock < RENDER_TIMER_CLOCK_HZ) {
+    system_status_fault(UMH_FAULT_HAL_INIT, 2u, UMH_FAULT_CRITICAL);
+    return;
+  }
+  __HAL_RCC_TIM7_CLK_ENABLE();
+  render_timer.Instance = TIM7;
+  render_timer.Init.Prescaler = (uint16_t)(timer_clock / RENDER_TIMER_CLOCK_HZ - 1u);
+  render_timer.Init.CounterMode = TIM_COUNTERMODE_UP;
+  render_timer.Init.Period = 0xFFFFu;
+  render_timer.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  render_timer.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&render_timer) != HAL_OK) {
+    system_status_fault(UMH_FAULT_HAL_INIT, 3u, UMH_FAULT_CRITICAL);
+    return;
+  }
+  render_timer.Instance->CR1 |= TIM_CR1_OPM | TIM_CR1_URS;
+  HAL_NVIC_SetPriority(TIM7_IRQn, configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY, 0u);
+  HAL_NVIC_EnableIRQ(TIM7_IRQn);
+  render_timer_ready = 1u;
+}
+
+/* Arm a one-shot microsecond delay.  Keep the service routine minimal: it only
+ * wakes the render task, which is then responsible for time re-evaluation. */
+static void render_timer_arm_us(uint32_t delay_us)
+{
+  if (render_timer_ready == 0u || delay_us == 0u) return;
+  if (delay_us > 0xFFFFu) delay_us = 0xFFFFu;
+  TIM7->CR1 &= ~TIM_CR1_CEN;
+  TIM7->DIER &= ~TIM_DIER_UIE;
+  TIM7->CNT = 0u;
+  TIM7->ARR = delay_us - 1u;
+  TIM7->EGR = TIM_EGR_UG;
+  TIM7->SR = 0u;
+  TIM7->DIER |= TIM_DIER_UIE;
+  TIM7->CR1 |= TIM_CR1_CEN;
+}
+
+static void render_wait_until_us(uint64_t target_us)
+{
+  for (;;) {
+    uint64_t now = system_time_us();
+    uint64_t delta;
+    if (target_us <= now) return;
+    delta = target_us - now;
+    /* vTaskDelay has 1 ms granularity.  Use the hardware timer for the final
+     * sub-millisecond span so a 200 Hz trajectory is not quantised to the
+     * FreeRTOS tick. */
+    if (render_timer_ready == 0u || delta > RENDER_TIMER_MAX_WAIT_US) {
+      /* Long inter-frame gaps are legitimate (HOLD/ONCE and slow host plans),
+       * but the FPGA must also see periodic link traffic.  Poll status every
+       * millisecond while waiting; if the MCU dies the FPGA watchdog will
+       * still clear the last frame. */
+      if (delta > 5000u) (void)fpga_link_poll_status(&fpga_link);
+      osDelay(1u);
+      continue;
+    }
+    render_timer_arm_us((uint32_t)delta);
+    (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(2u));
+  }
+}
+
+void TIM7_IRQHandler(void)
+{
+  if ((TIM7->SR & TIM_SR_UIF) != 0u) {
+    TIM7->SR = 0u;
+    if (render_task_handle != NULL) {
+      BaseType_t higher_priority_task_woken = pdFALSE;
+      vTaskNotifyGiveFromISR(render_task_handle, &higher_priority_task_woken);
+      portYIELD_FROM_ISR(higher_priority_task_woken);
+    }
+  }
+}
+
 static void render_task(void *argument)
 {
   umh_output_frame_t *frame;
@@ -680,9 +1188,12 @@ static void render_task(void *argument)
   uint64_t now_us;
   uint64_t elapsed_us;
   uint16_t previous_fpga_flags = 0u;
+  uint8_t render_burst = 0u;
   (void)argument;
+  render_task_handle = xTaskGetCurrentTaskHandle();
   for (;;) {
     if (demo_building != 0u) {
+      render_burst = 0u;
       osDelay(1u);
       continue;
     }
@@ -693,31 +1204,64 @@ static void render_task(void *argument)
                        frame_ring_count(&frame_ring));
     last_time_us = now_us;
     frame = frame_ring_peek_read(&frame_ring);
-    if (frame != NULL && playback_plan_frame_due(&playback_plan, frame->deadline, now_us) != 0u &&
-        fpga_link_status(&fpga_link)->fifo_credit != 0u) {
-      int submit_result = fpga_link_submit(&fpga_link, frame);
-      if (submit_result == 0) {
-        (void)frame_ring_release_read(&frame_ring);
-        playback_plan_frame_submitted(&playback_plan);
-        system_status_get()->frame_count = frame_ring_count(&frame_ring);
-        system_status_get()->frame_free = frame_ring_free(&frame_ring);
-        if (frame_ring_count(&frame_ring) == 0u) {
-          int loop_result = playback_plan_prepare_loop(&playback_plan, &frame_ring, now_us);
-          if (loop_result == 0 && playback_plan.running != 0u &&
-              playback_plan.wire.repeat_mode != UMH_PLAN_LOOP_STREAM) {
-            playback_plan_stop(&playback_plan);
-            /* ONCE and HOLD_LAST intentionally leave the last committed
-             * device state active. Only an explicit STOP plan disables output. */
-            if (playback_plan.wire.repeat_mode == UMH_PLAN_STOP)
-              (void)fpga_link_safe_stop(&fpga_link);
+    if (frame != NULL) {
+      uint8_t due = playback_plan_frame_due(&playback_plan, frame->deadline, now_us);
+      if (due != 0u) {
+        if (fpga_link_status(&fpga_link)->fifo_credit != 0u) {
+          int submit_result = fpga_link_submit(&fpga_link, frame);
+          if (submit_result == 0) {
+            (void)frame_ring_release_read(&frame_ring);
+            playback_plan_frame_submitted(&playback_plan);
+            /* A valid plan that is already behind can make several frames due
+             * at once.  Bound the catch-up burst so a lower-priority I2C/UI
+             * transfer is never starved for its full HAL timeout. */
+            if (++render_burst >= 16u) {
+              render_burst = 0u;
+              osDelay(1u);
+            }
+            system_status_get()->frame_count = frame_ring_count(&frame_ring);
+            system_status_get()->frame_free = frame_ring_free(&frame_ring);
+            if (frame_ring_count(&frame_ring) == 0u) {
+              int loop_result = playback_plan_prepare_loop(&playback_plan, &frame_ring, now_us);
+              if (loop_result == 0 && playback_plan.running != 0u &&
+                  playback_plan.wire.repeat_mode != UMH_PLAN_LOOP_STREAM) {
+                playback_plan_stop(&playback_plan);
+                /* ONCE and HOLD_LAST intentionally leave the last committed
+                 * device state active. Only an explicit STOP plan disables output. */
+                if (playback_plan.wire.repeat_mode == UMH_PLAN_STOP)
+                  (void)fpga_link_safe_stop(&fpga_link);
+              }
+            }
+          } else {
+            ++system_status_get()->fpga_errors;
+            system_status_fault(UMH_FAULT_FPGA_OUTPUT, (uint32_t)(-submit_result), UMH_FAULT_CRITICAL);
+            osDelay(1u);
           }
+        } else {
+          /* link->status.fifo_credit is sampled from MISO at the start of the
+           * previous SPI transaction, so it is one transaction stale.  Poll
+           * the real credit and retry without dropping into a full 1 ms RTOS
+           * tick: at a 200 Hz trajectory each extra tick would destroy the
+           * frame cadence. */
+          (void)fpga_link_poll_status(&fpga_link);
+          continue;
         }
       } else {
-        ++system_status_get()->fpga_errors;
-        system_status_fault(UMH_FAULT_FPGA_OUTPUT, (uint32_t)(-submit_result), UMH_FAULT_CRITICAL);
+        uint64_t due_time_us = 0u;
+        uint8_t have_due_time = playback_plan_frame_output_time(&playback_plan,
+                                                                frame->deadline,
+                                                                &due_time_us);
+        if (have_due_time != 0u && due_time_us > now_us) {
+          render_wait_until_us(due_time_us);
+          render_burst = 0u;
+          continue;
+        }
+        (void)fpga_link_poll_status(&fpga_link);
+        render_burst = 0u;
         osDelay(1u);
       }
     } else {
+      render_burst = 0u;
       (void)fpga_link_poll_status(&fpga_link);
       osDelay(1u);
     }
@@ -832,6 +1376,9 @@ static void application_init(void)
   block_parser_init(&block_parser, &renderer, &frame_ring);
   playback_plan_clear(&playback_plan);
   fpga_link_init(&fpga_link, &hspi1);
+  /* A reboot is a new command epoch.  Always clear a possible output left
+   * behind by the previous MCU life before accepting UI/demo commands. */
+  (void)fpga_link_safe_stop(&fpga_link);
   /* Establish the FPGA link before accepting UI/demo commands.  Without an
    * initial status transaction the link retains its optimistic default credit
    * and a failed SPI slave is only discovered after the first output frame. */
@@ -866,7 +1413,8 @@ static void application_init(void)
   input_events_init();
   device_gui_init(&device_gui, &oled, &device_profile, system_status_get(),
                   &playback_plan, &fpga_link, &flash_store, &eeprom_profile,
-                  gui_calibration, gui_demo, gui_ws2812_set, demo_engine_count(), NULL);
+                  gui_calibration, gui_selftest, gui_demo, gui_ws2812_set,
+                  demo_engine_count(), NULL);
   {
     const osMessageQueueAttr_t storage_queue_attributes = {
       .name = "storage", .cb_mem = &storage_queue_cb, .cb_size = sizeof(storage_queue_cb),
@@ -875,6 +1423,7 @@ static void application_init(void)
     storage_queue = osMessageQueueNew(2u, sizeof(storage_request_t), &storage_queue_attributes);
   }
   umh_protocol_parser_init(&protocol_parser, protocol_frame_received, NULL);
+  render_timer_init();
   (void)osThreadNew(render_task, NULL, &render_task_attributes);
   (void)osThreadNew(storage_task, NULL, &storage_task_attributes);
   (void)osThreadNew(ui_task, NULL, &ui_task_attributes);

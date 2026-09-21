@@ -105,6 +105,24 @@ uint8_t playback_plan_frame_due(umh_playback_plan_t *plan, uint64_t frame_source
   return device_time - plan->origin_output_time >= elapsed_output ? 1u : 0u;
 }
 
+uint8_t playback_plan_frame_output_time(const umh_playback_plan_t *plan,
+                                    uint64_t frame_source_time,
+                                    uint64_t *output_time)
+{
+  uint64_t elapsed_source;
+  uint64_t elapsed_output;
+  if (plan == NULL || output_time == NULL || plan->configured == 0u ||
+      plan->origin_valid == 0u || plan->wire.rate_numerator == 0u ||
+      frame_source_time < plan->origin_source_time) return 0u;
+  elapsed_source = frame_source_time - plan->origin_source_time;
+  if (elapsed_source > UINT64_MAX / plan->wire.rate_denominator) return 0u;
+  elapsed_output = (elapsed_source * plan->wire.rate_denominator) /
+                   plan->wire.rate_numerator;
+  if (plan->origin_output_time > UINT64_MAX - elapsed_output) return 0u;
+  *output_time = plan->origin_output_time + elapsed_output;
+  return 1u;
+}
+
 void playback_plan_frame_submitted(umh_playback_plan_t *plan)
 {
   if (plan != NULL) ++plan->current_frame;

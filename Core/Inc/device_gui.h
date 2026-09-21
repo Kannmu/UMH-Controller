@@ -48,6 +48,7 @@ typedef struct {
   device_gui_action_t demo;
   device_gui_action_t ws2812_set;
   device_gui_action_t calibration;
+  device_gui_action_t self_test;
   volatile uint8_t calibration_busy;
   volatile uint8_t calibration_state;
   volatile uint8_t calibration_progress;
@@ -74,6 +75,7 @@ void device_gui_init(device_gui_t *gui, oled_ssd1315_t *oled,
                      const flash_store_t *flash,
                      const eeprom_profile_t *eeprom,
                      device_gui_action_t calibration,
+                     device_gui_action_t self_test,
                      device_gui_action_t demo,
                      device_gui_action_t ws2812_set,
                      uint8_t demo_count,

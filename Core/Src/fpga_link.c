@@ -4,6 +4,8 @@
 #include "system_status.h"
 #include <string.h>
 
+uint8_t fpga_logical_to_physical[UMH_DEVICE_CHANNEL_COUNT];
+
 static void cs_low(void) { HAL_GPIO_WritePin(FPGA_CS_GPIO_Port, FPGA_CS_Pin, GPIO_PIN_RESET); }
 static void cs_high(void) { HAL_GPIO_WritePin(FPGA_CS_GPIO_Port, FPGA_CS_Pin, GPIO_PIN_SET); }
 
@@ -34,37 +36,64 @@ void fpga_link_init(fpga_link_t *link, SPI_HandleTypeDef *spi)
   link->mutex = osMutexNew(&mutex_attributes);
   link->status.protocol_version = FPGA_PROTOCOL_VERSION;
   link->status.fifo_credit = FPGA_FIFO_DEFAULT_CREDIT;
+  for (uint16_t map_i = 0u; map_i < UMH_DEVICE_CHANNEL_COUNT; ++map_i)
+    fpga_logical_to_physical[map_i] = (uint8_t)map_i;
   cs_high();
 }
 
 static int exchange(fpga_link_t *link, uint16_t length)
 {
   static uint32_t last_report;
+  SPI_TypeDef *spi;
+  uint32_t start_cycles;
+  uint32_t timeout_cycles;
+  uint16_t i;
   if (link == NULL || link->spi == NULL || length == 0u || length > FPGA_TX_BUFFER_SIZE) return -1;
+  spi = link->spi->Instance;
+  if (spi == NULL) return -1;
   link->tx_length = length;
+
+  /* HAL_SPI_Init() leaves SPE cleared; the HAL transfer functions enable it
+   * lazily.  This direct path must do the same on its first use. */
+  spi->CR1 |= SPI_CR1_SPE;
+
+  /* Direct register service keeps the SPI shift register continuously fed.
+   * HAL_SPI_TransmitReceive() restarts its timeout bookkeeping for every byte,
+   * which made a 204-byte frame take ~200 us on this 170 MHz part instead of
+   * the 77 us required by the 21.25 MHz wire rate.  At 4800 frames/s that
+   * difference was the entire ULM timing budget. */
+  (void)spi->SR;
+  (void)*(__IO uint8_t *)&spi->DR;
   cs_low();
-  /* FPGA transactions are short (status: 36 bytes, frame: <=252 bytes).
-   * Use the peripheral's blocking full-duplex path here.  The former DMA
-   * path could leave SPI BUSY with both CNDTR counters at zero when an
-   * interrupt was masked by the RTOS, making every exchange hit the timeout
-   * even though the wire transfer had completed. */
-  HAL_StatusTypeDef spi_result = HAL_SPI_TransmitReceive(link->spi, link->tx, link->rx, length, 20u);
-  if (spi_result != HAL_OK) {
-    cs_high();
-    mark_link_fault(link);
-    /* A missing FPGA clock/MISO must not turn the render task into a fault
-     * storm.  Report at most once per second and classify HAL timeout as a
-     * timeout rather than a misleading SPI-start error. */
-    if ((HAL_GetTick() - last_report) >= 1000u) {
-      last_report = HAL_GetTick();
-      system_status_fault(spi_result == HAL_TIMEOUT ? UMH_FAULT_FPGA_SPI_TIMEOUT : UMH_FAULT_FPGA_SPI_START,
-                          spi_result == HAL_TIMEOUT ? 20u : HAL_SPI_GetError(link->spi),
-                          UMH_FAULT_CRITICAL);
+  start_cycles = DWT->CYCCNT;
+  timeout_cycles = SystemCoreClock / 50u; /* 20 ms */
+  if (timeout_cycles == 0u) timeout_cycles = 4000000u;
+  for (i = 0u; i < length; ++i) {
+    while ((spi->SR & SPI_SR_TXE) == 0u) {
+      if ((DWT->CYCCNT - start_cycles) > timeout_cycles) goto exchange_timeout;
     }
-    return spi_result == HAL_TIMEOUT ? -3 : -2;
+    *(__IO uint8_t *)&spi->DR = link->tx[i];
+    while ((spi->SR & SPI_SR_RXNE) == 0u) {
+      if ((DWT->CYCCNT - start_cycles) > timeout_cycles) goto exchange_timeout;
+    }
+    link->rx[i] = *(__IO uint8_t *)&spi->DR;
+  }
+  while ((spi->SR & SPI_SR_BSY) != 0u) {
+    if ((DWT->CYCCNT - start_cycles) > timeout_cycles) goto exchange_timeout;
   }
   cs_high();
   return 0;
+
+exchange_timeout:
+  cs_high();
+  mark_link_fault(link);
+  /* A missing FPGA clock/MISO must not turn the render task into a fault
+   * storm.  Report at most once per second. */
+  if ((HAL_GetTick() - last_report) >= 1000u) {
+    last_report = HAL_GetTick();
+    system_status_fault(UMH_FAULT_FPGA_SPI_TIMEOUT, 20u, UMH_FAULT_CRITICAL);
+  }
+  return -3;
 }
 
 static uint16_t pack_common(fpga_link_t *link, uint8_t command, const umh_output_frame_t *frame)
@@ -95,9 +124,15 @@ static uint16_t pack_common(fpga_link_t *link, uint8_t command, const umh_output
   link->tx[pos++] = frame != NULL ? frame->digital_state : 0u;
   put_u16(&link->tx[pos], extension_length); pos += 2u;
   if (frame != NULL && (update & UMH_FRAME_FLAG_ULTRASOUND) != 0u) {
+    /* Logical/protocol channel i is element E(i+1).  The FPGA output bit
+     * order follows the PCB netlist, so serialization applies the fixed
+     * E## -> us_tx bit permutation here, once, for every producer. */
+    uint16_t channel_base = pos;
+    pos = (uint16_t)(pos + 2u * UMH_DEVICE_CHANNEL_COUNT);
     for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
-      link->tx[pos++] = frame->channels[i].phase;
-      link->tx[pos++] = frame->channels[i].level;
+      uint8_t physical = fpga_logical_to_physical[i];
+      link->tx[channel_base + 2u * (uint16_t)physical] = frame->channels[i].phase;
+      link->tx[channel_base + 2u * (uint16_t)physical + 1u] = frame->channels[i].level;
     }
   }
   if (frame != NULL && (update & UMH_FRAME_FLAG_RGB) != 0u) {

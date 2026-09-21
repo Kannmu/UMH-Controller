@@ -1,0 +1,10 @@
+{
+  "level": 32,
+  "gate_start": 40,
+  "gate_width": 16,
+  "burst_us": 1600,
+  "patterns": 512,
+  "raw_layout": "[pattern][mic][I,Q] little-endian int16",
+  "pattern_generator": "splitmix64 cal_cs_row seed 0x243F6A8885A308D3, pattern index p, phase128=-1",
+  "timestamp": 1789628498.0533607
+}
