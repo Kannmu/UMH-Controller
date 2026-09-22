@@ -51,7 +51,7 @@ void device_profile_init(umh_device_profile_t *target)
    * to the wire resolution by the renderer. */
   target->phase_bits = 8u;
   target->intensity_bits = 8u;
-  target->max_frame_rate = 10000u;
+  target->max_frame_rate = 20000u;
   target->timebase_hz = UMH_DEVICE_TIMEBASE_HZ;
   target->carrier_hz = 40000u;
   target->sound_speed_um_per_s = 343000000u;
@@ -65,7 +65,8 @@ void device_profile_init(umh_device_profile_t *target)
                              UMH_PROFILE_CAP_EXTENDED |
                              UMH_PROFILE_CAP_LOOP_RAM |
                              UMH_PROFILE_CAP_LOOP_STREAM |
-                             UMH_PROFILE_CAP_GEOMETRY_VALID;
+                             UMH_PROFILE_CAP_GEOMETRY_VALID |
+                             UMH_PROFILE_CAP_FOCUSED_AM;
   /* Channel order is the FPGA us_tx bit / SPI serialization order.  The x/y
    * values are the measured transducer positions recovered from the 4-mic
    * short-burst time-of-flight mapping (2026-09 bench).  The theoretical

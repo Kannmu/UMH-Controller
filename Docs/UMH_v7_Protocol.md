@@ -20,7 +20,7 @@
 
 标志位为 `ACK_REQUIRED=0x01`、`FIRST=0x02`、`LAST=0x04`、`RESPONSE=0x08` 和 `ERROR=0x10`。事务号用于把响应关联到请求；块流的连续性由 `stream_sequence` 检查，USB 包边界不参与块解析。
 
-请求消息类型为：`GET_PROFILE=0x01`、`GET_STATUS=0x03`、`BLOCK_BEGIN=0x10`、`BLOCK_DATA=0x11`、`BLOCK_END=0x12`、`BLOCK_CANCEL=0x13`、`SET_PLAN=0x20`、`START_PLAN=0x21`、`STOP_PLAN=0x22`、`CLEAR_PLAN=0x23`、`FPGA_STATUS=0x30`、`EEPROM_READ=0x40`、`EEPROM_WRITE=0x41`、`EEPROM_COMMIT=0x42`、`FLASH_LIST=0x50`、`FLASH_READ=0x51`、`FLASH_WRITE=0x52`、`FLASH_DELETE=0x53`、`ERROR_COUNTERS=0x60`、`SET_DEMO=0x61`、`CAL_DUMP=0x80`、`CAL_RESULT=0x81`、`CAL_START=0x82` 和 `CAL_RAW=0x83`。
+请求消息类型为：`GET_PROFILE=0x01`、`GET_STATUS=0x03`、`BLOCK_BEGIN=0x10`、`BLOCK_DATA=0x11`、`BLOCK_END=0x12`、`BLOCK_CANCEL=0x13`、`SET_PLAN=0x20`、`START_PLAN=0x21`、`STOP_PLAN=0x22`、`CLEAR_PLAN=0x23`、`FPGA_STATUS=0x30`、`EEPROM_READ=0x40`、`EEPROM_WRITE=0x41`、`EEPROM_COMMIT=0x42`、`FLASH_LIST=0x50`、`FLASH_READ=0x51`、`FLASH_WRITE=0x52`、`FLASH_DELETE=0x53`、`ERROR_COUNTERS=0x60`、`SET_DEMO=0x61`、`CAL_DUMP=0x80`、`CAL_RESULT=0x81`、`CAL_START=0x82`、`CAL_RAW=0x83`、`AUDIO_CONFIGURE=0x90`、`AUDIO_START=0x91`、`AUDIO_DATA=0x92`、`AUDIO_STOP=0x93` 和 `AUDIO_STATUS=0x94`。
 
 `SET_DEMO=0x61` 的载荷是一个 Demo ID：`0=ULM`、`1=LML`、`2=LMC`。设备以 `(0,0,100000µm)` 为中心焦点，使用当前校准和空间渲染器生成 24 帧轨迹，并在 5 ms（200 Hz）内播放完整轨迹后以 `LOOP_RAM` 循环。`ULM` 为 15 mm 单向扫描，`LML` 为 7.5 mm 往返扫描，`LMC` 为 4.77 mm 圆周；成功 ACK 的载荷为 ASCII 名称。演示播放与普通块互斥，停止或清空计划后才可接收新的块。
 
@@ -94,6 +94,64 @@ uint8[payload_length] payload
 USB CDC 回调只把数据复制到 16 KiB 单生产者环形缓冲并通知协议任务。协议任务校验帧头、处理事务和块序号；编译任务执行轨道解析与空间解算；帧环使用 32 个固定 400 字节槽；FPGA 链路任务以 DMA 和 FIFO 信用额度提交原子输出帧。
 
 `GET_PROFILE` 返回 1118 字节 `DeviceProfile`，含 84 个整数微米坐标、84 路通道、4 个 RGB 输出、4 个麦克风、时间基准、载波、FPGA 时钟、RAM/FIFO 额度、校准生成号和能力位。麦克风数据不经 STM32 控制链路转发，而由 FPGA 采样后经 CH347T 独立 USB 链路上传。
+
+## 聚焦 AM 音频扩展（0x90..0x94）
+
+`DeviceProfile.capability_flags` 的 bit8（`FOCUSED_AM`）表示设备支持聚焦 AM
+音频扩展。该扩展把空间渲染器只用于一次：`AUDIO_CONFIGURE` 根据给定焦点计算
+84 路相位字节并把它们作为普通 FRAME 提交给 FPGA；随后音频数据只携带一个
+公共 8 位包络电平。FPGA 在非活动事件表中用固定相位和公共电平重建 256 slot
+载波表，因此音频流期间焦点、相位校准和通道掩码保持不变。
+
+| 消息 | 值 | 方向 | 载荷 |
+| ---: | ---: | --- | --- |
+| `AUDIO_CONFIGURE` | `0x90` | 请求 | 20 字节配置，成功返回 ACK/NACK |
+| `AUDIO_START` | `0x91` | 请求 | 空，进入预充状态 |
+| `AUDIO_DATA` | `0x92` | 无 ACK 数据 | 1..2048 个包络字节；序列号使用帧头的 `stream_sequence` |
+| `AUDIO_STOP` | `0x93` | 请求 | 空，淡出后返回 ACK |
+| `AUDIO_STATUS` | `0x94` | 查询 | 空，响应类型 `0x94`，32 字节状态 |
+
+`AUDIO_CONFIGURE` 载荷字段（全部 little-endian）：
+
+```text
+int32  x_um                 焦点 x，微米
+int32  y_um                 焦点 y，微米
+int32  z_um                 焦点 z，微米
+uint8  phase                附加公共相位（0..255）
+uint8  level                空间源幅度（255 表示满幅度；相位计算仍会执行）
+uint16 envelope_rate_hz     包络更新率，8000..20000
+uint16 prebuffer_samples    启动前需要的包络样本数，1..2048
+uint16 flags                保留，必须为 0
+```
+
+`AUDIO_DATA` 的载荷是连续的 8 位包络电平，取值范围 `0..128`：0 关闭载波，
+128 是 50% 占空比空间满幅度。数据帧不需要 ACK；STM32 用 `stream_sequence`
+检查连续性并统计丢包。设备内部 2048 字节静态环形缓冲，主机按 256 样本
+一包发送，把 USB 写调用次数减半；渲染任务以 20 kHz 从环中插值出设备采样
+时钟，并根据环填充度做 ±3000 ppm 的异步时钟修正。USB/USB 主机偶发间隙时
+最多保持上一包络 25 ms，超过后才进入真正的欠载恢复。固件优先使用 FPGA 的
+3 字节 `AUDIO_LEVEL_SHORT=0x19` 热路径，旧位流自动回退 16 字节 `0x16`。
+
+`AUDIO_STATUS` 响应字段：
+
+```text
+uint8  state                0=OFF,1=CONFIGURED,2=PRIMING,3=RUNNING,4=STOPPING,5=FAULT
+uint8  flags                1=CONFIGURED,2=PRIMING,4=RUNNING,8=REFILLING,16=UNDERRUN
+uint16 ring_fill
+uint16 ring_capacity
+uint16 prebuffer
+uint32 underrun_count
+uint32 overrun_count
+uint32 packet_loss_count
+uint32 rendered_samples
+int32  clock_correction_ppm
+uint32 max_service_us
+```
+
+音频模式与普通块流、播放计划、Demo 和校准互斥：音频输出拥有 FPGA 时，
+`BLOCK_BEGIN`、`SET_PLAN`、`START_PLAN`、`SET_DEMO` 和 `CAL_*` 请求会返回
+BUSY。重新发送 `AUDIO_CONFIGURE` 会中止上一路音频并重新装载相位。`AUDIO_STOP`
+由渲染任务先线性淡出到 0，再发送 FPGA `AUDIO_MODE=0` 和 STOP。
 
 ## 内置近场耦合相位自校准
 

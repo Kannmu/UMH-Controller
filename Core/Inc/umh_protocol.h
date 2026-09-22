@@ -35,6 +35,14 @@ typedef enum {
   UMH_MSG_FLASH_DELETE       = 0x53,
   UMH_MSG_ERROR_COUNTERS     = 0x60,
   UMH_MSG_SET_DEMO           = 0x61,
+  /* Focused-AM audio extension.  DATA frames deliberately do not require an
+   * ACK: the STM32 consumes envelope bytes from the USB header sequence and
+   * keeps the streaming path independent of the command/response loop. */
+  UMH_MSG_AUDIO_CONFIGURE    = 0x90,
+  UMH_MSG_AUDIO_START        = 0x91,
+  UMH_MSG_AUDIO_DATA         = 0x92,
+  UMH_MSG_AUDIO_STOP         = 0x93,
+  UMH_MSG_AUDIO_STATUS       = 0x94,
   UMH_MSG_ACK                 = 0x70,
   UMH_MSG_NACK                = 0x71,
   UMH_MSG_CAL_DUMP            = 0x80,

@@ -244,6 +244,128 @@ int fpga_link_set_ws2812(fpga_link_t *link, uint8_t r, uint8_t g, uint8_t b)
   return 0;
 }
 
+static int compact_audio_command(fpga_link_t *link, uint8_t command,
+                                  uint8_t data, uint32_t sequence)
+{
+  int result = 0;
+  if (link == NULL || link->mutex == NULL) return -1;
+  if (osMutexAcquire(link->mutex, osWaitForever) != osOK) return -1;
+  memset(link->tx, 0, 16u);
+  link->tx[0] = command;
+  link->tx[1] = FPGA_PROTOCOL_VERSION;
+  link->tx[2] = data;
+  put_u32(&link->tx[6], sequence);
+  if (exchange(link, 16u) != 0) result = -2;
+  else if (unpack_status(link) != 0) result = -3;
+  osMutexRelease(link->mutex);
+  return result;
+}
+
+static int wait_for_credit(fpga_link_t *link)
+{
+  uint8_t attempt;
+  for (attempt = 0u; attempt < 20u; ++attempt) {
+    if (fpga_link_poll_status(link) == 0 && link->status.fifo_credit != 0u)
+      return 0;
+    osDelay(1u);
+  }
+  return -1;
+}
+
+int fpga_link_audio_begin(fpga_link_t *link, const uint8_t *phases,
+                          const uint8_t *enables, uint32_t sequence)
+{
+  umh_output_frame_t frame;
+  uint16_t i;
+  int result;
+  if (link == NULL || phases == NULL || enables == NULL) return -1;
+  /* Three safe steps:
+   *   1. submit one silent full frame so the staging RAM and old enable
+   *      markers cannot leak into the first audio table;
+   *   2. enter audio mode at common level 0 (the FPGA still holds phases
+   *      from step 1 and rebuilds a silent table);
+   *   3. submit the real aperture phases plus enable markers while audio
+   *      mode is active, so the rebuild still runs at common level 0.
+   * Audio level commands then only exchange 16 bytes each. */
+  (void)fpga_link_safe_stop(link);
+  if (wait_for_credit(link) != 0) return -1;
+  memset(&frame, 0, sizeof(frame));
+  frame.sequence = sequence;
+  frame.update_flags = UMH_FRAME_FLAG_ULTRASOUND;
+  for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
+    frame.channels[i].phase = phases[i];
+    frame.channels[i].level = 0u;
+  }
+  result = fpga_link_submit(link, &frame);
+  if (result != 0) return result;
+
+  result = fpga_link_audio_mode(link, 1u, sequence + 1u);
+  if (result != 0) {
+    (void)fpga_link_safe_stop(link);
+    return result;
+  }
+  link->audio_short_supported =
+      (link->status.status_flags & FPGA_STATUS_AUDIO_SHORT) != 0u ? 1u : 0u;
+  /* Entering audio mode starts one silent rebuild.  Wait until that builder
+   * has released FIFO credit again before loading the enable markers. */
+  if (wait_for_credit(link) != 0) {
+    (void)fpga_link_audio_mode(link, 0u, sequence + 3u);
+    (void)fpga_link_safe_stop(link);
+    return -1;
+  }
+
+  frame.sequence = sequence + 2u;
+  for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
+    /* The staging low byte doubles as the enable mask in focused-AM mode.
+     * A non-zero marker keeps the channel active at the common envelope
+     * level; zero mutes exactly the channels that spatial rendering would
+     * have disabled. */
+    frame.channels[i].level = enables[i] != 0u ? 255u : 0u;
+  }
+  result = fpga_link_submit(link, &frame);
+  if (result != 0) {
+    (void)fpga_link_audio_mode(link, 0u, sequence + 3u);
+    (void)fpga_link_safe_stop(link);
+    return result;
+  }
+  return 0;
+}
+
+int fpga_link_audio_level(fpga_link_t *link, uint8_t level, uint32_t sequence)
+{
+  return compact_audio_command(link, FPGA_CMD_AUDIO_LEVEL, level, sequence);
+}
+
+int fpga_link_audio_level_fast(fpga_link_t *link, uint8_t level)
+{
+  if (link == NULL || link->spi == NULL) return -1;
+  link->tx[0] = FPGA_CMD_AUDIO_LEVEL_SHORT;
+  link->tx[1] = FPGA_PROTOCOL_VERSION;
+  link->tx[2] = level;
+  if (exchange(link, 3u) != 0) return -2;
+  return 0;
+}
+
+int fpga_link_audio_mode(fpga_link_t *link, uint8_t enable, uint32_t sequence)
+{
+  uint8_t attempt;
+  int result = compact_audio_command(link, FPGA_CMD_AUDIO_MODE,
+                                     enable != 0u ? 1u : 0u, sequence);
+  if (result != 0 || enable == 0u) return result;
+  /* The status word in the compact transaction is latched before CS falls,
+   * so poll until the new bitstream confirms that AUDIO_MODE=1 was adopted.
+   * Old FPGA images silently ignore the compact command; without this check
+   * the following silent FRAME could be built with the 0/255 enable marker
+   * mistaken for a real level. */
+  for (attempt = 0u; attempt < 20u; ++attempt) {
+    if (fpga_link_poll_status(link) == 0 &&
+        (link->status.status_flags & FPGA_STATUS_AUDIO_MODE) != 0u)
+      return 0;
+    osDelay(1u);
+  }
+  return -4;
+}
+
 static int mic_command(fpga_link_t *link, uint8_t command, uint32_t sequence,
                        const uint8_t *extension, uint16_t extension_length,
                        uint8_t *response, uint16_t response_length)

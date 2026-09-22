@@ -19,6 +19,7 @@
 #define UMH_PROFILE_CAP_LOOP_RAM     (1u << 5)
 #define UMH_PROFILE_CAP_LOOP_STREAM  (1u << 6)
 #define UMH_PROFILE_CAP_GEOMETRY_VALID (1u << 7)
+#define UMH_PROFILE_CAP_FOCUSED_AM     (1u << 8)
 
 _Static_assert(UMH_DEVICE_CHANNEL_COUNT == 84u, "device channel contract");
 _Static_assert(UMH_DEVICE_RGB_COUNT == 4u, "device RGB contract");

@@ -42,11 +42,42 @@ uint32 fpga_time
 uint32 accepted_sequence
 ```
 
-`fifo_credit` 是可继续提交的帧槽数量，`fifo_depth` 是当前深度，`fpga_time` 为 FPGA 输出时间基准，`accepted_sequence` 是最近接受的事务或帧序号。状态位至少应覆盖欠载、溢出、非法帧、输出故障和运行状态。STM32 在每次提交后解析状态，在后台轮询状态；协议版本不匹配会清除 FPGA 就绪标志并进入错误状态。
+`fifo_credit` 是可继续提交的帧槽数量，`fifo_depth` 是当前深度，`fpga_time` 为 FPGA 输出时间基准，`accepted_sequence` 是最近接受的事务或帧序号。状态位至少应覆盖欠载、溢出、非法帧、输出故障和运行状态；bit15 为 `AUDIO_MODE` 诊断位，bit14 为 `AUDIO_SHORT` 诊断位；STM32 在进入聚焦 AM 后据此确认 FPGA 位流支持 `0x16/0x17`，并优先启用 3 字节 `0x19` 热路径。STM32 在每次提交后解析状态，在后台轮询状态；协议版本不匹配会清除 FPGA 就绪标志并进入错误状态。
 
 ## 时钟、DMA 和边界
 
 FPGA 应在明确的参考时钟域内锁存 SPI 接收数据，在输出帧边界一次性切换通道、RGB 和数字状态。SPI DMA 事务由 STM32 的 FPGA 链路任务发起，DMA 完成中断只置位完成标志，超时则终止事务并把输出置于安全状态。单帧必须小于 STM32 的 512 字节 TX 缓冲；当前 84 路完整通道状态、RGB 和扩展区均受该上限约束。
+
+## 聚焦 AM 紧凑音频事务
+
+普通超声帧仍然用于装载 84 路相位和通道使能标记。聚焦 AM 模式新增紧凑
+命令，不再重复发送 216 字节完整帧：
+
+```text
+16 字节命令：AUDIO_MODE=0x17 或 AUDIO_LEVEL=0x16
+byte 0   command             MODE=0x17 / LEVEL=0x16
+byte 1   protocol_version    1
+byte 2   data                MODE: 0/1；LEVEL: 0..128
+byte 6..9 frame_sequence     STM32 音频样本序号（可选）
+其余字节为 0；MISO 仍返回标准 16 字节状态
+
+3 字节热路径：AUDIO_LEVEL_SHORT=0x19
+byte 0   command             0x19
+byte 1   protocol_version    1
+byte 2   level               0..128
+```
+
+新位流在状态字 bit14 置 `AUDIO_SHORT`，STM32 配置时检测到后，20 kHz 流
+使用 3 字节命令；旧位流没有该位时自动回退到 16 字节 `0x16`。这样旧 FPGA
+镜像仍能工作，新镜像则把每个音频样本的 SPI 线时间从约 6 us 降到约 1.1 us。
+
+STM32 按安全顺序装载：先提交一次 `level=0` 的静音相位帧，再发送
+`AUDIO_MODE=1`（公共电平 0），最后在音频模式下提交带通道使能标记的真实
+相位帧；因此切换过程中不会出现直流满输出。`audio_mode=1` 时，任何触发
+重建的普通 `FRAME` 也使用当前公共电平，staging 的 `level` 字节只作为
+使能标记（0=静音，非 0=启用）。`AUDIO_LEVEL` 可在音频模式下每 50 us 更新
+一次（20 kHz），`AUDIO_MODE=0` 退出。重建过程中当前活动 bank 继续输出，
+bank 在载波周期边界交换，更新不会造成输出缺口。
 
 ## 麦克风和 USB 拓扑
 

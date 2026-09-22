@@ -7,7 +7,7 @@ Copyright (c) 1995 AT&T Corp.   All rights reserved.
 Copyright (c) 1995-2001 Lucent Technologies Inc.  All rights reserved.
 Copyright (c) 2001 Agere Systems   All rights reserved.
 Copyright (c) 2002-2023 Lattice Semiconductor Corporation,  All rights reserved.
-Thu Sep 17 16:34:09 2026
+Mon Sep 21 22:25:07 2026
 
 
 Command Line:  synthesis -f UMH_7_UMH_7_1_lattice.synproj 
@@ -89,13 +89,13 @@ Analyzing Verilog file D:/Software/Lattice Diamond/diamond/3.13/ispfpga/userware
 Top module name (Verilog): umh_fpga_top
 INFO - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(103): compiling module umh_fpga_top. VERI-1018
 INFO - synthesis: D:/Software/Lattice Diamond/diamond/3.13/ispfpga/userware/NT/SYNTHESIS_HEADERS/machxo2.v(1730): compiling module EHXPLLJ(CLKFB_DIV=8,CLKOP_CPHASE=7,FEEDBK_PATH="INT_DIVA"). VERI-1018
-WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(307): expression size 5 truncated to fit in target size 4. VERI-1209
+WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(327): expression size 5 truncated to fit in target size 4. VERI-1209
 INFO - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(46): compiling module umh_channel_ram18. VERI-1018
 INFO - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(62): compiling module umh_toggle_ram84. VERI-1018
 INFO - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(85): compiling module umh_mic_iq_ram. VERI-1018
 INFO - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/ws2812_stream.v(13): compiling module ws2812_stream. VERI-1018
 INFO - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/spi_mic_stream.v(5): compiling module spi_mic_stream. VERI-1018
-WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(152): input port ENCLKOS is not connected on this instance. VDB-1013
+WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(165): input port ENCLKOS is not connected on this instance. VDB-1013
 Last elaborated design is umh_fpga_top()
 Loading NGL library 'D:/Software/Lattice Diamond/diamond/3.13/ispfpga/xo2c00a/data/xo2alib.ngl'...
 Loading NGL library 'D:/Software/Lattice Diamond/diamond/3.13/ispfpga/xo2c00/data/xo2clib.ngl'...
@@ -120,26 +120,26 @@ WARNING - synthesis: Bit 115 of Register status_hold is stuck at Zero
 WARNING - synthesis: Bit 114 of Register status_hold is stuck at Zero
 WARNING - synthesis: Bit 113 of Register status_hold is stuck at Zero
 WARNING - synthesis: Bit 112 of Register status_hold is stuck at Zero
-######## Missing driver on net n12856. Patching with GND.
-######## Missing driver on net n12855. Patching with GND.
-######## Missing driver on net n12860. Patching with GND.
-######## Missing driver on net n12861. Patching with GND.
-######## Missing driver on net n12871. Patching with GND.
-######## Missing driver on net n12870. Patching with GND.
-######## Missing driver on net n12869. Patching with GND.
-######## Missing driver on net n12868. Patching with GND.
-######## Missing driver on net n12867. Patching with GND.
-######## Missing driver on net n12866. Patching with GND.
-######## Missing driver on net n12865. Patching with GND.
-######## Missing driver on net n12864. Patching with GND.
-######## Missing driver on net n12863. Patching with GND.
-######## Missing driver on net n12862. Patching with GND.
-######## Missing driver on net n12859. Patching with GND.
-######## Missing driver on net n12854. Patching with GND.
-######## Missing driver on net n12858. Patching with GND.
-######## Missing driver on net n12853. Patching with GND.
-######## Missing driver on net n12857. Patching with GND.
-######## Missing driver on net n12852. Patching with GND.
+######## Missing driver on net n13607. Patching with GND.
+######## Missing driver on net n13606. Patching with GND.
+######## Missing driver on net n13611. Patching with GND.
+######## Missing driver on net n13612. Patching with GND.
+######## Missing driver on net n13622. Patching with GND.
+######## Missing driver on net n13621. Patching with GND.
+######## Missing driver on net n13620. Patching with GND.
+######## Missing driver on net n13619. Patching with GND.
+######## Missing driver on net n13618. Patching with GND.
+######## Missing driver on net n13617. Patching with GND.
+######## Missing driver on net n13616. Patching with GND.
+######## Missing driver on net n13615. Patching with GND.
+######## Missing driver on net n13614. Patching with GND.
+######## Missing driver on net n13613. Patching with GND.
+######## Missing driver on net n13610. Patching with GND.
+######## Missing driver on net n13605. Patching with GND.
+######## Missing driver on net n13609. Patching with GND.
+######## Missing driver on net n13604. Patching with GND.
+######## Missing driver on net n13608. Patching with GND.
+######## Missing driver on net n13603. Patching with GND.
 WARNING - synthesis: Bit 72 of Register status_hold is stuck at Zero
 WARNING - synthesis: Bit 111 of Register status_hold is stuck at Zero
 WARNING - synthesis: Bit 110 of Register status_hold is stuck at Zero
@@ -176,8 +176,7 @@ WARNING - synthesis: Bit 78 of Register status_hold is stuck at Zero
 WARNING - synthesis: Bit 77 of Register status_hold is stuck at Zero
 WARNING - synthesis: Bit 75 of Register status_hold is stuck at Zero
 WARNING - synthesis: Bit 73 of Register status_hold is stuck at Zero
-WARNING - synthesis: Bit 71 of Register status_hold is stuck at Zero
-WARNING - synthesis: Bit 70 of Register status_hold is stuck at Zero
+WARNING - synthesis: Bit 70 of Register status_hold is stuck at One
 WARNING - synthesis: Bit 69 of Register status_hold is stuck at Zero
 WARNING - synthesis: Bit 68 of Register status_hold is stuck at Zero
 WARNING - synthesis: Bit 67 of Register status_hold is stuck at Zero
@@ -211,20 +210,20 @@ WARNING - synthesis: Bit 0 of Register mic_win_q[3] is stuck at Zero
 
 ######## Mapping RTL RAM \staging_ram/mem to 1 EBR blocks in PSEUDO_DUAL_PORT Mode
 
-WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(628): Register spi_expected_length_i16 is stuck at Zero. VDB-5013
-WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(1092): Register ws2812_enable_1081 is stuck at One. VDB-5014
+WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(1248): Register ws2812_enable_1253 is stuck at One. VDB-5014
 WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/spi_mic_stream.v(38): Register \mic_stream_i/shift_register_i0 is stuck at Zero. VDB-5013
-WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(1092): Register mic_saturated_1130 is stuck at Zero. VDB-5013
-GSR instance connected to net fpga_cs_n_N_3507.
+WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(712): Register spi_expected_length_i16 is stuck at Zero. VDB-5013
+WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(1248): Register mic_saturated_1314 is stuck at Zero. VDB-5013
+GSR instance connected to net fpga_cs_n_N_3621.
+WARNING - synthesis: Initial value found on instance ws2812_settle_i0_i0 will be ignored.
+WARNING - synthesis: Initial value found on instance swap_pending_1214 will be ignored.
+WARNING - synthesis: Initial value found on instance mic_warm_1281 will be ignored.
+WARNING - synthesis: Initial value found on instance mic_run_state_i0 will be ignored.
+WARNING - synthesis: Initial value found on instance mic_done_1313 will be ignored.
+WARNING - synthesis: Initial value found on instance mic_cfg_gap_i2 will be ignored.
 WARNING - synthesis: Initial value found on instance ws2812_settle_i0_i3 will be ignored.
 WARNING - synthesis: Initial value found on instance ws2812_settle_i0_i2 will be ignored.
 WARNING - synthesis: Initial value found on instance ws2812_settle_i0_i1 will be ignored.
-WARNING - synthesis: Initial value found on instance ws2812_settle_i0_i0 will be ignored.
-WARNING - synthesis: Initial value found on instance swap_pending_1051 will be ignored.
-WARNING - synthesis: Initial value found on instance mic_warm_1097 will be ignored.
-WARNING - synthesis: Initial value found on instance mic_run_state_i0 will be ignored.
-WARNING - synthesis: Initial value found on instance mic_done_1129 will be ignored.
-WARNING - synthesis: Initial value found on instance mic_cfg_gap_i2 will be ignored.
 WARNING - synthesis: Initial value found on instance mic_cfg_settle_i2 will be ignored.
 Duplicate register/latch removal. spi_byte_count_i0_i0 is a one-to-one match with spi_byte_count_rep_7__i0.
 Duplicate register/latch removal. spi_byte_count_i0_i1 is a one-to-one match with spi_byte_count_rep_7__i1.
@@ -244,22 +243,22 @@ Running DRC...
 DRC complete with no errors or warnings
 
 Design Results:
-   3576 blocks expanded
+   3804 blocks expanded
 completed the first expansion
 All blocks are expanded and NGD expansion is successful.
 Writing NGD file UMH_7_UMH_7_1.ngd.
 
 ################### Begin Area Report (umh_fpga_top)######################
-Number of register bits => 1755 of 2427 (72 % )
+Number of register bits => 1841 of 2427 (75 % )
 CCU2D => 247
 EHXPLLJ => 1
-FD1P3AX => 941
-FD1P3AY => 10
+FD1P3AX => 983
+FD1P3AY => 8
 FD1P3DX => 101
-FD1P3IX => 407
+FD1P3IX => 428
 FD1P3JX => 6
-FD1S3AX => 271
-FD1S3AY => 3
+FD1S3AX => 294
+FD1S3AY => 5
 FD1S3DX => 1
 FD1S3IX => 12
 FD1S3JX => 3
@@ -267,12 +266,12 @@ GSR => 1
 IB => 8
 INV => 2
 L6MUX21 => 24
-LUT4 => 1383
+LUT4 => 1524
 MUX21 => 1
 OB => 87
 OBZ => 1
 PDPW8KC => 7
-PFUMX => 56
+PFUMX => 57
 ################### End Area Report ##################
 
 ################### Begin BlackBox Report ######################
@@ -282,35 +281,35 @@ TSALL => 1
 ################### Begin Clock Report ######################
 Clock Nets
 Number of Clocks: 4
-  Net : pll_clk, loads : 1398
-  Net : spi1_sck_c, loads : 261
+  Net : pll_clk, loads : 1465
+  Net : spi1_sck_c, loads : 280
   Net : spi_mic_sck_c, loads : 1
   Net : fpga_clk_8m_c, loads : 1
 Clock Enable Nets
-Number of Clock Enables: 105
+Number of Clock Enables: 118
 Top 10 highest fanout Clock Enables:
-  Net : mic_stream_i/sck_N_4164_enable_101, loads : 101
-  Net : fpga_cs_n_c, loads : 78
-  Net : pll_clk_enable_606, loads : 50
-  Net : pll_clk_enable_668, loads : 50
-  Net : pll_clk_enable_781, loads : 50
-  Net : pll_clk_enable_434, loads : 50
-  Net : pll_clk_enable_879, loads : 50
-  Net : pll_clk_enable_1031, loads : 50
-  Net : pll_clk_enable_948, loads : 46
-  Net : pll_clk_enable_990, loads : 40
+  Net : mic_stream_i/sck_N_4345_enable_101, loads : 101
+  Net : fpga_cs_n_c, loads : 81
+  Net : pll_clk_enable_802, loads : 50
+  Net : pll_clk_enable_864, loads : 50
+  Net : pll_clk_enable_623, loads : 50
+  Net : pll_clk_enable_133, loads : 50
+  Net : pll_clk_enable_1062, loads : 50
+  Net : pll_clk_enable_441, loads : 50
+  Net : pll_clk_enable_988, loads : 46
+  Net : pll_clk_enable_695, loads : 41
 Highest fanout non-clock nets
 Top 10 highest fanout non-clock nets:
-  Net : n40304, loads : 107
+  Net : ev_state_3, loads : 120
   Net : mic_stream_i/n13, loads : 104
   Net : spi_mic_cs_n_c, loads : 103
-  Net : sck_N_4164, loads : 102
-  Net : mic_stream_i/sck_N_4164_enable_101, loads : 101
-  Net : mic_warm, loads : 97
+  Net : n42047, loads : 103
+  Net : sck_N_4345, loads : 102
+  Net : mic_warm, loads : 101
+  Net : mic_stream_i/sck_N_4345_enable_101, loads : 101
+  Net : n41954, loads : 90
   Net : swap_now_s5, loads : 84
-  Net : n24633, loads : 84
-  Net : n18043, loads : 84
-  Net : fpga_cs_n_c, loads : 78
+  Net : n19157, loads : 84
 ################### End Clock Report ##################
 
 Timing Report Summary
@@ -323,10 +322,10 @@ create_clock -period 7.812500 -name     |             |             |
 clk2 [get_nets spi_mic_sck_c]           |  128.008 MHz|  150.038 MHz|     4  
                                         |             |             |
 create_clock -period 7.812500 -name     |             |             |
-clk1 [get_nets pll_clk]                 |  128.008 MHz|   54.942 MHz|    15 *
+clk1 [get_nets pll_clk]                 |  128.008 MHz|   53.990 MHz|    15 *
                                         |             |             |
 create_clock -period 7.812500 -name     |             |             |
-clk0 [get_nets spi1_sck_c]              |  128.008 MHz|   63.072 MHz|    19 *
+clk0 [get_nets spi1_sck_c]              |  128.008 MHz|   55.565 MHz|    20 *
                                         |             |             |
 --------------------------------------------------------------------------------
 
@@ -334,10 +333,10 @@ clk0 [get_nets spi1_sck_c]              |  128.008 MHz|   63.072 MHz|    19 *
 2 constraints not met.
 
 
-Peak Memory Usage: 112.020  MB
+Peak Memory Usage: 115.848  MB
 
 --------------------------------------------------------------
-Elapsed CPU time for LSE flow : 0.500  secs
+Elapsed CPU time for LSE flow : 0.891  secs
 --------------------------------------------------------------
 
 map -a "MachXO2" -p LCMXO2-2000HC -t CSBGA132 -s 4 -oc Commercial   "UMH_7_UMH_7_1.ngd" -o "UMH_7_UMH_7_1_map.ncd" -pr "UMH_7_UMH_7_1.prf" -mp "UMH_7_UMH_7_1.mrp" -lpf "D:/Data/OneDrive/Projects/UMH/Software/UMH Controller/FPGA/UMH_7_1/UMH_7_UMH_7_1.lpf" -lpf "D:/Data/OneDrive/Projects/UMH/Software/UMH Controller/FPGA/UMH_7.lpf"  -c 0           
@@ -375,15 +374,15 @@ WARNING - map: EHXPLLJ 'fpga_pll_i' cannot obtain FREQUENCY_PIN_CLKOP=-1.000 whe
 
 
 Design Summary:
-   Number of registers:   1755 out of  2427 (72%)
-      PFU registers:         1755 out of  2112 (83%)
+   Number of registers:   1841 out of  2427 (76%)
+      PFU registers:         1841 out of  2112 (87%)
       PIO registers:            0 out of   315 (0%)
-   Number of SLICEs:       977 out of  1056 (93%)
-      SLICEs as Logic/ROM:    977 out of  1056 (93%)
+   Number of SLICEs:      1028 out of  1056 (97%)
+      SLICEs as Logic/ROM:   1028 out of  1056 (97%)
       SLICEs as RAM:            0 out of   792 (0%)
       SLICEs as Carry:        247 out of  1056 (23%)
-   Number of LUT4s:        1877 out of  2112 (89%)
-      Number used as logic LUTs:        1383
+   Number of LUT4s:        2019 out of  2112 (96%)
+      Number used as logic LUTs:        1525
       Number used as distributed RAM:     0
       Number used as ripple logic:      494
       Number used as shift registers:     0
@@ -411,161 +410,175 @@ Design Summary:
       1. Total number of LUT4s = (Number of logic LUT4s) + 2*(Number of distributed RAMs) + 2*(Number of ripple logic)
       2. Number of logic LUT4s does not include count of distributed RAM and ripple logic.
    Number of clocks:  4
-     Net spi1_sck_c: 142 loads, 137 rising, 5 falling (Driver: PIO spi1_sck )
-     Net pll_clk: 747 loads, 747 rising, 0 falling (Driver: fpga_pll_i )
+     Net spi1_sck_c: 156 loads, 151 rising, 5 falling (Driver: PIO spi1_sck )
+     Net pll_clk: 783 loads, 783 rising, 0 falling (Driver: fpga_pll_i )
      Net fpga_clk_8m_c: 1 loads, 1 rising, 0 falling (Driver: PIO fpga_clk_8m )
      Net spi_mic_sck_c: 52 loads, 0 rising, 52 falling (Driver: PIO spi_mic_sck )
-   Number of Clock Enables:  105
+   Number of Clock Enables:  118
+     Net spi1_sck_c_enable_204: 16 loads, 16 LSLICEs
+     Net pll_clk_enable_1: 1 loads, 1 LSLICEs
+     Net pll_clk_enable_133: 25 loads, 25 LSLICEs
+     Net pll_clk_enable_172: 1 loads, 1 LSLICEs
      Net pll_clk_enable_82: 8 loads, 8 LSLICEs
+     Net spi1_sck_c_enable_170: 4 loads, 4 LSLICEs
      Net spi1_sck_c_enable_163: 4 loads, 4 LSLICEs
-     Net spi1_sck_c_enable_156: 4 loads, 4 LSLICEs
-     Net spi1_sck_c_enable_149: 1 loads, 1 LSLICEs
-     Net spi1_sck_c_enable_148: 4 loads, 4 LSLICEs
-     Net spi1_sck_c_enable_132: 4 loads, 4 LSLICEs
-     Net spi1_sck_c_enable_101: 4 loads, 4 LSLICEs
-     Net spi1_sck_c_enable_94: 4 loads, 4 LSLICEs
-     Net spi1_sck_c_enable_49: 4 loads, 4 LSLICEs
-     Net pll_clk_enable_86: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_114: 12 loads, 12 LSLICEs
-     Net spi1_sck_c_enable_197: 16 loads, 16 LSLICEs
-     Net pll_clk_enable_317: 16 loads, 16 LSLICEs
-     Net pll_clk_enable_948: 25 loads, 25 LSLICEs
-     Net fpga_cs_n_c: 34 loads, 34 LSLICEs
-     Net pll_clk_enable_1031: 25 loads, 25 LSLICEs
-     Net pll_clk_enable_915: 9 loads, 9 LSLICEs
-     Net pll_clk_enable_243: 17 loads, 17 LSLICEs
-     Net pll_clk_enable_297: 2 loads, 2 LSLICEs
-     Net pll_clk_enable_362: 16 loads, 16 LSLICEs
-     Net phase_step_s1: 5 loads, 5 LSLICEs
-     Net pll_clk_enable_55: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_370: 5 loads, 5 LSLICEs
-     Net pll_clk_enable_21: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_22: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_385: 9 loads, 9 LSLICEs
-     Net pll_clk_enable_434: 25 loads, 25 LSLICEs
-     Net pll_clk_enable_499: 16 loads, 16 LSLICEs
-     Net pll_clk_enable_529: 16 loads, 16 LSLICEs
-     Net pll_clk_enable_557: 15 loads, 15 LSLICEs
-     Net pll_clk_enable_606: 25 loads, 25 LSLICEs
-     Net pll_clk_enable_668: 25 loads, 25 LSLICEs
-     Net pll_clk_enable_689: 8 loads, 8 LSLICEs
-     Net pll_clk_enable_83: 1 loads, 1 LSLICEs
-     Net mic_ram_we_N_3663: 5 loads, 5 LSLICEs
-     Net pll_clk_enable_37: 1 loads, 1 LSLICEs
-     Net mic_ram_we: 1 loads, 0 LSLICEs
-     Net pll_clk_enable_251: 2 loads, 2 LSLICEs
-     Net spi1_sck_c_enable_216: 9 loads, 9 LSLICEs
-     Net pll_clk_enable_89: 4 loads, 4 LSLICEs
-     Net spi1_sck_c_enable_26: 8 loads, 8 LSLICEs
-     Net pll_clk_enable_44: 2 loads, 2 LSLICEs
-     Net ev_we: 5 loads, 0 LSLICEs
-     Net pll_clk_enable_732: 4 loads, 4 LSLICEs
-     Net pll_clk_enable_781: 25 loads, 25 LSLICEs
-     Net pll_clk_enable_820: 3 loads, 3 LSLICEs
-     Net pll_clk_enable_879: 25 loads, 25 LSLICEs
-     Net pll_clk_enable_62: 1 loads, 1 LSLICEs
-     Net spi1_sck_c_enable_34: 4 loads, 4 LSLICEs
-     Net spi1_sck_c_enable_42: 4 loads, 4 LSLICEs
-     Net spi1_sck_c_enable_56: 4 loads, 4 LSLICEs
-     Net spi1_sck_c_enable_64: 4 loads, 4 LSLICEs
-     Net pll_clk_enable_925: 3 loads, 3 LSLICEs
-     Net spi1_sck_c_enable_72: 4 loads, 4 LSLICEs
-     Net spi1_sck_c_enable_80: 4 loads, 4 LSLICEs
-     Net spi1_sck_c_enable_88: 4 loads, 4 LSLICEs
+     Net spi1_sck_c_enable_156: 1 loads, 1 LSLICEs
+     Net spi1_sck_c_enable_155: 4 loads, 4 LSLICEs
+     Net spi1_sck_c_enable_140: 4 loads, 4 LSLICEs
      Net spi1_sck_c_enable_109: 4 loads, 4 LSLICEs
+     Net spi1_sck_c_enable_102: 4 loads, 4 LSLICEs
+     Net spi1_sck_c_enable_95: 4 loads, 4 LSLICEs
+     Net spi1_sck_c_enable_34: 4 loads, 4 LSLICEs
+     Net spi1_sck_c_enable_211: 4 loads, 4 LSLICEs
+     Net pll_clk_enable_207: 12 loads, 12 LSLICEs
+     Net pll_clk_enable_239: 17 loads, 17 LSLICEs
+     Net audio_cmd_level_7__N_2341: 5 loads, 5 LSLICEs
+     Net pll_clk_enable_6: 1 loads, 1 LSLICEs
+     Net pll_clk_enable_1062: 25 loads, 25 LSLICEs
+     Net pll_clk_enable_495: 16 loads, 16 LSLICEs
+     Net pll_clk_enable_988: 25 loads, 25 LSLICEs
+     Net fpga_cs_n_c: 35 loads, 35 LSLICEs
+     Net pll_clk_enable_952: 5 loads, 5 LSLICEs
+     Net spi1_sck_c_enable_19: 4 loads, 4 LSLICEs
+     Net pll_clk_enable_441: 25 loads, 25 LSLICEs
+     Net pll_clk_enable_506: 2 loads, 2 LSLICEs
+     Net spi1_sck_c_enable_27: 4 loads, 4 LSLICEs
+     Net pll_clk_enable_537: 16 loads, 16 LSLICEs
+     Net spi1_sck_c_enable_41: 4 loads, 4 LSLICEs
+     Net phase_step_s1: 5 loads, 5 LSLICEs
+     Net pll_clk_enable_545: 5 loads, 5 LSLICEs
+     Net pll_clk_enable_552: 4 loads, 4 LSLICEs
+     Net pll_clk_enable_28: 1 loads, 1 LSLICEs
+     Net pll_clk_enable_559: 5 loads, 5 LSLICEs
+     Net pll_clk_enable_30: 1 loads, 1 LSLICEs
+     Net pll_clk_enable_574: 9 loads, 9 LSLICEs
+     Net pll_clk_enable_623: 25 loads, 25 LSLICEs
+     Net pll_clk_enable_695: 21 loads, 21 LSLICEs
+     Net pll_clk_enable_725: 16 loads, 16 LSLICEs
+     Net spi1_sck_c_enable_64: 4 loads, 4 LSLICEs
+     Net pll_clk_enable_753: 15 loads, 15 LSLICEs
+     Net pll_clk_enable_802: 25 loads, 25 LSLICEs
+     Net pll_clk_enable_864: 25 loads, 25 LSLICEs
+     Net pll_clk_enable_885: 8 loads, 8 LSLICEs
+     Net pll_clk_enable_169: 1 loads, 1 LSLICEs
+     Net mic_ram_we_N_3811: 5 loads, 5 LSLICEs
+     Net pll_clk_enable_48: 1 loads, 1 LSLICEs
+     Net mic_ram_we: 1 loads, 0 LSLICEs
+     Net pll_clk_enable_271: 2 loads, 2 LSLICEs
+     Net spi1_sck_c_enable_234: 9 loads, 9 LSLICEs
+     Net pll_clk_enable_176: 4 loads, 4 LSLICEs
+     Net spi1_sck_c_enable_49: 2 loads, 2 LSLICEs
+     Net spi1_sck_c_enable_59: 7 loads, 7 LSLICEs
+     Net pll_clk_enable_54: 2 loads, 2 LSLICEs
+     Net ev_we: 5 loads, 0 LSLICEs
+     Net pll_clk_enable_932: 4 loads, 4 LSLICEs
+     Net spi1_sck_c_enable_89: 4 loads, 4 LSLICEs
+     Net spi1_sck_c_enable_79: 4 loads, 4 LSLICEs
+     Net spi1_sck_N_323_enable_9: 5 loads, 5 LSLICEs
+     Net spi1_sck_c_enable_88: 4 loads, 4 LSLICEs
+     Net pll_clk_enable_941: 3 loads, 3 LSLICEs
+     Net spi1_sck_c_enable_237: 2 loads, 2 LSLICEs
+     Net pll_clk_enable_947: 2 loads, 2 LSLICEs
+     Net pll_clk_enable_68: 1 loads, 1 LSLICEs
      Net spi1_sck_c_enable_117: 4 loads, 4 LSLICEs
      Net spi1_sck_c_enable_125: 4 loads, 4 LSLICEs
-     Net spi1_sck_N_307_enable_9: 5 loads, 5 LSLICEs
-     Net spi1_sck_c_enable_141: 4 loads, 4 LSLICEs
-     Net spi1_sck_c_enable_220: 2 loads, 2 LSLICEs
-     Net pll_clk_enable_990: 17 loads, 17 LSLICEs
+     Net spi1_sck_c_enable_133: 4 loads, 4 LSLICEs
+     Net spi1_sck_c_enable_148: 4 loads, 4 LSLICEs
+     Net pll_clk_enable_959: 3 loads, 3 LSLICEs
+     Net spi1_sck_c_enable_243: 4 loads, 4 LSLICEs
      Net pll_clk_enable_1021: 17 loads, 17 LSLICEs
-     Net spi1_sck_c_enable_226: 4 loads, 4 LSLICEs
-     Net pll_clk_enable_84: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_85: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_87: 1 loads, 1 LSLICEs
-     Net spi1_sck_c_enable_165: 1 loads, 1 LSLICEs
-     Net spi1_sck_c_enable_166: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_324: 16 loads, 16 LSLICEs
-     Net pll_clk_enable_190: 3 loads, 3 LSLICEs
-     Net pll_clk_enable_193: 3 loads, 3 LSLICEs
-     Net pll_clk_enable_194: 1 loads, 1 LSLICEs
-     Net spi1_sck_c_enable_198: 1 loads, 1 LSLICEs
-     Net spi1_sck_c_enable_199: 1 loads, 1 LSLICEs
-     Net spi1_sck_c_enable_200: 1 loads, 1 LSLICEs
-     Net spi1_sck_c_enable_217: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_1027: 5 loads, 5 LSLICEs
-     Net pll_clk_enable_198: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_200: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_913: 17 loads, 17 LSLICEs
-     Net pll_clk_enable_294: 3 loads, 3 LSLICEs
-     Net pll_clk_enable_939: 9 loads, 9 LSLICEs
-     Net pll_clk_enable_267: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_949: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_269: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_951: 5 loads, 5 LSLICEs
-     Net pll_clk_enable_936: 17 loads, 17 LSLICEs
+     Net pll_clk_enable_1052: 17 loads, 17 LSLICEs
+     Net pll_clk_enable_167: 17 loads, 17 LSLICEs
+     Net pll_clk_enable_170: 1 loads, 1 LSLICEs
+     Net pll_clk_enable_171: 1 loads, 1 LSLICEs
+     Net pll_clk_enable_175: 1 loads, 1 LSLICEs
+     Net pll_clk_enable_174: 1 loads, 1 LSLICEs
+     Net spi1_sck_c_enable_189: 1 loads, 1 LSLICEs
+     Net spi1_sck_c_enable_190: 1 loads, 1 LSLICEs
+     Net pll_clk_enable_502: 16 loads, 16 LSLICEs
+     Net pll_clk_enable_986: 9 loads, 9 LSLICEs
+     Net pll_clk_enable_392: 3 loads, 3 LSLICEs
+     Net pll_clk_enable_303: 3 loads, 3 LSLICEs
+     Net pll_clk_enable_306: 3 loads, 3 LSLICEs
+     Net pll_clk_enable_969: 9 loads, 9 LSLICEs
+     Net pll_clk_enable_324: 1 loads, 1 LSLICEs
+     Net spi1_sck_c_enable_212: 1 loads, 1 LSLICEs
+     Net spi1_sck_c_enable_213: 1 loads, 1 LSLICEs
+     Net spi1_sck_c_enable_214: 1 loads, 1 LSLICEs
+     Net spi1_sck_c_enable_215: 1 loads, 1 LSLICEs
+     Net spi1_sck_c_enable_216: 1 loads, 1 LSLICEs
+     Net spi1_sck_c_enable_219: 1 loads, 1 LSLICEs
+     Net spi1_sck_c_enable_218: 1 loads, 1 LSLICEs
+     Net pll_clk_enable_328: 2 loads, 2 LSLICEs
+     Net pll_clk_enable_329: 1 loads, 1 LSLICEs
      Net pll_clk_enable_331: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_468: 17 loads, 17 LSLICEs
-     Net pll_clk_enable_947: 4 loads, 4 LSLICEs
-     Net pll_clk_enable_620: 7 loads, 7 LSLICEs
-     Net pll_clk_enable_674: 3 loads, 3 LSLICEs
-     Net pll_clk_enable_691: 2 loads, 2 LSLICEs
+     Net pll_clk_enable_348: 1 loads, 1 LSLICEs
+     Net pll_clk_enable_989: 1 loads, 1 LSLICEs
+     Net pll_clk_enable_350: 1 loads, 1 LSLICEs
+     Net pll_clk_enable_1055: 5 loads, 5 LSLICEs
+     Net pll_clk_enable_922: 17 loads, 17 LSLICEs
+     Net pll_clk_enable_475: 17 loads, 17 LSLICEs
+     Net ws2812_enable_N_3744: 1 loads, 1 LSLICEs
+     Net pll_clk_enable_657: 17 loads, 17 LSLICEs
+     Net pll_clk_enable_816: 7 loads, 7 LSLICEs
+     Net pll_clk_enable_870: 3 loads, 3 LSLICEs
+     Net pll_clk_enable_887: 2 loads, 2 LSLICEs
+     Net pll_clk_enable_987: 4 loads, 4 LSLICEs
+     Net mic_stream_i/sck_N_4345_enable_101: 51 loads, 51 LSLICEs
+     Net pll_clk_enable_1054: 1 loads, 1 LSLICEs
      Net spi_write: 1 loads, 0 LSLICEs
-     Net mic_stream_i/sck_N_4164_enable_101: 51 loads, 51 LSLICEs
-     Net pll_clk_enable_815: 17 loads, 17 LSLICEs
-     Net pll_clk_enable_1029: 2 loads, 2 LSLICEs
-     Net pll_clk_enable_950: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_957: 1 loads, 1 LSLICEs
-     Net state_0: 8 loads, 8 LSLICEs
-     Net pll_clk_enable_935: 13 loads, 13 LSLICEs
-     Net ws2812_i/pll_clk_enable_249: 9 loads, 9 LSLICEs
-     Net ws2812_i/pll_clk_enable_197: 1 loads, 1 LSLICEs
-   Number of LSRs:  32
-     Net n39553: 9 loads, 9 LSLICEs
-     Net pll_clk_enable_86: 3 loads, 3 LSLICEs
-     Net n40304: 41 loads, 41 LSLICEs
-     Net n40325: 25 loads, 25 LSLICEs
-     Net n26206: 9 loads, 9 LSLICEs
-     Net n39746: 17 loads, 17 LSLICEs
-     Net n18041: 4 loads, 4 LSLICEs
-     Net n21133: 2 loads, 2 LSLICEs
+     Net pll_clk_enable_1058: 1 loads, 1 LSLICEs
+     Net pll_clk_enable_1063: 1 loads, 1 LSLICEs
+     Net ws2812_i/state_0: 8 loads, 8 LSLICEs
+     Net ws2812_i/pll_clk_enable_332: 9 loads, 9 LSLICEs
+     Net ws2812_i/pll_clk_enable_977: 13 loads, 13 LSLICEs
+     Net ws2812_i/pll_clk_enable_330: 1 loads, 1 LSLICEs
+   Number of LSRs:  33
+     Net n41760: 7 loads, 7 LSLICEs
+     Net pll_clk_enable_172: 3 loads, 3 LSLICEs
+     Net n41770: 9 loads, 9 LSLICEs
+     Net n42053: 17 loads, 17 LSLICEs
+     Net n42586: 25 loads, 25 LSLICEs
+     Net n42047: 41 loads, 41 LSLICEs
+     Net n34076: 5 loads, 5 LSLICEs
+     Net n19167: 4 loads, 4 LSLICEs
+     Net n19157: 42 loads, 42 LSLICEs
+     Net n41971: 1 loads, 1 LSLICEs
+     Net n22114: 2 loads, 2 LSLICEs
      Net phase_step_s1: 1 loads, 1 LSLICEs
-     Net n36839: 1 loads, 1 LSLICEs
-     Net n24235: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_83: 4 loads, 4 LSLICEs
-     Net mic_done_N_3629: 2 loads, 2 LSLICEs
-     Net n39544: 2 loads, 2 LSLICEs
-     Net n18043: 42 loads, 42 LSLICEs
-     Net n39682: 1 loads, 1 LSLICEs
-     Net pll_clk_enable_990: 4 loads, 4 LSLICEs
+     Net n38957: 1 loads, 1 LSLICEs
+     Net n40153: 2 loads, 2 LSLICEs
+     Net pll_clk_enable_169: 4 loads, 4 LSLICEs
+     Net mic_done_N_3777: 2 loads, 2 LSLICEs
+     Net n15747: 7 loads, 7 LSLICEs
+     Net pll_clk_enable_1021: 4 loads, 4 LSLICEs
      Net spi_mic_cs_n_c: 52 loads, 52 LSLICEs
-     Net n26216: 3 loads, 3 LSLICEs
-     Net n27111: 1 loads, 1 LSLICEs
-     Net n26203: 5 loads, 5 LSLICEs
-     Net n39751: 1 loads, 1 LSLICEs
-     Net n26184: 9 loads, 9 LSLICEs
-     Net n26316: 9 loads, 9 LSLICEs
-     Net n26304: 5 loads, 5 LSLICEs
-     Net n26221: 17 loads, 17 LSLICEs
-     Net n26180: 3 loads, 3 LSLICEs
-     Net pll_clk_enable_935: 5 loads, 5 LSLICEs
-     Net ws2812_i/n26355: 3 loads, 3 LSLICEs
-     Net ws2812_i/n26353: 2 loads, 2 LSLICEs
-     Net ws2812_i/n26340: 7 loads, 7 LSLICEs
-     Net ws2812_i/n37850: 1 loads, 1 LSLICEs
+     Net n28281: 9 loads, 9 LSLICEs
+     Net n28269: 5 loads, 5 LSLICEs
+     Net n28181: 3 loads, 3 LSLICEs
+     Net n28162: 9 loads, 9 LSLICEs
+     Net n30356: 1 loads, 1 LSLICEs
+     Net n42004: 1 loads, 1 LSLICEs
+     Net n28127: 9 loads, 9 LSLICEs
+     Net n28186: 17 loads, 17 LSLICEs
+     Net n28123: 3 loads, 3 LSLICEs
+     Net ws2812_i/n28142: 3 loads, 3 LSLICEs
+     Net ws2812_i/n28317: 2 loads, 2 LSLICEs
+     Net ws2812_i/n28141: 7 loads, 7 LSLICEs
+     Net ws2812_i/pll_clk_enable_977: 5 loads, 5 LSLICEs
+     Net ws2812_i/n39977: 1 loads, 1 LSLICEs
    Number of nets driven by tri-state buffers:  0
    Top 10 highest fanout non-clock nets:
+     Net ev_state_3: 120 loads
      Net mic_stream_i/n13: 104 loads
-     Net mic_warm: 97 loads
-     Net n24633: 84 loads
+     Net mic_warm: 101 loads
+     Net n41954: 90 loads
+     Net n26445: 84 loads
      Net swap_now_s5: 84 loads
-     Net n40304: 77 loads
-     Net ev_state_3: 71 loads
+     Net n42047: 73 loads
+     Net ev_ch_1: 58 loads
+     Net ev_ch_2: 57 loads
      Net status_bit_index_0: 57 loads
-     Net spi_mic_cs_n_c: 53 loads
-     Net mic_stream_i/sck_N_4164_enable_101: 51 loads
-     Net n39611: 48 loads
  
 
    Number of warnings:  1
@@ -574,8 +587,8 @@ Design Summary:
 
 
 Total CPU Time: 0 secs  
-Total REAL Time: 2 secs  
-Peak Memory Usage: 62 MB
+Total REAL Time: 0 secs  
+Peak Memory Usage: 64 MB
 
 Dumping design to file UMH_7_UMH_7_1_map.ncd.
 
@@ -590,7 +603,7 @@ Removing old design directory at request of -rem command line option to this pro
 Running par. Please wait . . .
 
 Lattice Place and Route Report for Design "UMH_7_UMH_7_1_map.ncd"
-Thu Sep 17 16:34:14 2026
+Mon Sep 21 22:25:12 2026
 
 PAR: Place And Route Diamond (64-bit) 3.13.0.56.2.
 Command Line: par -w -l 5 -i 6 -t 1 -c 0 -e 0 -exp parUseNBR=1:parCDP=0:parCDR=0:parPathBased=OFF:parASE=1 UMH_7_UMH_7_1_map.ncd UMH_7_UMH_7_1.dir/5_1.ncd UMH_7_UMH_7_1.prf
@@ -617,52 +630,52 @@ Device utilization summary:
    PIO (prelim)   96+4(JTAG)/216     46% used
                   96+4(JTAG)/105     95% bonded
 
-   SLICE            977/1056         92% used
+   SLICE           1028/1056         97% used
 
    GSR                1/1           100% used
    EBR                7/8            87% used
    PLL                1/1           100% used
 
 
-Number of Signals: 3821
-Number of Connections: 9772
+Number of Signals: 4048
+Number of Connections: 10456
 
 Pin Constraint Summary:
    96 out of 96 pins locked (100% locked).
 
 The following 3 signals are selected to use the primary clock routing resources:
-    pll_clk (driver: fpga_pll_i, clk load #: 747)
-    spi1_sck_c (driver: spi1_sck, clk load #: 142)
+    pll_clk (driver: fpga_pll_i, clk load #: 783)
+    spi1_sck_c (driver: spi1_sck, clk load #: 156)
     spi_mic_sck_c (driver: spi_mic_sck, clk load #: 52)
 
 WARNING - par: Signal "spi_mic_sck_c" is selected to use Primary clock resources. However, its driver comp "spi_mic_sck" is located at "D1", which is not a dedicated pin for connecting to Primary clock resources. General routing has to be used to route this signal, and it might suffer from excessive delay or skew.
 
 The following 8 signals are selected to use the secondary clock routing resources:
     spi_mic_cs_n_c (driver: spi_mic_cs_n, clk load #: 0, sr load #: 52, ce load #: 0)
-    mic_stream_i/sck_N_4164_enable_101 (driver: SLICE_1093, clk load #: 0, sr load #: 0, ce load #: 51)
-    n18043 (driver: SLICE_1358, clk load #: 0, sr load #: 42, ce load #: 0)
-    n40304 (driver: SLICE_639, clk load #: 0, sr load #: 41, ce load #: 0)
-    fpga_cs_n_c (driver: fpga_cs_n, clk load #: 0, sr load #: 0, ce load #: 34)
-    pll_clk_enable_948 (driver: SLICE_1302, clk load #: 0, sr load #: 0, ce load #: 25)
-    pll_clk_enable_1031 (driver: SLICE_1116, clk load #: 0, sr load #: 0, ce load #: 25)
-    n40325 (driver: SLICE_1301, clk load #: 0, sr load #: 25, ce load #: 0)
+    mic_stream_i/sck_N_4345_enable_101 (driver: SLICE_1149, clk load #: 0, sr load #: 0, ce load #: 51)
+    n19157 (driver: SLICE_1093, clk load #: 0, sr load #: 42, ce load #: 0)
+    n42047 (driver: SLICE_683, clk load #: 0, sr load #: 41, ce load #: 0)
+    fpga_cs_n_c (driver: fpga_cs_n, clk load #: 0, sr load #: 0, ce load #: 35)
+    pll_clk_enable_133 (driver: SLICE_886, clk load #: 0, sr load #: 0, ce load #: 25)
+    pll_clk_enable_1062 (driver: SLICE_1399, clk load #: 0, sr load #: 0, ce load #: 25)
+    n42586 (driver: SLICE_1194, clk load #: 0, sr load #: 25, ce load #: 0)
 
 WARNING - par: Signal "spi_mic_cs_n_c" is selected to use Secondary clock resources. However, its driver comp "spi_mic_cs_n" is located at "B1", which is not a dedicated pin for connecting to Secondary clock resources. General routing has to be used to route this signal, and it might suffer from excessive delay or skew.
 WARNING - par: Signal "fpga_cs_n_c" is selected to use Secondary clock resources. However, its driver comp "fpga_cs_n" is located at "M1", which is not a dedicated pin for connecting to Secondary clock resources. General routing has to be used to route this signal, and it might suffer from excessive delay or skew.
 Signal fpga_cs_n_c is selected as Global Set/Reset.
 Starting Placer Phase 0.
 .........
-Finished Placer Phase 0.  REAL time: 0 secs 
+Finished Placer Phase 0.  REAL time: 2 secs 
 
 Starting Placer Phase 1.
 ....................
-Placer score = 782281.
-Finished Placer Phase 1.  REAL time: 5 secs 
+Placer score = 823213.
+Finished Placer Phase 1.  REAL time: 6 secs 
 
 Starting Placer Phase 2.
 .
-Placer score =  774856
-Finished Placer Phase 2.  REAL time: 5 secs 
+Placer score =  816315
+Finished Placer Phase 2.  REAL time: 6 secs 
 
 
 ------------------ Clock Report ------------------
@@ -675,17 +688,17 @@ Global Clock Resources:
   DCC        : 0 out of 8 (0%)
 
 Global Clocks:
-  PRIMARY "pll_clk" from CLKOP on comp "fpga_pll_i" on PLL site "LPLL", clk load = 747
-  PRIMARY "spi1_sck_c" from comp "spi1_sck" on CLK_PIN site "K1 (PL12A)", clk load = 142
+  PRIMARY "pll_clk" from CLKOP on comp "fpga_pll_i" on PLL site "LPLL", clk load = 783
+  PRIMARY "spi1_sck_c" from comp "spi1_sck" on CLK_PIN site "K1 (PL12A)", clk load = 156
   PRIMARY "spi_mic_sck_c" from comp "spi_mic_sck" on PIO site "D1 (PL3B)", clk load = 52
   SECONDARY "spi_mic_cs_n_c" from comp "spi_mic_cs_n" on PIO site "B1 (PL1A)", clk load = 0, ce load = 0, sr load = 52
-  SECONDARY "mic_stream_i/sck_N_4164_enable_101" from F0 on comp "SLICE_1093" on site "R9C15A", clk load = 0, ce load = 51, sr load = 0
-  SECONDARY "n18043" from F0 on comp "SLICE_1358" on site "R9C15B", clk load = 0, ce load = 0, sr load = 42
-  SECONDARY "n40304" from F1 on comp "SLICE_639" on site "R9C15D", clk load = 0, ce load = 0, sr load = 41
-  SECONDARY "fpga_cs_n_c" from comp "fpga_cs_n" on PIO site "M1 (PL14A)", clk load = 0, ce load = 34, sr load = 0
-  SECONDARY "pll_clk_enable_948" from F0 on comp "SLICE_1302" on site "R9C15C", clk load = 0, ce load = 25, sr load = 0
-  SECONDARY "pll_clk_enable_1031" from F0 on comp "SLICE_1116" on site "R9C13D", clk load = 0, ce load = 25, sr load = 0
-  SECONDARY "n40325" from F0 on comp "SLICE_1301" on site "R9C13A", clk load = 0, ce load = 0, sr load = 25
+  SECONDARY "mic_stream_i/sck_N_4345_enable_101" from F0 on comp "SLICE_1149" on site "R9C15A", clk load = 0, ce load = 51, sr load = 0
+  SECONDARY "n19157" from F1 on comp "SLICE_1093" on site "R9C13B", clk load = 0, ce load = 0, sr load = 42
+  SECONDARY "n42047" from F1 on comp "SLICE_683" on site "R2C20B", clk load = 0, ce load = 0, sr load = 41
+  SECONDARY "fpga_cs_n_c" from comp "fpga_cs_n" on PIO site "M1 (PL14A)", clk load = 0, ce load = 35, sr load = 0
+  SECONDARY "pll_clk_enable_133" from Q0 on comp "SLICE_886" on site "R9C13C", clk load = 0, ce load = 25, sr load = 0
+  SECONDARY "pll_clk_enable_1062" from F0 on comp "SLICE_1399" on site "R9C15D", clk load = 0, ce load = 25, sr load = 0
+  SECONDARY "n42586" from F0 on comp "SLICE_1194" on site "R9C15B", clk load = 0, ce load = 0, sr load = 25
 
   PRIMARY  : 3 out of 8 (37%)
   SECONDARY: 8 out of 8 (100%)
@@ -718,13 +731,13 @@ Total placer CPU time: 1 secs
 
 Dumping design to file UMH_7_UMH_7_1.dir/5_1.ncd.
 
-0 connections routed; 9772 unrouted.
+0 connections routed; 10456 unrouted.
 Starting router resource preassignment
 WARNING - par: The driver of primary clock net spi_mic_sck_c is not placed on one of the sites dedicated for primary clocks. This primary clock will be routed to an H-spine through general routing resource and might suffer from excessive delay or skew.
 
-Completed router resource preassignment. Real time: 8 secs 
+Completed router resource preassignment. Real time: 9 secs 
 
-Start NBR router at 16:34:22 09/17/26
+Start NBR router at 22:25:21 09/21/26
 
 *****************************************************************
 Info: NBR allows conflicts(one node used by more than one signal)
@@ -739,83 +752,83 @@ Note: NBR uses a different method to calculate timing slacks. The
       your design.                                               
 *****************************************************************
 
-Start NBR special constraint process at 16:34:22 09/17/26
+Start NBR special constraint process at 22:25:21 09/21/26
 
-Start NBR section for initial routing at 16:34:22 09/17/26
+Start NBR section for initial routing at 22:25:21 09/21/26
 Level 1, iteration 1
-0(0.00%) conflict; 7348(75.19%) untouched conns; 0 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: 1.540ns/0.000ns; real time: 8 secs 
+4(0.00%) conflicts; 7926(75.80%) untouched conns; 0 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: 1.625ns/0.000ns; real time: 9 secs 
 Level 2, iteration 1
-0(0.00%) conflict; 7336(75.07%) untouched conns; 0 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: 2.213ns/0.000ns; real time: 8 secs 
+0(0.00%) conflict; 7916(75.71%) untouched conns; 0 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: 1.722ns/0.000ns; real time: 9 secs 
 Level 3, iteration 1
-7(0.01%) conflicts; 7025(71.89%) untouched conns; 0 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: 2.164ns/0.000ns; real time: 9 secs 
+3(0.00%) conflicts; 7679(73.44%) untouched conns; 0 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: 1.687ns/0.000ns; real time: 9 secs 
 Level 4, iteration 1
-533(0.41%) conflicts; 0(0.00%) untouched conn; 0 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: 2.156ns/0.000ns; real time: 10 secs 
+516(0.40%) conflicts; 0(0.00%) untouched conn; 0 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: 1.639ns/0.000ns; real time: 10 secs 
 
 Info: Initial congestion level at 75% usage is 9
-Info: Initial congestion area  at 75% usage is 90 (27.69%)
+Info: Initial congestion area  at 75% usage is 100 (30.77%)
 
-Start NBR section for normal routing at 16:34:24 09/17/26
+Start NBR section for normal routing at 22:25:23 09/21/26
 Level 1, iteration 1
-1(0.00%) conflict; 745(7.62%) untouched conns; 0 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: 2.156ns/0.000ns; real time: 10 secs 
+1(0.00%) conflict; 668(6.39%) untouched conns; 0 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: 1.639ns/0.000ns; real time: 11 secs 
 Level 4, iteration 1
-266(0.20%) conflicts; 0(0.00%) untouched conn; 0 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: 2.156ns/0.000ns; real time: 11 secs 
+284(0.22%) conflicts; 0(0.00%) untouched conn; 0 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: 1.621ns/0.000ns; real time: 12 secs 
 Level 4, iteration 2
-150(0.11%) conflicts; 0(0.00%) untouched conn; 0 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: 1.610ns/0.000ns; real time: 11 secs 
+152(0.12%) conflicts; 0(0.00%) untouched conn; 0 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: 1.621ns/0.000ns; real time: 12 secs 
 Level 4, iteration 3
-103(0.08%) conflicts; 0(0.00%) untouched conn; 0 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: 0.741ns/0.000ns; real time: 12 secs 
+68(0.05%) conflicts; 0(0.00%) untouched conn; 0 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: 1.621ns/0.000ns; real time: 12 secs 
 Level 4, iteration 4
-56(0.04%) conflicts; 0(0.00%) untouched conn; 0 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: 0.741ns/0.000ns; real time: 12 secs 
+35(0.03%) conflicts; 0(0.00%) untouched conn; 0 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: 1.621ns/0.000ns; real time: 13 secs 
 Level 4, iteration 5
-39(0.03%) conflicts; 0(0.00%) untouched conn; 0 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: 1.618ns/0.000ns; real time: 12 secs 
+22(0.02%) conflicts; 0(0.00%) untouched conn; 0 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: 1.621ns/0.000ns; real time: 13 secs 
 Level 4, iteration 6
-26(0.02%) conflicts; 0(0.00%) untouched conn; 0 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: 1.618ns/0.000ns; real time: 12 secs 
+19(0.01%) conflicts; 0(0.00%) untouched conn; 0 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: 1.621ns/0.000ns; real time: 13 secs 
 Level 4, iteration 7
-24(0.02%) conflicts; 0(0.00%) untouched conn; 0 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: 1.632ns/0.000ns; real time: 13 secs 
+14(0.01%) conflicts; 0(0.00%) untouched conn; 0 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: 1.621ns/0.000ns; real time: 13 secs 
 Level 4, iteration 8
-11(0.01%) conflicts; 0(0.00%) untouched conn; 0 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: 1.632ns/0.000ns; real time: 13 secs 
+9(0.01%) conflicts; 0(0.00%) untouched conn; 0 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: 1.621ns/0.000ns; real time: 13 secs 
 Level 4, iteration 9
-9(0.01%) conflicts; 0(0.00%) untouched conn; 0 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: 1.632ns/0.000ns; real time: 13 secs 
+6(0.00%) conflicts; 0(0.00%) untouched conn; 0 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: 1.621ns/0.000ns; real time: 13 secs 
 Level 4, iteration 10
-9(0.01%) conflicts; 0(0.00%) untouched conn; 0 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: 1.632ns/0.000ns; real time: 13 secs 
+4(0.00%) conflicts; 0(0.00%) untouched conn; 0 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: 1.621ns/0.000ns; real time: 13 secs 
 Level 4, iteration 11
-9(0.01%) conflicts; 0(0.00%) untouched conn; 0 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: 1.534ns/0.000ns; real time: 13 secs 
+3(0.00%) conflicts; 0(0.00%) untouched conn; 0 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: 1.621ns/0.000ns; real time: 13 secs 
 Level 4, iteration 12
-5(0.00%) conflicts; 0(0.00%) untouched conn; 0 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: 1.534ns/0.000ns; real time: 13 secs 
+2(0.00%) conflicts; 0(0.00%) untouched conn; 0 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: 1.621ns/0.000ns; real time: 13 secs 
 Level 4, iteration 13
-5(0.00%) conflicts; 0(0.00%) untouched conn; 0 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: 1.632ns/0.000ns; real time: 13 secs 
+2(0.00%) conflicts; 0(0.00%) untouched conn; 0 (nbr) score; 
+Estimated worst slack/total negative slack<setup>: 1.621ns/0.000ns; real time: 13 secs 
 Level 4, iteration 14
 2(0.00%) conflicts; 0(0.00%) untouched conn; 0 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: 1.632ns/0.000ns; real time: 13 secs 
+Estimated worst slack/total negative slack<setup>: 1.621ns/0.000ns; real time: 13 secs 
 Level 4, iteration 15
 0(0.00%) conflict; 0(0.00%) untouched conn; 0 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: 1.632ns/0.000ns; real time: 13 secs 
+Estimated worst slack/total negative slack<setup>: 1.621ns/0.000ns; real time: 13 secs 
 
-Start NBR section for setup/hold timing optimization with effort level 3 at 16:34:27 09/17/26
+Start NBR section for setup/hold timing optimization with effort level 3 at 22:25:25 09/21/26
 
-Start NBR section for re-routing at 16:34:28 09/17/26
+Start NBR section for re-routing at 22:25:26 09/21/26
 Level 4, iteration 1
 0(0.00%) conflict; 0(0.00%) untouched conn; 0 (nbr) score; 
-Estimated worst slack/total negative slack<setup>: 1.632ns/0.000ns; real time: 14 secs 
+Estimated worst slack/total negative slack<setup>: 1.621ns/0.000ns; real time: 14 secs 
 
-Start NBR section for post-routing at 16:34:28 09/17/26
+Start NBR section for post-routing at 22:25:26 09/21/26
 
 End NBR router with 0 unrouted connection
 
@@ -823,7 +836,7 @@ NBR Summary
 -----------
   Number of unrouted connections : 0 (0.00%)
   Number of connections with timing violations : 0 (0.00%)
-  Estimated worst slack<setup> : 1.632ns
+  Estimated worst slack<setup> : 1.621ns
   Timing score<setup> : 0
 -----------
 Notes: The timing info is calculated for SETUP only and all PAR_ADJs are ignored.
@@ -833,7 +846,7 @@ Notes: The timing info is calculated for SETUP only and all PAR_ADJs are ignored
 Total CPU time 2 secs 
 Total REAL time: 15 secs 
 Completely routed.
-End of route.  9772 routed (100.00%); 0 unrouted.
+End of route.  10456 routed (100.00%); 0 unrouted.
 
 Hold time timing score: 0, hold timing errors: 0
 
@@ -844,9 +857,9 @@ Dumping design to file UMH_7_UMH_7_1.dir/5_1.ncd.
 
 PAR_SUMMARY::Run status = Completed
 PAR_SUMMARY::Number of unrouted conns = 0
-PAR_SUMMARY::Worst  slack<setup/<ns>> = 1.632
+PAR_SUMMARY::Worst  slack<setup/<ns>> = 1.621
 PAR_SUMMARY::Timing score<setup/<ns>> = 0.000
-PAR_SUMMARY::Worst  slack<hold /<ns>> = 0.304
+PAR_SUMMARY::Worst  slack<hold /<ns>> = 0.302
 PAR_SUMMARY::Timing score<hold /<ns>> = 0.000
 PAR_SUMMARY::Number of errors = 0
 
@@ -888,7 +901,7 @@ Setup and Hold Report
 
 --------------------------------------------------------------------------------
 Lattice TRACE Report - Setup, Version Diamond (64-bit) 3.13.0.56.2
-Thu Sep 17 16:34:29 2026
+Mon Sep 21 22:25:27 2026
 
 Copyright (c) 1991-1994 by NeoCAD Inc. All rights reserved.
 Copyright (c) 1995 AT&T Corp.   All rights reserved.
@@ -917,11 +930,11 @@ Timing summary (Setup):
 Timing errors: 0  Score: 0
 Cumulative negative slack: 0
 
-Constraints cover 45804 paths, 4 nets, and 8592 connections (87.92% coverage)
+Constraints cover 62464 paths, 4 nets, and 9258 connections (88.54% coverage)
 
 --------------------------------------------------------------------------------
 Lattice TRACE Report - Hold, Version Diamond (64-bit) 3.13.0.56.2
-Thu Sep 17 16:34:29 2026
+Mon Sep 21 22:25:27 2026
 
 Copyright (c) 1991-1994 by NeoCAD Inc. All rights reserved.
 Copyright (c) 1995 AT&T Corp.   All rights reserved.
@@ -950,7 +963,7 @@ Timing summary (Hold):
 Timing errors: 0  Score: 0
 Cumulative negative slack: 0
 
-Constraints cover 45804 paths, 4 nets, and 8592 connections (87.92% coverage)
+Constraints cover 62464 paths, 4 nets, and 9258 connections (88.54% coverage)
 
 
 
@@ -966,7 +979,7 @@ Cumulative negative slack: 0 (0+0)
 
 Total CPU Time: 0 secs 
 Total REAL Time: 0 secs 
-Peak Memory Usage: 68 MB
+Peak Memory Usage: 69 MB
 
 
 tmcheck -par "UMH_7_UMH_7_1.par" 
@@ -1047,7 +1060,7 @@ Bitstream Status: Final           Version 1.95.
  
 Saving bit stream in "UMH_7_UMH_7_1.bit".
 Total CPU Time: 0 secs 
-Total REAL Time: 2 secs 
+Total REAL Time: 0 secs 
 Peak Memory Usage: 268 MB
 
 tmcheck -par "UMH_7_UMH_7_1.par" 
@@ -1140,7 +1153,7 @@ Initialized UFM Pages:                     0 Page.
 =========
 Padding summary
 =========
-Padded 201600 bits for this design
+Padded 190336 bits for this design
 
 
 Total CPU Time: 0 secs 

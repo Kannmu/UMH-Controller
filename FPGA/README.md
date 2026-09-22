@@ -2,7 +2,7 @@
 
 `UMH_7.ldf` targets `LCMXO2-2000HC-4MG132C`. The source clock is the 8 MHz STM32 PA8 HSE MCO; the checked-in `EHXPLLJ` generates a 64 MHz FPGA clock (512 MHz VCO / CLKOP_DIV=8). Keep `UMH_7.lpf` as the source constraint file. Files generated under `UMH_7_1/` are build outputs and may be deleted and regenerated.
 
-The design implements the STM32 SPI1 mode-0 control protocol, the 84-channel ultrasound output engine, the parallel four-WS2812 output, microphone clocking, and the microphone SPI return stream. All four WS2812 devices share one DI line, so the stream intentionally sends one 24-bit GRB value and all four devices receive the same colour. WS2812C-2020-V6 requires a reset low time of at least 280 us; the stream uses 312.5 us. Because this board's PLL LOCK output does not assert even though the measured PLL frequency is correct, the output engine is gated by running/stop_event, not by LOCK.
+The design implements the STM32 SPI1 mode-0 control protocol, the 84-channel ultrasound output engine, the parallel four-WS2812 output, microphone clocking, the microphone SPI return stream, and the focused-AM compact extension. After one ordinary frame loads the 84 phases and channel-enable markers, 16-byte `AUDIO_MODE`/`AUDIO_LEVEL` transactions rebuild the inactive event table with a common level at up to 20 kHz. All four WS2812 devices share one DI line, so the stream intentionally sends one 24-bit GRB value and all four devices receive the same colour. WS2812C-2020-V6 requires a reset low time of at least 280 us; the stream uses 312.5 us. Because this board's PLL LOCK output does not assert even though the measured PLL frequency is correct, the output engine is gated by running/stop_event, not by LOCK.
 
 ## Reproducible Diamond build on Windows
 

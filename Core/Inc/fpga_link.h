@@ -16,6 +16,13 @@
 #define FPGA_STATUS_INVALID_FRAME (1u << 2)
 #define FPGA_STATUS_OUTPUT_FAULT  (1u << 3)
 #define FPGA_STATUS_RUNNING       (1u << 4)
+/* Diagnostic bit 15: focused-AM common-level mode is active.  STM32 uses it
+ * to prove that a new FPGA bitstream understands AUDIO_MODE, so old logic
+ * can never be mistaken for a successful audio configuration. */
+#define FPGA_STATUS_AUDIO_MODE    (1u << 15)
+/* Diagnostic bit 14: this FPGA image accepts the 3-byte AUDIO_LEVEL_SHORT
+ * (0x19) hot path.  Old images can still stream through 0x16. */
+#define FPGA_STATUS_AUDIO_SHORT   (1u << 14)
 
 /* Microphone calibration commands.  MIC_CONFIG carries six extension bytes:
  *   [0] gate_count (1..64), [1..2] gate0 start, [3..4] start-to-start step,
@@ -40,7 +47,14 @@ typedef enum {
   FPGA_CMD_RESET = 0x12u,
   FPGA_CMD_WS2812 = 0x13u,
   FPGA_CMD_MIC_CONFIG = 0x14u,
-  FPGA_CMD_MIC_READ = 0x15u
+  FPGA_CMD_MIC_READ = 0x15u,
+  /* Compact 16-byte focused-AM transactions.  AUDIO_MODE enables/disables
+   * the common-envelope rebuild path; AUDIO_LEVEL substitutes one common
+   * level byte while keeping the 84 phases already loaded by a normal FRAME. */
+  FPGA_CMD_AUDIO_LEVEL = 0x16u,
+  FPGA_CMD_AUDIO_MODE = 0x17u,
+  /* Three-byte hot path for the 20 kHz envelope stream. */
+  FPGA_CMD_AUDIO_LEVEL_SHORT = 0x19u
 } fpga_command_t;
 
 typedef struct {
@@ -74,6 +88,7 @@ typedef struct {
   uint32_t transaction_sequence;
   fpga_status_wire_t status;
   uint8_t running;
+  uint8_t audio_short_supported;
   osMutexId_t mutex;
   StaticSemaphore_t mutex_memory;
 } fpga_link_t;
@@ -89,6 +104,17 @@ int fpga_link_safe_stop(fpga_link_t *link);
 int fpga_link_set_ws2812(fpga_link_t *link, uint8_t r, uint8_t g, uint8_t b);
 int fpga_link_mic_config(fpga_link_t *link, uint8_t gate_count, uint16_t start,
                          uint16_t step, uint8_t width);
+/* Focused-AM setup.  The 84 phase bytes are loaded through one ordinary
+ * FRAME, then AUDIO_MODE switches the FPGA event builder to the common-level
+ * substitution path.  Audio data itself uses fpga_link_audio_level(). */
+int fpga_link_audio_begin(fpga_link_t *link, const uint8_t *phases,
+                          const uint8_t *enables, uint32_t sequence);
+int fpga_link_audio_level(fpga_link_t *link, uint8_t level, uint32_t sequence);
+/* Hot-path variant: 3-byte transaction, no mutex/status read.  It must only
+ * be called from the highest-priority render task while focused-AM mode is
+ * active and no other task can be in fpga_link SPI code. */
+int fpga_link_audio_level_fast(fpga_link_t *link, uint8_t level);
+int fpga_link_audio_mode(fpga_link_t *link, uint8_t enable, uint32_t sequence);
 int fpga_link_mic_read(fpga_link_t *link, uint8_t gate, fpga_mic_gate_wire_t *result);
 const fpga_status_wire_t *fpga_link_status(const fpga_link_t *link);
 void fpga_link_spi_txrx_complete(fpga_link_t *link);

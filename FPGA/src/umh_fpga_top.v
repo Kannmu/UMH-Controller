@@ -117,6 +117,19 @@ module umh_fpga_top (
 );
     localparam [15:0] HEADER_BYTES  = 16'd36;
     localparam [15:0] CHANNEL_BYTES = 16'd168;
+    /* Compact command transactions.  The master clocks exactly 16 bytes;
+     * bytes 0..1 are command/version, byte 2 is the payload, bytes 6..9 may
+     * carry the frame sequence, and the usual 16-byte status word is read
+     * back in the same transaction. */
+    localparam [15:0] COMPACT_BYTES   = 16'd16;
+    localparam [15:0] SHORT_BYTES     = 16'd3;
+    localparam [7:0]  AUDIO_CMD_LEVEL = 8'h16;
+    localparam [7:0]  AUDIO_CMD_MODE  = 8'h17;
+    /* Three-byte AUDIO_LEVEL: [0x19, version, level].  Running one compact
+     * SPI transaction per audio sample used 6 us of wire time; the short
+     * form cuts this to ~1.2 us and removes the need to read a 16-byte
+     * status word on every audio sample. */
+    localparam [7:0]  AUDIO_CMD_LEVEL_SHORT = 8'h19;
     /* 40 kHz carrier with 256 phase slots at 64 MHz (10.24 MHz slot rate). */
     localparam [31:0] CARRIER_STEP  = 32'd2684355;
 
@@ -168,6 +181,10 @@ module umh_fpga_top (
     reg  [6:0]  spi_channel_index;
     reg  [1:0]  spi_channel_field;
     reg  [3:0]  spi_rgb_index;
+    reg  [7:0]  spi_compact_data;
+    reg  [7:0]  audio_level_spi;
+    reg         audio_mode_spi;
+    reg         audio_level_toggle_spi, audio_mode_toggle_spi;
     reg  [87:0] spi_bitmap;
     reg         frame_toggle_spi, stop_toggle_spi, invalid_frame_spi, ws2812_toggle_spi;
     reg  [95:0] rgb_values;
@@ -190,6 +207,9 @@ module umh_fpga_top (
                                        (spi_bit_count == 3'd7) &&
                                        (spi_byte_count >= spi_rgb_start) &&
                                        (spi_byte_count < spi_rgb_start + 16'd12);
+    wire        spi_compact_cmd = (spi_command == AUDIO_CMD_LEVEL) ||
+                                  (spi_command == AUDIO_CMD_MODE) ||
+                                  (spi_command == AUDIO_CMD_LEVEL_SHORT);
 
     reg         ws2812_enable;
 
@@ -340,6 +360,7 @@ module umh_fpga_top (
      * high when the new bank takes over.
      * ------------------------------------------------------------------ */
     localparam [3:0] EV_IDLE = 4'd0, EV_CLEAR = 4'd1, EV_ADDR = 4'd2, EV_WAIT = 4'd3,
+                     EV_LEVEL = 4'd13,
                      EV_LATCH = 4'd10, EV_ZERO = 4'd11,
                      EV_RD0  = 4'd4, EV_CAP0  = 4'd5, EV_WR0  = 4'd6,
                      EV_RD1  = 4'd7, EV_CAP1  = 4'd8, EV_WR1  = 4'd9;
@@ -426,6 +447,33 @@ module umh_fpga_top (
     reg  [3:0]  ws2812_settle;
     reg  [95:0] rgb_hold;
     reg  [15:0] rgb_update_flags_hold;
+
+    /* Focused-AM common envelope state.  The full 84-channel phase image is
+     * loaded once through the normal FRAME command; these registers only
+     * substitute a common level byte during each event-table rebuild, so the
+     * 84 ultrasonic phases stay fixed while the audio envelope is streamed. */
+    reg         audio_mode;
+    reg  [7:0]  pending_audio_level;
+    reg  [7:0]  build_level;
+    reg  [7:0]  build_level_eff;
+    reg         build_zero_r;
+    reg         build_audio;
+    reg         frame_req_audio;
+    reg         audio_level_toggle_meta, audio_level_toggle_sync, audio_level_toggle_seen;
+    reg         audio_mode_toggle_meta, audio_mode_toggle_sync, audio_mode_toggle_seen;
+    reg  [7:0]  audio_level_meta, audio_level_sync;
+    reg         audio_mode_meta, audio_mode_sync;
+    reg         audio_cmd_is_mode;
+    reg  [7:0]  audio_cmd_level;
+    reg         audio_cmd_mode;
+    reg  [3:0]  audio_settle;
+    /* In focused-AM mode the stored level byte is an enable marker: any
+     * non-zero value keeps the channel active at the common envelope level,
+     * while zero mutes the channel exactly as spatial rendering would.
+     * This preserves the EEPROM channel-enable mask without a multiplier. */
+    wire [7:0]  event_level = build_audio ?
+                              ((staging_q[7:0] != 8'd0) ? build_level : 8'd0) :
+                              staging_q[7:0];
     wire stop_event = (stop_toggle_sync != stop_toggle_seen);
     wire link_timeout = (link_idle_us >= LINK_TIMEOUT_US);
 
@@ -445,7 +493,9 @@ module umh_fpga_top (
     /* Upper status bits are diagnostic only.  The STM32 masks them out when
      * deciding whether the FPGA reports a fault. */
     wire [15:0] status_flags_wire = (invalid_frame_sync ? 16'h0004 : 16'h0000) |
-                                    (running ? 16'h0010 : 16'h0000);
+                                    (running ? 16'h0010 : 16'h0000) |
+                                    (audio_mode ? 16'h8000 : 16'h0000) |
+                                    16'h4000; /* AUDIO_SHORT (0x19) support */
     wire [127:0] status_word = {
         8'h01, 8'h00,
         fifo_credit_wire[7:0],  fifo_credit_wire[15:8],
@@ -482,9 +532,14 @@ module umh_fpga_top (
      * that edge spi_expected_length still contains its reset value (36), so
      * comparing against it would commit FRAME/WS2812 commands before their
      * payload had arrived. */
-    wire        frame_end = last_header_byte ? (expected_next == HEADER_BYTES)
-                                             : ((spi_expected_length > HEADER_BYTES) &&
-                                                (spi_byte_count + 16'd1 == spi_expected_length));
+    wire        header_end = last_header_byte && (expected_next == HEADER_BYTES);
+    wire        payload_end = (spi_expected_length > HEADER_BYTES) &&
+                              (spi_byte_count + 16'd1 == spi_expected_length);
+    wire        compact_end = spi_compact_cmd &&
+                              (spi_byte_count + 16'd1 == spi_expected_length) &&
+                              ((spi_expected_length == COMPACT_BYTES) ||
+                               (spi_expected_length == SHORT_BYTES));
+    wire        frame_end = spi_compact_cmd ? compact_end : (header_end || payload_end);
     wire        bitmap_ok = (spi_bitmap == {4'h0, 84'hFFFFFFFFFFFFFFFFFFFFF});
     /* The STM32 always sends the complete 84-channel payload.  Do not make
      * acceptance depend on a reconstructed multi-byte bitmap in the SPI clock
@@ -506,7 +561,20 @@ module umh_fpga_top (
                 spi_rx_shift  <= spi_rx_byte;
                 case (spi_byte_count)
                     16'd0:  spi_command  <= spi_rx_byte;
-                    16'd1:  spi_version  <= spi_rx_byte;
+                    16'd1: begin
+                        spi_version <= spi_rx_byte;
+                        if (spi_command == AUDIO_CMD_LEVEL_SHORT)
+                            spi_expected_length <= SHORT_BYTES;
+                        else if (spi_command == AUDIO_CMD_LEVEL ||
+                                 spi_command == AUDIO_CMD_MODE)
+                            spi_expected_length <= COMPACT_BYTES;
+                    end
+                    16'd2: begin
+                        if (spi_command == AUDIO_CMD_LEVEL ||
+                            spi_command == AUDIO_CMD_MODE ||
+                            spi_command == AUDIO_CMD_LEVEL_SHORT)
+                            spi_compact_data <= spi_rx_byte;
+                    end
                     16'd6:  spi_frame_sequence[7:0]   <= spi_rx_byte;
                     16'd7:  spi_frame_sequence[15:8]  <= spi_rx_byte;
                     16'd8:  spi_frame_sequence[23:16] <= spi_rx_byte;
@@ -588,7 +656,23 @@ module umh_fpga_top (
                 if (frame_end) begin
                     /* Keep the parser's last complete transaction visible in
                      * the status word, including STATUS and STOP commands. */
-                    if (spi_command == 8'h10 && spi_version == 8'h01 &&
+                    if ((spi_command == AUDIO_CMD_LEVEL ||
+                         spi_command == AUDIO_CMD_LEVEL_SHORT) &&
+                        spi_version == 8'h01 &&
+                        (spi_expected_length == COMPACT_BYTES ||
+                         spi_expected_length == SHORT_BYTES)) begin
+                        audio_level_spi <= (spi_command == AUDIO_CMD_LEVEL_SHORT)
+                                           ? spi_rx_byte : spi_compact_data;
+                        audio_level_toggle_spi <= ~audio_level_toggle_spi;
+                        accepted_sequence_spi <= spi_frame_sequence;
+                        invalid_frame_spi <= 1'b0;
+                    end else if (spi_command == AUDIO_CMD_MODE && spi_version == 8'h01 &&
+                                 spi_expected_length == COMPACT_BYTES) begin
+                        audio_mode_spi <= spi_compact_data[0];
+                        audio_mode_toggle_spi <= ~audio_mode_toggle_spi;
+                        accepted_sequence_spi <= spi_frame_sequence;
+                        invalid_frame_spi <= 1'b0;
+                    end else if (spi_command == 8'h10 && spi_version == 8'h01 &&
                         spi_extension_length <= 16'd32) begin
                         frame_toggle_spi <= ~frame_toggle_spi;
                         accepted_sequence_spi <= spi_frame_sequence;
@@ -705,6 +789,14 @@ module umh_fpga_top (
         update_flags_sync      <= update_flags_meta;
         invalid_frame_meta     <= invalid_frame_spi;
         invalid_frame_sync     <= invalid_frame_meta;
+        audio_level_toggle_meta <= audio_level_toggle_spi;
+        audio_level_toggle_sync <= audio_level_toggle_meta;
+        audio_mode_toggle_meta  <= audio_mode_toggle_spi;
+        audio_mode_toggle_sync  <= audio_mode_toggle_meta;
+        audio_level_meta        <= audio_level_spi;
+        audio_level_sync        <= audio_level_meta;
+        audio_mode_meta         <= audio_mode_spi;
+        audio_mode_sync         <= audio_mode_meta;
 
         if (frame_toggle_sync != frame_toggle_seen) begin
             frame_toggle_seen <= frame_toggle_sync;
@@ -716,6 +808,11 @@ module umh_fpga_top (
             if (frame_settle == 4'd1) begin
                 frame_settle <= 4'd0;
                 frame_req <= 1'b1;
+                /* A normal FRAME cancels a stale compact request outside
+                 * focused-AM mode.  Inside audio mode the pending level may
+                 * be a just-arrived audio sample and must not be lost when
+                 * the aperture frame is loaded. */
+                if (audio_mode == 1'b0) frame_req_audio <= 1'b0;
                 rgb_hold  <= rgb_values;
                 rgb_update_flags_hold <= update_flags_sync;
                 /* RGB is a persistent independent output.  Ultrasound-only
@@ -723,6 +820,37 @@ module umh_fpga_top (
                 if (update_flags_sync[1] != 1'b0) begin
                     ws2812_enable <= 1'b1;
                 end
+            end
+        end
+
+        /* Compact focused-AM command hand-off.  Either a level update or a
+         * mode change asks the event builder to rebuild the inactive bank,
+         * so the active bank keeps driving us_tx without a gap. */
+        if (audio_level_toggle_sync != audio_level_toggle_seen) begin
+            audio_level_toggle_seen <= audio_level_toggle_sync;
+            audio_cmd_level <= audio_level_sync;
+            audio_cmd_is_mode <= 1'b0;
+            audio_settle <= 4'd8;
+        end
+        if (audio_mode_toggle_sync != audio_mode_toggle_seen) begin
+            audio_mode_toggle_seen <= audio_mode_toggle_sync;
+            audio_cmd_mode <= audio_mode_sync;
+            audio_cmd_is_mode <= 1'b1;
+            audio_settle <= 4'd8;
+        end
+        if (audio_settle != 4'd0) begin
+            if (audio_settle == 4'd1) begin
+                audio_settle <= 4'd0;
+                if (audio_cmd_is_mode != 1'b0) begin
+                    audio_mode <= audio_cmd_mode;
+                    pending_audio_level <= 8'd0;
+                end else begin
+                    pending_audio_level <= audio_cmd_level;
+                end
+                frame_req <= 1'b1;
+                frame_req_audio <= 1'b1;
+            end else begin
+                audio_settle <= audio_settle - 4'd1;
             end
         end
 
@@ -761,7 +889,11 @@ module umh_fpga_top (
              * across Demo preparation and ultrasound stops. */
             running       <= 1'b0;
             frame_req     <= 1'b0;
+            frame_req_audio <= 1'b0;
             frame_settle  <= 4'd0;
+            audio_settle  <= 4'd0;
+            audio_mode    <= 1'b0;
+            pending_audio_level <= 8'd0;
             swap_pending  <= 1'b0;
             ev_state      <= EV_IDLE;
         end else if (link_timeout) begin
@@ -769,7 +901,11 @@ module umh_fpga_top (
              * explicit STOP must still be recognised when the MCU reboots. */
             running       <= 1'b0;
             frame_req     <= 1'b0;
+            frame_req_audio <= 1'b0;
             frame_settle  <= 4'd0;
+            audio_settle  <= 4'd0;
+            audio_mode    <= 1'b0;
+            pending_audio_level <= 8'd0;
             swap_pending  <= 1'b0;
             ev_state      <= EV_IDLE;
         end
@@ -778,6 +914,16 @@ module umh_fpga_top (
             EV_IDLE: begin
                 if (frame_req && !swap_pending) begin
                     frame_req        <= 1'b0;
+                    /* Audio mode owns the event builder even when the
+                     * request came from a normal FRAME (the aperture load).
+                     * In that case the current common level is used and the
+                     * staging level byte only acts as an enable marker. */
+                    build_audio      <= frame_req_audio | audio_mode;
+                    /* pending_audio_level is also the persistent common level:
+                     * mode entry writes 0, level commands update it, and an
+                     * aperture FRAME in audio mode reuses the latest value. */
+                    build_level      <= pending_audio_level;
+                    frame_req_audio  <= 1'b0;
                     ev_state         <= EV_CLEAR;
                     ev_clear_addr    <= 8'd0;
                     ev_ch            <= 7'd0;
@@ -799,13 +945,23 @@ module umh_fpga_top (
                 ev_state        <= EV_WAIT;
             end
             EV_WAIT: begin
-                ev_state <= EV_LATCH;
+                ev_state <= EV_LEVEL;
+            end
+            EV_LEVEL: begin
+                /* Register the enable/common-level decision in its own
+                 * pipeline stage.  Keeping the staging-RAM comparator and the
+                 * phase/level adder in one cloud was the worst setup path at
+                 * 64 MHz; this split costs one cycle per channel and restores
+                 * timing margin while preserving the event-table format. */
+                build_level_eff <= event_level;
+                build_zero_r    <= (event_level == 8'd0);
+                ev_state        <= EV_LATCH;
             end
             EV_LATCH: begin
                 build_phase <= staging_q[15:8];
-                build_sum   <= {1'b0, staging_q[15:8]} + {1'b0, staging_q[7:0]};
-                build_zero  <= (staging_q[7:0] == 8'd0);
-                ev_state    <= (staging_q[7:0] == 8'd0) ? EV_ZERO : EV_RD0;
+                build_sum   <= {1'b0, staging_q[15:8]} + {1'b0, build_level_eff};
+                build_zero  <= build_zero_r;
+                ev_state    <= build_zero_r ? EV_ZERO : EV_RD0;
             end
             EV_ZERO: begin
                 if (ev_ch == 7'd83) begin
@@ -1135,6 +1291,8 @@ module umh_fpga_top (
         spi_expected_length = HEADER_BYTES; spi_channel_index = 7'd0;
         spi_channel_field = 2'd0; spi_phase_pending = 8'd0; spi_bitmap = 88'd0;
         spi_rgb_index = 4'd0;
+        spi_compact_data = 8'd0; audio_level_spi = 8'd0; audio_mode_spi = 1'b0;
+        audio_level_toggle_spi = 1'b0; audio_mode_toggle_spi = 1'b0;
         frame_toggle_spi = 1'b0; stop_toggle_spi = 1'b0; invalid_frame_spi = 1'b0;
         ws2812_toggle_spi = 1'b0;
         rgb_values = 96'd0; status_bit_index = 9'd0;
@@ -1146,6 +1304,16 @@ module umh_fpga_top (
         pending_sequence = 32'd0; accepted_sequence = 32'd0; frame_settle = 4'd0;
         rgb_hold = 96'd0; status_hold = 128'd0;
         ws2812_settle = 4'd0;
+        audio_mode = 1'b0; pending_audio_level = 8'd0;
+        build_level = 8'd0; build_level_eff = 8'd0; build_zero_r = 1'b0;
+        build_audio = 1'b0; frame_req_audio = 1'b0;
+        audio_level_toggle_meta = 1'b0; audio_level_toggle_sync = 1'b0;
+        audio_level_toggle_seen = 1'b0; audio_mode_toggle_meta = 1'b0;
+        audio_mode_toggle_sync = 1'b0; audio_mode_toggle_seen = 1'b0;
+        audio_level_meta = 8'd0; audio_level_sync = 8'd0;
+        audio_mode_meta = 1'b0; audio_mode_sync = 1'b0;
+        audio_cmd_is_mode = 1'b0; audio_cmd_level = 8'd0; audio_cmd_mode = 1'b0;
+        audio_settle = 4'd0;
         cs_meta = 1'b1; cs_sync = 1'b1; cs_sync_d = 1'b1;
         phase_frac = 24'd0; phase_step_s1 = 1'b0; global_phase_s2 = 8'd0;
         phase_step_s2 = 1'b0; wrap_s2 = 1'b0; run_addr_s3 = 9'd0;
