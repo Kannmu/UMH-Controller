@@ -1,6 +1,8 @@
 # UMH V7
 
 - 四颗 WS2812 并联在同一根 DI 线上，FPGA 发送一组 24 位 GRB 数据，四颗灯始终显示相同颜色和亮度。
+- `motion_engine` 是实时焦点运动生产者：只允许在 render task 中 service，路径点/配置在协议任务中用互斥锁写入；它必须继续使用 `spatial_renderer` 和 `fpga_link_submit`，不要另写一套相位、载波或 SPI 逻辑。运动输出与块播放、Demo、校准和聚焦 AM 互斥；`MOTION_START` 可以清理普通计划后接管，其他生产者看到 `motion_engine_owns_output` 必须返回 BUSY。
+- `frame_ring` 的 LOOP_RAM 快照就地复用同一个 slots 池（`loop_start_index` + `loop_iteration_last`），不要再恢复第二份 `loop_slots` 拷贝；生产者由 plan.running 和 BLOCK_BEGIN 检查锁在外面。
 - _RGB_DATA 就是 RGB_DATA，在两块板之间通过排针连接到了一起。
 - 只维护可运行的开发调试工程，不创建额外指南文件。
 - 不要使用Computer Use，全部通过CLI命令行工具来进行。

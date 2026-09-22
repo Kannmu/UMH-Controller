@@ -260,15 +260,27 @@ void audio_engine_init(umh_audio_engine_t *engine)
 int audio_engine_configure(umh_audio_engine_t *engine,
                            umh_spatial_renderer_t *renderer,
                            fpga_link_t *link,
-                           const umh_audio_config_wire_t *config)
+                           const uint8_t *payload,
+                           uint16_t length)
 {
+  const umh_audio_config_wire_t *config;
   umh_spatial_point_t point;
   umh_output_frame_t frame;
   uint16_t i;
   uint32_t rate;
   uint32_t prebuffer;
+  uint8_t extra_count = 0u;
 
-  if (engine == NULL || renderer == NULL || link == NULL || config == NULL) return -1;
+  if (engine == NULL || renderer == NULL || link == NULL || payload == NULL) return -1;
+  if (length < sizeof(umh_audio_config_wire_t)) return -2;
+  config = (const umh_audio_config_wire_t *)payload;
+  if (length > sizeof(umh_audio_config_wire_t)) {
+    if (length < sizeof(umh_audio_config_wire_t) + 1u) return -2;
+    extra_count = payload[sizeof(umh_audio_config_wire_t)];
+    if (extra_count > UMH_AUDIO_MAX_EXTRA_POINTS) return -2;
+    if ((uint32_t)length != (uint32_t)sizeof(umh_audio_config_wire_t) + 1u +
+        (uint32_t)extra_count * (uint32_t)sizeof(umh_audio_point_wire_t)) return -2;
+  }
   rate = config->envelope_rate_hz;
   prebuffer = config->prebuffer_samples;
   if (rate < UMH_AUDIO_MIN_RATE_HZ || rate > UMH_AUDIO_MAX_RATE_HZ) return -2;
@@ -279,6 +291,14 @@ int audio_engine_configure(umh_audio_engine_t *engine,
     return -5;
   }
 
+  /* Render the fixed aperture once.  The base point keeps the historical
+   * single-focus behaviour (source level 255, envelope scale in config.level);
+   * optional cluster points carry their own spatial weight.  All points are
+   * complex-summed by the production renderer so calibration and geometry are
+   * applied exactly once. */
+  memset(&frame, 0, sizeof(frame));
+  memset(engine->spatial_real, 0, sizeof(engine->spatial_real));
+  memset(engine->spatial_imag, 0, sizeof(engine->spatial_imag));
   memset(&point, 0, sizeof(point));
   point.x_um = config->x_um;
   point.y_um = config->y_um;
@@ -286,8 +306,30 @@ int audio_engine_configure(umh_audio_engine_t *engine,
   point.level = 255u;
   point.phase = config->phase;
   point.source_id = 0u;
-  memset(&frame, 0, sizeof(frame));
-  if (spatial_renderer_point(renderer, &point, &frame) != 0) {
+  if (spatial_renderer_accumulate_point(renderer, &point, engine->spatial_real,
+                                        engine->spatial_imag) != 0) {
+    audio_unlock(engine);
+    return -6;
+  }
+  for (i = 0u; i < (uint16_t)extra_count; ++i) {
+    const umh_audio_point_wire_t *extra =
+        (const umh_audio_point_wire_t *)(payload + sizeof(umh_audio_config_wire_t) + 1u +
+                                         (uint32_t)i * sizeof(umh_audio_point_wire_t));
+    memset(&point, 0, sizeof(point));
+    point.x_um = extra->x_um;
+    point.y_um = extra->y_um;
+    point.z_um = extra->z_um;
+    point.level = extra->level;
+    point.phase = extra->phase;
+    point.source_id = (uint8_t)(i + 1u);
+    if (spatial_renderer_accumulate_point(renderer, &point, engine->spatial_real,
+                                          engine->spatial_imag) != 0) {
+      audio_unlock(engine);
+      return -6;
+    }
+  }
+  if (spatial_renderer_finalize(renderer, engine->spatial_real,
+                                engine->spatial_imag, &frame) != 0) {
     audio_unlock(engine);
     return -6;
   }

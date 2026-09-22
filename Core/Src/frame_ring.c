@@ -71,9 +71,15 @@ uint16_t frame_ring_free(const umh_frame_ring_t *ring)
   return ring != NULL ? (uint16_t)(UMH_DEVICE_FRAME_RING_SLOTS - ring->count) : 0u;
 }
 
+/* Freeze the current circular contents as an in-place loop.  The queue can
+ * start at any slot: restore_loop walks the same circular order and only
+ * shifts deadlines/sequences.  Callers invoke this before playback starts,
+ * so the producer is idle and the frame pool cannot be overwritten. */
 int frame_ring_snapshot(umh_frame_ring_t *ring, uint64_t duration)
 {
-  uint16_t i;
+  uint16_t last_index;
+  uint64_t first_deadline;
+  uint64_t last_deadline;
   if (ring == NULL || ring->count == 0u) return -1;
   taskENTER_CRITICAL();
   if (ring->count > UMH_DEVICE_FRAME_RING_SLOTS) {
@@ -81,17 +87,16 @@ int frame_ring_snapshot(umh_frame_ring_t *ring, uint64_t duration)
     return -1;
   }
   ring->loop_count = ring->count;
-  ring->loop_origin_deadline = ring->slots[ring->read_index].deadline;
-  for (i = 0u; i < ring->loop_count; ++i) {
-    uint16_t index = (uint16_t)((ring->read_index + i) % UMH_DEVICE_FRAME_RING_SLOTS);
-    ring->loop_slots[i] = ring->slots[index];
-  }
+  ring->loop_start_index = ring->read_index;
+  first_deadline = ring->slots[ring->read_index].deadline;
+  last_index = (uint16_t)((ring->read_index + ring->count - 1u) % UMH_DEVICE_FRAME_RING_SLOTS);
+  last_deadline = ring->slots[last_index].deadline;
+  ring->loop_origin_deadline = first_deadline;
   if (duration == 0u) {
-    uint16_t last = (uint16_t)(ring->loop_count - 1u);
-    duration = ring->loop_slots[last].deadline - ring->loop_origin_deadline;
-    if (duration == 0u) duration = 1u;
+    duration = last_deadline > first_deadline ? last_deadline - first_deadline : 1u;
   }
   ring->loop_duration = duration;
+  ring->loop_iteration_last = 0u;
   ring->loop_valid = 1u;
   taskEXIT_CRITICAL();
   return 0;
@@ -100,25 +105,27 @@ int frame_ring_snapshot(umh_frame_ring_t *ring, uint64_t duration)
 int frame_ring_restore_loop(umh_frame_ring_t *ring, uint32_t iteration)
 {
   uint16_t i;
+  uint32_t step;
   uint64_t shift;
   if (ring == NULL || ring->loop_valid == 0u || ring->loop_count == 0u) return -1;
-  if (ring->count != 0u) return -2;
-  if (ring->loop_duration != 0u && iteration > UINT64_MAX / ring->loop_duration) return -3;
-  shift = (uint64_t)iteration * ring->loop_duration;
+  if (iteration <= ring->loop_iteration_last) return -2;
+  step = iteration - ring->loop_iteration_last;
+  if (ring->loop_duration != 0u && step > UINT64_MAX / ring->loop_duration) return -3;
+  shift = (uint64_t)step * ring->loop_duration;
   taskENTER_CRITICAL();
   for (i = 0u; i < ring->loop_count; ++i) {
-    if (ring->loop_slots[i].deadline > UINT64_MAX - shift) {
+    uint16_t index = (uint16_t)((ring->loop_start_index + i) % UMH_DEVICE_FRAME_RING_SLOTS);
+    if (ring->slots[index].deadline > UINT64_MAX - shift) {
       taskEXIT_CRITICAL();
       return -4;
     }
-    ring->slots[i] = ring->loop_slots[i];
-    ring->slots[i].deadline = ring->loop_slots[i].deadline + shift;
-    ring->slots[i].sequence = ring->loop_slots[i].sequence +
-                              (uint32_t)(iteration * (uint32_t)ring->loop_count);
+    ring->slots[index].deadline += shift;
+    ring->slots[index].sequence += (uint32_t)(step * (uint32_t)ring->loop_count);
   }
-  ring->read_index = 0u;
-  ring->write_index = (uint16_t)(ring->loop_count % UMH_DEVICE_FRAME_RING_SLOTS);
+  ring->read_index = ring->loop_start_index;
+  ring->write_index = (uint16_t)((ring->loop_start_index + ring->loop_count) % UMH_DEVICE_FRAME_RING_SLOTS);
   ring->count = ring->loop_count;
+  ring->loop_iteration_last = iteration;
   taskEXIT_CRITICAL();
   return 0;
 }

@@ -41,6 +41,78 @@ void fpga_link_init(fpga_link_t *link, SPI_HandleTypeDef *spi)
   cs_high();
 }
 
+/* Try the DMA fast path first; if it ever times out, fall back permanently to
+ * the register loop below and report the switch.  Both paths produce exactly
+ * the same wire transaction (CS low for the whole frame, full duplex). */
+static uint8_t exchange_use_polling;
+
+static int exchange_dma(fpga_link_t *link, uint16_t length)
+{
+  SPI_TypeDef *spi = link->spi->Instance;
+  DMA_Channel_TypeDef *tx = DMA1_Channel1;
+  DMA_Channel_TypeDef *rx = DMA1_Channel2;
+  uint32_t start_cycles;
+  uint32_t timeout_cycles;
+  uint32_t isr;
+  if (spi == NULL || tx == NULL || rx == NULL) return -1;
+  /* The HAL initialised both DMA channels for SPI1 TX/RX byte streams.  The
+   * old code polled TXE/RXNE per byte and inserted a ~50-cycle turn-around
+   * gap between bytes, which made a 220-byte frame take ~150 us instead of
+   * the 83 us allowed by the 21.25 MHz wire rate.  Channel-config registers
+   * (DMAMUX request, direction, increments, size) are already programmed. */
+  spi->CR1 |= SPI_CR1_SPE;
+  spi->CR2 |= SPI_CR2_TXDMAEN | SPI_CR2_RXDMAEN;
+  (void)spi->SR;
+  (void)*(__IO uint8_t *)&spi->DR;
+
+  tx->CCR &= ~DMA_CCR_EN;
+  rx->CCR &= ~DMA_CCR_EN;
+  DMA1->IFCR = DMA_IFCR_CGIF1 | DMA_IFCR_CGIF2;
+  tx->CPAR = (uint32_t)&spi->DR;
+  tx->CMAR = (uint32_t)link->tx;
+  tx->CNDTR = length;
+  rx->CPAR = (uint32_t)&spi->DR;
+  rx->CMAR = (uint32_t)link->rx;
+  rx->CNDTR = length;
+
+  cs_low();
+  tx->CCR |= DMA_CCR_EN;
+  rx->CCR |= DMA_CCR_EN;
+
+  start_cycles = DWT->CYCCNT;
+  timeout_cycles = SystemCoreClock / 25u; /* 40 ms, same order as the old path */
+  if (timeout_cycles == 0u) timeout_cycles = 8000000u;
+  for (;;) {
+    isr = DMA1->ISR;
+    if ((isr & (DMA_ISR_TEIF1 | DMA_ISR_TEIF2)) != 0u) {
+      break;
+    }
+    if ((isr & (DMA_ISR_TCIF1 | DMA_ISR_TCIF2)) == (DMA_ISR_TCIF1 | DMA_ISR_TCIF2)) {
+      break;
+    }
+    if ((DWT->CYCCNT - start_cycles) > timeout_cycles) {
+      isr = 0u;
+      break;
+    }
+  }
+  tx->CCR &= ~DMA_CCR_EN;
+  rx->CCR &= ~DMA_CCR_EN;
+  DMA1->IFCR = DMA_IFCR_CGIF1 | DMA_IFCR_CGIF2;
+  {
+    uint32_t guard_cycles = SystemCoreClock / 1000u; /* 1 ms */
+    uint32_t guard_start = DWT->CYCCNT;
+    while ((spi->SR & SPI_SR_BSY) != 0u) {
+      if ((DWT->CYCCNT - guard_start) > guard_cycles) return -3;
+    }
+  }
+  cs_high();
+  if ((isr & (DMA_ISR_TCIF1 | DMA_ISR_TCIF2)) != (DMA_ISR_TCIF1 | DMA_ISR_TCIF2)) {
+    mark_link_fault(link);
+    return -3;
+  }
+  return 0;
+}
+
 static int exchange(fpga_link_t *link, uint16_t length)
 {
   static uint32_t last_report;
@@ -52,6 +124,12 @@ static int exchange(fpga_link_t *link, uint16_t length)
   spi = link->spi->Instance;
   if (spi == NULL) return -1;
   link->tx_length = length;
+  if (exchange_use_polling == 0u) {
+    int dma_result = exchange_dma(link, length);
+    if (dma_result == 0) return 0;
+    exchange_use_polling = 1u;
+    system_status_fault(UMH_FAULT_FPGA_SPI_TIMEOUT, 21u, UMH_FAULT_WARNING);
+  }
 
   /* HAL_SPI_Init() leaves SPE cleared; the HAL transfer functions enable it
    * lazily.  This direct path must do the same on its first use. */

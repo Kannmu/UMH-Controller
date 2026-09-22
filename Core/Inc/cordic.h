@@ -40,6 +40,8 @@ extern CORDIC_HandleTypeDef hcordic;
 
 void MX_CORDIC_Init(void);
 int umh_cordic_phase8(float real, float imag, uint8_t *phase);
+int umh_cordic_phase8_batch(const float *real, const float *imag,
+                             uint8_t *phase_codes, uint32_t count);
 
 /* Batch hardware trigonometry / square-root helpers used by the ultrasound
  * calibration solvers.  All of them return 0 on success and a negative value
@@ -64,4 +66,5 @@ int umh_cordic_sqrt(float value, float *root);
 #endif
 
 #endif /* __CORDIC_H__ */
+
 

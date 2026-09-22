@@ -1,5 +1,6 @@
 #include "spatial_renderer.h"
 #include "cordic.h"
+#include "umh_fast_math.h"
 #include <math.h>
 #include <string.h>
 #include <float.h>
@@ -18,6 +19,8 @@ void spatial_renderer_init(umh_spatial_renderer_t *renderer,
   for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
     renderer->calibration[i].gain = 255u;
     renderer->calibration[i].enabled = 1u;
+    renderer->gain_scale[i] = 1.0f;
+    renderer->phase_offset_q10[i] = 0;
   }
   for (i = 0u; i < UMH_DEVICE_RGB_COUNT; ++i) {
     renderer->rgb_gain[i][0] = 255u;
@@ -33,6 +36,20 @@ void spatial_renderer_set_calibration(umh_spatial_renderer_t *renderer,
   if (renderer == NULL || calibration == NULL) return;
   if (count > UMH_DEVICE_CHANNEL_COUNT) count = UMH_DEVICE_CHANNEL_COUNT;
   memcpy(renderer->calibration, calibration, count * sizeof(calibration[0]));
+  spatial_renderer_refresh_calibration(renderer, count);
+}
+
+void spatial_renderer_refresh_calibration(umh_spatial_renderer_t *renderer,
+                                          uint16_t count)
+{
+  uint16_t i;
+  if (renderer == NULL) return;
+  if (count > UMH_DEVICE_CHANNEL_COUNT) count = UMH_DEVICE_CHANNEL_COUNT;
+  for (i = 0u; i < count; ++i) {
+    renderer->gain_scale[i] = (float)renderer->calibration[i].gain * (1.0f / 255.0f);
+    /* source/calibration phases are 1/256 carrier turn, the LUT is 1/1024 */
+    renderer->phase_offset_q10[i] = (int32_t)renderer->calibration[i].phase * 4;
+  }
 }
 
 int spatial_renderer_point(umh_spatial_renderer_t *renderer,
@@ -53,25 +70,39 @@ int spatial_renderer_accumulate_point(const umh_spatial_renderer_t *renderer,
                                       float *real_accum, float *imag_accum)
 {
   uint16_t i;
-  const float two_pi = 6.28318530717958647692f;
   float wavelength;
-  float phase_scale;
+  float phase_scale_q10;
   float source_level;
   if (renderer == NULL || renderer->profile == NULL || point == NULL ||
       real_accum == NULL || imag_accum == NULL || renderer->carrier_hz == 0u) return -1;
   if ((renderer->profile->capability_flags & UMH_PROFILE_CAP_GEOMETRY_VALID) == 0u) return -2;
+  if (point->level == 0u) return 0;
   wavelength = (float)renderer->sound_speed_um_per_s / (float)renderer->carrier_hz;
-  phase_scale = (float)renderer->phase_resolution / wavelength;
+  /* One carrier turn spans 1024 table entries, and source/calibration phase
+   * bytes are 1/256 turn, so byte phases scale by four. */
+  phase_scale_q10 = 1024.0f / wavelength;
   source_level = (float)point->level / 255.0f;
-  for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
-    float dx = (float)point->x_um - (float)renderer->profile->coordinates[i].x_um;
-    float dy = (float)point->y_um - (float)renderer->profile->coordinates[i].y_um;
-    float dz = (float)point->z_um - (float)renderer->profile->coordinates[i].z_um;
-    float distance = sqrtf(dx * dx + dy * dy + dz * dz);
-    float phase = ((float)point->phase - distance * phase_scale + (float)renderer->calibration[i].phase) * two_pi / (float)renderer->phase_resolution;
-    float amplitude = source_level * ((float)renderer->calibration[i].gain / 255.0f);
-    real_accum[i] += amplitude * cosf(phase);
-    imag_accum[i] += amplitude * sinf(phase);
+  {
+    float source_phase_q10 = (float)point->phase * 4.0f;
+    for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
+      float dx;
+      float dy;
+      float dz;
+      float distance;
+      float amplitude;
+      int32_t phase_q10;
+      if (renderer->calibration[i].enabled == 0u) continue;
+      dx = (float)point->x_um - (float)renderer->profile->coordinates[i].x_um;
+      dy = (float)point->y_um - (float)renderer->profile->coordinates[i].y_um;
+      dz = (float)point->z_um - (float)renderer->profile->coordinates[i].z_um;
+      distance = sqrtf(dx * dx + dy * dy + dz * dz);
+      phase_q10 = (int32_t)(source_phase_q10 +
+                            (float)renderer->phase_offset_q10[i] -
+                            distance * phase_scale_q10);
+      amplitude = source_level * renderer->gain_scale[i];
+      real_accum[i] += amplitude * umh_fast_cos_q10(phase_q10);
+      imag_accum[i] += amplitude * umh_fast_sin_q10(phase_q10);
+    }
   }
   return 0;
 }
@@ -81,16 +112,25 @@ int spatial_renderer_finalize(const umh_spatial_renderer_t *renderer,
                               umh_output_frame_t *frame)
 {
   uint16_t i;
+  uint8_t phase_codes[UMH_DEVICE_CHANNEL_COUNT];
+  uint8_t have_codes;
   const float two_pi = 6.28318530717958647692f;
   if (renderer == NULL || real_accum == NULL || imag_accum == NULL || frame == NULL) return -1;
+  /* One CORDIC configuration serves all 84 channels instead of one HAL
+   * configure/calculate round trip per channel.  The calibration path already
+   * proves this unit on silicon; if it is unavailable the scalar fallback
+   * below keeps the renderer correct, just slower. */
+  have_codes = umh_cordic_phase8_batch(real_accum, imag_accum, phase_codes,
+                                       UMH_DEVICE_CHANNEL_COUNT) == 0 ? 1u : 0u;
   for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
-    float magnitude = sqrtf(real_accum[i] * real_accum[i] + imag_accum[i] * imag_accum[i]);
-    float angle;
-    int32_t phase;
+    float magnitude = sqrtf(real_accum[i] * real_accum[i] +
+                            imag_accum[i] * imag_accum[i]);
     if (magnitude > 1.0f) magnitude = 1.0f;
-    if (umh_cordic_phase8(real_accum[i], imag_accum[i], &frame->channels[i].phase) != 0) {
-      angle = atan2f(imag_accum[i], real_accum[i]);
-      phase = (int32_t)(angle * (float)renderer->phase_resolution / two_pi);
+    if (have_codes != 0u) {
+      frame->channels[i].phase = phase_codes[i];
+    } else {
+      float angle = atan2f(imag_accum[i], real_accum[i]);
+      int32_t phase = (int32_t)(angle * (float)renderer->phase_resolution / two_pi);
       phase %= (int32_t)renderer->phase_resolution;
       if (phase < 0) phase += (int32_t)renderer->phase_resolution;
       frame->channels[i].phase = (uint8_t)phase;

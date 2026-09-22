@@ -20,8 +20,8 @@
 				<BScanVal>0</BScanVal>
 			</Bypass>
 			<File>D:/Data/OneDrive/Projects/UMH/Software/UMH Controller/FPGA/UMH_7_1/UMH_7_UMH_7_1.jed</File>
-			<FileTime>09/16/26 17:17:15</FileTime>
-			<JedecChecksum>0xF853</JedecChecksum>
+			<FileTime>09/21/26 22:25:31</FileTime>
+			<JedecChecksum>0x1707</JedecChecksum>
 			<Operation>FLASH Erase,Program,Verify</Operation>
 			<Option>
 				<SVFVendor>JTAG STANDARD</SVFVendor>
@@ -50,8 +50,3 @@
 		<USBID>\\?\usb#vid_1134&amp;amp;pid_8001#5&amp;amp;2ffde795&amp;amp;0&amp;amp;7#</USBID>
 	</CableOptions>
 </ispXCF>
-
-
-
-
-

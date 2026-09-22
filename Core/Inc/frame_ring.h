@@ -36,19 +36,23 @@ typedef struct __attribute__((packed)) {
 
 _Static_assert(sizeof(umh_output_frame_t) == 232u, "frame slot wire layout");
 
+/* One fixed frame pool.  LOOP_RAM keeps its snapshot in the same slots: the
+ * producer is locked out while a playback plan owns the ring, so replay can
+ * simply walk the existing circular order instead of duplicating every frame
+ * in a second pool.  This saves >5 KiB of BSS on the 112 KiB G491. */
 typedef struct {
   umh_output_frame_t slots[UMH_DEVICE_FRAME_RING_SLOTS];
-  /* A second fixed pool makes LOOP_RAM independent of the producer after start. */
-  umh_output_frame_t loop_slots[UMH_DEVICE_FRAME_RING_SLOTS];
   volatile uint16_t read_index;
   volatile uint16_t write_index;
   volatile uint16_t count;
   volatile uint32_t dropped;
   uint16_t loop_count;
+  uint16_t loop_start_index;
   uint8_t loop_valid;
   uint8_t reserved;
   uint64_t loop_origin_deadline;
   uint64_t loop_duration;
+  uint32_t loop_iteration_last;
 } umh_frame_ring_t;
 
 void frame_ring_init(umh_frame_ring_t *ring);

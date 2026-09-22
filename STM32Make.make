@@ -96,6 +96,7 @@ Core/Src/i2c_bus.c \
 Core/Src/input_events.c \
 Core/Src/main.c \
 Core/Src/mic_capture.c \
+Core/Src/motion_engine.c \
 Core/Src/oled_ssd1315.c \
 Core/Src/playback_plan.c \
 Core/Src/rgb_output.c \
@@ -109,6 +110,7 @@ Core/Src/syscalls.c \
 Core/Src/sysmem.c \
 Core/Src/system_status.c \
 Core/Src/system_stm32g4xx.c \
+Core/Src/umh_fast_math.c \
 Core/Src/umh_protocol.c \
 Core/Src/us_calibration.c \
 Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal.c \

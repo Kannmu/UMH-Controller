@@ -3,8 +3,7 @@
 #include <string.h>
 
 static umh_system_status_t status;
-static uint32_t time_last_cycles;
-static uint64_t time_cycles;
+static volatile uint32_t time_wrap_count;
 static uint8_t time_ready;
 static uint8_t status_initialized;
 static uint16_t boot_fault_code;
@@ -15,24 +14,51 @@ static uint32_t boot_critical_arg;
 
 void system_time_init(void)
 {
+  uint32_t timer_clock;
+  /* DWT cycle counter stays enabled for the per-frame service-time metrics;
+   * the wall clock however must be multi-task safe.  The previous
+   * DWT-delta accumulator was called from several tasks and could count the
+   * same cycles twice when preempted between reading CYCCNT and committing
+   * the delta, which made every time-based diagnostic (fps, missed
+   * deadlines) drift fast under load.  TIM2 gives an independent 1 MHz
+   * reference that needs one 32-bit read. */
   CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
   DWT->CYCCNT = 0u;
   DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
-  time_last_cycles = DWT->CYCCNT;
-  time_cycles = 0u;
+
+  timer_clock = HAL_RCC_GetPCLK1Freq();
+  if ((RCC->CFGR & RCC_CFGR_PPRE1) != 0u) timer_clock *= 2u;
+  if (timer_clock < 1000000u) timer_clock = 1000000u;
+  __HAL_RCC_TIM2_CLK_ENABLE();
+  TIM2->CR1 = 0u;
+  TIM2->PSC = (uint16_t)(timer_clock / 1000000u - 1u);
+  TIM2->ARR = 0xFFFFFFFFu;
+  TIM2->CNT = 0u;
+  TIM2->EGR = TIM_EGR_UG;
+  TIM2->SR = 0u;
+  TIM2->CR1 = TIM_CR1_CEN;
+  time_wrap_count = 0u;
   time_ready = 1u;
 }
 
 uint64_t system_time_us(void)
 {
-  uint32_t cycles;
-  uint32_t delta;
-  if (time_ready == 0u || SystemCoreClock == 0u) return (uint64_t)HAL_GetTick() * 1000u;
-  cycles = DWT->CYCCNT;
-  delta = cycles - time_last_cycles;
-  time_last_cycles = cycles;
-  time_cycles += delta;
-  return (time_cycles * 1000000ull) / SystemCoreClock;
+  uint32_t primask;
+  uint32_t count;
+  uint32_t wraps;
+  if (time_ready == 0u) return (uint64_t)HAL_GetTick() * 1000u;
+  primask = __get_PRIMASK();
+  __disable_irq();
+  count = TIM2->CNT;
+  wraps = time_wrap_count;
+  if ((TIM2->SR & TIM_SR_UIF) != 0u) {
+    TIM2->SR = ~TIM_SR_UIF;
+    wraps += 1u;
+    time_wrap_count = wraps;
+    count = TIM2->CNT;
+  }
+  __set_PRIMASK(primask);
+  return ((uint64_t)wraps << 32) | (uint64_t)count;
 }
 
 void system_status_init(void)

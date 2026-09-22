@@ -22,7 +22,7 @@ TARGET = UMH_Controller
 # debug build?
 DEBUG = 1
 # optimization
-OPT = -Og
+OPT = -O2
 
 
 #######################################
@@ -41,6 +41,7 @@ Core/Src/gpio.c \
 Core/Src/app_freertos.c \
 Core/Src/umh_protocol.c \
 Core/Src/device_profile.c \
+Core/Src/umh_fast_math.c \
 Core/Src/spatiotemporal_block.c \
 Core/Src/block_parser.c \
 Core/Src/frame_ring.c \
@@ -59,6 +60,7 @@ Core/Src/rgb_output.c \
 Core/Src/input_events.c \
 Core/Src/device_gui.c \
 Core/Src/demo_engine.c \
+Core/Src/motion_engine.c \
 Core/Src/system_status.c \
 Core/Src/cordic.c \
 Core/Src/crc.c \
@@ -208,6 +210,11 @@ ASFLAGS = $(MCU) $(AS_DEFS) $(AS_INCLUDES) $(OPT) -Wall -fdata-sections -ffuncti
 CFLAGS += $(MCU) $(C_DEFS) $(C_INCLUDES) $(OPT) -Wall -fdata-sections -ffunction-sections
 
 ifeq ($(DEBUG), 1)
+# Bare-metal FP: let GCC inline the single-instruction FPU primitives
+# (VSQRT/VDIV) instead of routing every sqrtf through the errno-checking libm
+# wrapper.  The motion renderer calls sqrt 84..672 times per frame and the
+# wrapper was the dominant cost in the first benchmark run.
+CFLAGS += -fno-math-errno -fno-trapping-math
 CFLAGS += -g -gdwarf-2
 endif
 
@@ -276,3 +283,4 @@ clean:
 -include $(wildcard $(BUILD_DIR)/*.d)
 
 # *** EOF ***
+

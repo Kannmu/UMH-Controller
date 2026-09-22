@@ -69,6 +69,25 @@ typedef struct __attribute__((packed)) {
 
 _Static_assert(sizeof(umh_audio_config_wire_t) == 20u, "audio config wire size");
 
+/* Focused-AM cluster extension.  A base config may be followed by
+ * extra_point_count and that many 14-byte points.  All points share the same
+ * 20 kHz common envelope; the STM32 renders their combined phase image once,
+ * so defoaming and beam shaping can cover several foci without any extra
+ * real-time bandwidth.  Devices without FOCUSED_AM_MULTI ignore/reject the
+ * extension and continue to accept the 20-byte base form. */
+#define UMH_AUDIO_MAX_POINTS 8u
+#define UMH_AUDIO_MAX_EXTRA_POINTS (UMH_AUDIO_MAX_POINTS - 1u)
+
+typedef struct __attribute__((packed)) {
+  int32_t x_um;
+  int32_t y_um;
+  int32_t z_um;
+  uint8_t phase;
+  uint8_t level;
+} umh_audio_point_wire_t;
+
+_Static_assert(sizeof(umh_audio_point_wire_t) == 14u, "audio point wire size");
+
 typedef struct __attribute__((packed)) {
   uint8_t state;
   uint8_t flags;
@@ -98,6 +117,8 @@ typedef struct {
 
   uint8_t aperture_phase[UMH_DEVICE_CHANNEL_COUNT];
   uint8_t aperture_enable[UMH_DEVICE_CHANNEL_COUNT];
+  float spatial_real[UMH_DEVICE_CHANNEL_COUNT];
+  float spatial_imag[UMH_DEVICE_CHANNEL_COUNT];
   uint32_t envelope_rate_hz;
   uint32_t period_q16_us;
   uint16_t prebuffer_samples;
@@ -131,7 +152,8 @@ void audio_engine_init(umh_audio_engine_t *engine);
 int audio_engine_configure(umh_audio_engine_t *engine,
                            umh_spatial_renderer_t *renderer,
                            fpga_link_t *link,
-                           const umh_audio_config_wire_t *config);
+                           const uint8_t *payload,
+                           uint16_t length);
 int audio_engine_start(umh_audio_engine_t *engine);
 int audio_engine_feed(umh_audio_engine_t *engine, const uint8_t *levels,
                       uint16_t length, uint32_t stream_sequence);

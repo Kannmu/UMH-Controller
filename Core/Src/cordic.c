@@ -391,4 +391,41 @@ int umh_cordic_phase8(float real, float imag, uint8_t *phase)
   return 0;
 }
 
+int umh_cordic_phase8_batch(const float *real, const float *imag,
+                            uint8_t *phase_codes, uint32_t count)
+{
+  uint32_t i;
+  if (real == NULL || imag == NULL || phase_codes == NULL) return -1;
+  if (count == 0u) return 0;
+  if (umh_cordic_phase_state == 0) umh_cordic_phase_state = umh_cordic_selftest_phase();
+  if (umh_cordic_phase_state < 0) return -2;
+  /* Direct CSR/WDATA/RDATA access.  The HAL polling helper re-arms its own
+   * timeout bookkeeping and calls HAL_GetTick() for every word; the 84-channel
+   * finalize runs at up to 2 kHz, so the register path keeps the CORDIC
+   * pipeline busy instead of spending most of its time in the wrapper. */
+  CORDIC->CSR = (uint32_t)(CORDIC_FUNCTION_PHASE | CORDIC_PRECISION_6CYCLES |
+                           CORDIC_NBWRITE_2);
+  for (i = 0u; i < count; ++i) {
+    float re = real[i];
+    float im = imag[i];
+    int32_t out_q31;
+    if (re > 1.0f) re = 1.0f;
+    if (re < -1.0f) re = -1.0f;
+    if (im > 1.0f) im = 1.0f;
+    if (im < -1.0f) im = -1.0f;
+    CORDIC->WDATA = (int32_t)(re * 2147483647.0f);
+    CORDIC->WDATA = (int32_t)(im * 2147483647.0f);
+    while ((CORDIC->CSR & CORDIC_CSR_RRDY) == 0u) {
+    }
+    out_q31 = (int32_t)CORDIC->RDATA;
+    /* Phase result is angle/pi in Q1.31; the 8-bit wire code is
+     * angle/(2*pi)*256 = out_q31/2^24, rounded to nearest. */
+    phase_codes[i] = (uint8_t)((uint32_t)((out_q31 + (1 << 23)) >> 24) & 0xFFu);
+  }
+  return 0;
+}
+
 /* USER CODE END 1 */
+
+
+

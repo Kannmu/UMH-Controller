@@ -35,7 +35,15 @@ typedef enum {
   UMH_MSG_FLASH_DELETE       = 0x53,
   UMH_MSG_ERROR_COUNTERS     = 0x60,
   UMH_MSG_SET_DEMO           = 0x61,
-  /* Focused-AM audio extension.  DATA frames deliberately do not require an
+  /* Real-time focus motion generator.  UPLOAD stores a compact path in RAM,
+   * CONFIG chooses live/path mode and physical limits, TARGET streams a live
+   * point, START/STOP own the FPGA output exactly like focused-AM audio. */
+  UMH_MSG_MOTION_UPLOAD      = 0x62,
+  UMH_MSG_MOTION_CONFIG      = 0x63,
+  UMH_MSG_MOTION_START       = 0x64,
+  UMH_MSG_MOTION_TARGET      = 0x65,
+  UMH_MSG_MOTION_STOP        = 0x66,
+  UMH_MSG_MOTION_STATUS      = 0x67,  /* Focused-AM audio extension.  DATA frames deliberately do not require an
    * ACK: the STM32 consumes envelope bytes from the USB header sequence and
    * keeps the streaming path independent of the command/response loop. */
   UMH_MSG_AUDIO_CONFIGURE    = 0x90,

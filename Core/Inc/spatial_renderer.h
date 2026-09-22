@@ -9,6 +9,10 @@
 typedef struct {
   const umh_device_profile_t *profile;
   umh_channel_calibration_t calibration[UMH_DEVICE_CHANNEL_COUNT];
+  /* Per-channel gain and calibration phase pre-scaled to the phase table
+   * domain, so the per-frame inner loop is load/FMA only. */
+  float gain_scale[UMH_DEVICE_CHANNEL_COUNT];
+  int32_t phase_offset_q10[UMH_DEVICE_CHANNEL_COUNT];
   uint8_t rgb_gain[UMH_DEVICE_RGB_COUNT][3];
   uint32_t carrier_hz;
   uint32_t sound_speed_um_per_s;
@@ -20,6 +24,8 @@ void spatial_renderer_init(umh_spatial_renderer_t *renderer,
 void spatial_renderer_set_calibration(umh_spatial_renderer_t *renderer,
                                       const umh_channel_calibration_t *calibration,
                                       uint16_t count);
+void spatial_renderer_refresh_calibration(umh_spatial_renderer_t *renderer,
+                                          uint16_t count);
 int spatial_renderer_point(umh_spatial_renderer_t *renderer,
                            const umh_spatial_point_t *point,
                            umh_output_frame_t *frame);
@@ -38,3 +44,4 @@ void spatial_renderer_merge_rgb(const umh_spatial_renderer_t *renderer,
                                 uint8_t target_mask);
 
 #endif
+

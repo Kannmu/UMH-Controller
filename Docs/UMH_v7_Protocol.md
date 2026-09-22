@@ -20,7 +20,7 @@
 
 标志位为 `ACK_REQUIRED=0x01`、`FIRST=0x02`、`LAST=0x04`、`RESPONSE=0x08` 和 `ERROR=0x10`。事务号用于把响应关联到请求；块流的连续性由 `stream_sequence` 检查，USB 包边界不参与块解析。
 
-请求消息类型为：`GET_PROFILE=0x01`、`GET_STATUS=0x03`、`BLOCK_BEGIN=0x10`、`BLOCK_DATA=0x11`、`BLOCK_END=0x12`、`BLOCK_CANCEL=0x13`、`SET_PLAN=0x20`、`START_PLAN=0x21`、`STOP_PLAN=0x22`、`CLEAR_PLAN=0x23`、`FPGA_STATUS=0x30`、`EEPROM_READ=0x40`、`EEPROM_WRITE=0x41`、`EEPROM_COMMIT=0x42`、`FLASH_LIST=0x50`、`FLASH_READ=0x51`、`FLASH_WRITE=0x52`、`FLASH_DELETE=0x53`、`ERROR_COUNTERS=0x60`、`SET_DEMO=0x61`、`CAL_DUMP=0x80`、`CAL_RESULT=0x81`、`CAL_START=0x82`、`CAL_RAW=0x83`、`AUDIO_CONFIGURE=0x90`、`AUDIO_START=0x91`、`AUDIO_DATA=0x92`、`AUDIO_STOP=0x93` 和 `AUDIO_STATUS=0x94`。
+请求消息类型为：`GET_PROFILE=0x01`、`GET_STATUS=0x03`、`BLOCK_BEGIN=0x10`、`BLOCK_DATA=0x11`、`BLOCK_END=0x12`、`BLOCK_CANCEL=0x13`、`SET_PLAN=0x20`、`START_PLAN=0x21`、`STOP_PLAN=0x22`、`CLEAR_PLAN=0x23`、`FPGA_STATUS=0x30`、`EEPROM_READ=0x40`、`EEPROM_WRITE=0x41`、`EEPROM_COMMIT=0x42`、`FLASH_LIST=0x50`、`FLASH_READ=0x51`、`FLASH_WRITE=0x52`、`FLASH_DELETE=0x53`、`ERROR_COUNTERS=0x60`、`SET_DEMO=0x61`、`MOTION_UPLOAD=0x62`、`MOTION_CONFIG=0x63`、`MOTION_START=0x64`、`MOTION_TARGET=0x65`、`MOTION_STOP=0x66`、`MOTION_STATUS=0x67`、`CAL_DUMP=0x80`、`CAL_RESULT=0x81`、`CAL_START=0x82`、`CAL_RAW=0x83`、`AUDIO_CONFIGURE=0x90`、`AUDIO_START=0x91`、`AUDIO_DATA=0x92`、`AUDIO_STOP=0x93` 和 `AUDIO_STATUS=0x94`。
 
 `SET_DEMO=0x61` 的载荷是一个 Demo ID：`0=ULM`、`1=LML`、`2=LMC`。设备以 `(0,0,100000µm)` 为中心焦点，使用当前校准和空间渲染器生成 24 帧轨迹，并在 5 ms（200 Hz）内播放完整轨迹后以 `LOOP_RAM` 循环。`ULM` 为 15 mm 单向扫描，`LML` 为 7.5 mm 往返扫描，`LMC` 为 4.77 mm 圆周；成功 ACK 的载荷为 ASCII 名称。演示播放与普通块互斥，停止或清空计划后才可接收新的块。
 
@@ -89,6 +89,104 @@ uint8[payload_length] payload
 
 设备达到预缓冲阈值后才运行 FPGA。触发方式等待通用触发事件；帧提交以 FPGA 接受的序号和截止时间为边界。`CLEAR_PLAN` 会停止 FPGA、取消块、清空帧环。播放数据只存在 STM32 RAM 和 FPGA FIFO，不能写入外置 Flash。
 
+## 实时焦点运动扩展（0x62..0x67）
+
+`DeviceProfile.capability_flags` 的 bit9（`MOTION`）表示固件包含 `motion_engine`。
+该扩展与块播放并列但职责不同：块播放负责已编译的时间线和 `LOOP_RAM/LOOP_STREAM`；
+`motion_engine` 在渲染任务中按输出帧实时合成单个空间点，用于高频声悬浮、
+视觉暂留和低延迟手动控制。它复用 `spatial_renderer` 的阵元坐标、校准和
+`level` 语义，也复用 `fpga_link` 的完整 FRAME 事务，不重复任何渲染或 FPGA 逻辑。
+
+`MOTION_UPLOAD=0x62` 把一个紧凑路径写入设备 RAM：
+
+```text
+uint8  version          必须为 1
+uint8  flags             保留，必须为 0
+uint16 point_count       0..255
+uint8  reserved[4]
+record[point_count]:
+  int16 x_10um           带符号，单位 10 µm
+  int16 y_10um
+  int16 z_10um
+  uint8 level            该路径点的空间源幅度 0..255
+  uint8 palette          low4 = 调色板索引 0..15，bit7 = 下一点零过渡跳转
+```
+
+单点记录共 8 字节，255 点载荷 2040 字节，加上 8 字节头恰好 2048 字节。坐标范围 ±327.67 mm，
+10 µm 分辨率远低于 40 kHz 的相位分辨率。路径按 `loop_ms` 循环，点间支持
+线性或 Catmull-Rom 插值。
+
+`MOTION_CONFIG=0x63` 为 69 字节：
+
+```text
+uint8  mode              0=PATH 循环轨迹，1=LIVE 实时目标
+uint8  flags             bit0 PAUSED，bit1 DIRECT，bit2 RGB，bit3 LOOP，
+                         bit4 LINEAR，bit5 TRAP_PATTERN，bit6 STEP
+uint16 output_rate_hz    50..2000 Hz
+uint16 loop_ms           路径周期，2..60000 ms
+uint16 max_speed_mm_s    跟踪器限幅，DIRECT 模式忽略
+uint16 max_accel_mm_s2   跟踪器限幅，DIRECT 模式忽略（16 位字段，上限 65535）
+int16  z_offset_10um     叠加到路径 z
+uint8  level             全局源幅度缩放 0..255
+uint8  trap_mode         0 单焦点，1 轴向双焦点，2 横向双焦点，3 环阵，
+                         4 涡旋，5 双环瓶式
+uint16 trap_radius_10um  半径/间距
+uint8  trap_phase_span   涡旋相位跨度，单位载波相位码
+uint8  palette_count     0..16
+uint8  palette[16][3]    RGB 调色板
+uint8  palette_spin_x10  调色板位置每秒推进 0.1 步，0..250；
+                         运行时产生随时间变化渐变色，主机无需反复下发
+int16  path_spin_mrad_s  整条轨迹绕阵列 z 轴的实时转台角速度，
+                         单位 0.001 rad/s，带符号
+```
+
+`palette_spin_x10` 只影响颜色动画，不改变相位或幅度；`path_spin_mrad_s`
+只旋转路径点，不旋转 `trap_mode` 的图案偏移，因此环形/涡旋声场保持
+轴对称。两者均按输出帧的 dt 积分，50..2000 Hz 任意帧率下速度一致。
+
+`trap_mode` 开启后，每个输出帧会在当前路径点周围合成最多 8 个
+`SPATIAL_POINT` 源，再由 `spatial_renderer_accumulate_point` 复数叠加。
+这使单面向上阵列可以尝试单焦点、环形、涡旋和双环声场，而不需要主机
+持续发送 84 路相位。
+
+`MOTION_START=0x64` 无载荷，设备会停止普通计划并清空帧环，然后由渲染任务
+直接输出。`MOTION_TARGET=0x65` 的载荷是一个 8 字节点记录，仅 LIVE 模式
+使用；主机可以 20..50 Hz 发送目标，固件以临界阻尼跟踪器把它转换为受
+最大速度/加速度约束的连续轨迹。`MOTION_STOP=0x66` 触发 20 ms 线性淡出，
+完成后自动执行 FPGA 安全停止。`MOTION_STATUS=0x67` 返回 52 字节状态：
+
+```text
+uint8  state             0=OFF,1=READY,2=RUNNING,3=STOPPING,4=FAULT
+uint8  flags
+uint16 output_rate_hz
+uint16 path_points
+uint16 loop_ms
+int32  x_um/y_um/z_um    设备端规划器实际输出位置
+uint8  level
+uint8  trap_mode
+uint16 reserved
+uint16 service_max_us    本次运行内单帧最坏总服务时间（微秒）
+uint16 service_avg_us    本次运行内单帧平均总服务时间（微秒）
+uint16 render_max_us     其中最坏空间合成时间（微秒）
+uint16 render_avg_us     其中平均空间合成时间（微秒）
+uint16 submit_max_us     其中最坏 FPGA 帧事务时间（微秒）
+uint16 submit_avg_us     其中平均 FPGA 帧事务时间（微秒）
+uint32 frames
+uint32 missed_deadlines
+uint32 frame_errors
+uint32 fps_x100
+```
+
+这六个时间由 DWT 周期计数换算，是判断"请求帧率是否真的可持续"的主
+指标：当 `fps_x100` 低于 `output_rate_hz` 且 `missed_deadlines` 持续增长
+时，应先看 `render_*` 还是 `submit_*` 占主导。`render` 高说明空间合成
+太重（减少 `trap_mode` 源数量、缩短路径或降低输出帧率）；`submit` 高说明
+FPGA 帧事务是瓶颈（通常固定在 80..110 us），此时限制来自 SPI 线速而不是
+MCU 算力。
+
+运动模式与普通块、播放计划、Demo、校准和聚焦 AM 互斥：`MOTION_START`
+会清空之前的计划，其他生产者检测到 `motion_engine_owns_output` 时返回
+`BUSY`。`STOP_PLAN` 请求淡出，`CLEAR_PLAN` 立即中止并安全停止。
 ## 数据路径和能力
 
 USB CDC 回调只把数据复制到 16 KiB 单生产者环形缓冲并通知协议任务。协议任务校验帧头、处理事务和块序号；编译任务执行轨道解析与空间解算；帧环使用 32 个固定 400 字节槽；FPGA 链路任务以 DMA 和 FIFO 信用额度提交原子输出帧。
@@ -124,6 +222,22 @@ uint16 prebuffer_samples    启动前需要的包络样本数，1..2048
 uint16 flags                保留，必须为 0
 ```
 
+当 `payload_length > 20` 时，基础配置后可以跟一个多焦点扩展；没有该
+能力的固件会拒绝该长度，旧版 20 字节配置保持兼容：
+
+```text
+uint8  extra_point_count         0..7
+record[extra_point_count]:
+  int32 x_um/y_um/z_um
+  uint8 phase
+  uint8 level                    该焦点相对权重 0..255
+```
+
+基础焦点的源电平固定为 255，`config.level` 仍然表示公共包络满幅；
+额外焦点使用自己的 `level`，所有焦点由空间渲染器复数叠加成一张固定
+相位图。这样消泡和定向音频可以覆盖多个焦点而热路径仍然只发送 8 位
+公共包络。`DeviceProfile.capability_flags` 的 bit10（`FOCUSED_AM_MULTI`）
+表示固件支持该扩展。
 `AUDIO_DATA` 的载荷是连续的 8 位包络电平，取值范围 `0..128`：0 关闭载波，
 128 是 50% 占空比空间满幅度。数据帧不需要 ACK；STM32 用 `stream_sequence`
 检查连续性并统计丢包。设备内部 2048 字节静态环形缓冲，主机按 256 样本
