@@ -4,6 +4,12 @@
 #include <math.h>
 #include <string.h>
 
+static int motion_emit_dark_vortex(umh_motion_engine_t *engine,
+                                   umh_spatial_renderer_t *renderer,
+                                   umh_output_frame_t *frame,
+                                   float cx, float cy, float cz,
+                                   float base_level);
+
 #define UMH_TWO_PI 6.28318530717958647692f
 #define UMH_SAFE_X_UM 100000
 #define UMH_SAFE_Y_UM 100000
@@ -62,30 +68,37 @@ static void motion_clamp_position(float *x, float *y, float *z)
 static void motion_rebuild_pattern(umh_motion_engine_t *engine)
 {
   uint8_t i;
+  uint16_t span;
   float r = (float)engine->trap_radius_um;
   engine->pattern_count = 1u;
   memset(engine->pattern_offsets, 0, sizeof(engine->pattern_offsets));
   memset(engine->pattern_phases, 0, sizeof(engine->pattern_phases));
   if (engine->trap_mode == 0u) return;
   if (r < 500.0f) r = 500.0f;
+  span = engine->trap_phase_span == 0u ? 256u : engine->trap_phase_span;
   switch (engine->trap_mode) {
-    case 1u: /* twin along z: two pressure maxima bracket the target */
+    case 1u: /* axial twin with opposite phase: pressure node at target */
       engine->pattern_count = 2u;
       engine->pattern_offsets[0][2] = r;
       engine->pattern_offsets[1][2] = -r;
+      engine->pattern_phases[0] = 0u;
+      engine->pattern_phases[1] = 128u;
       break;
-    case 2u: /* twin along y: lateral capture assistance */
+    case 2u: /* lateral twin with opposite phase: central pressure node */
       engine->pattern_count = 2u;
       engine->pattern_offsets[0][1] = r;
       engine->pattern_offsets[1][1] = -r;
+      engine->pattern_phases[0] = 0u;
+      engine->pattern_phases[1] = 128u;
       break;
-    case 3u: /* ring of eight in-phase foci around z */
+    case 3u: /* ring with alternating phase: central node */
       engine->pattern_count = 8u;
       for (i = 0u; i < engine->pattern_count; ++i) {
         float angle = UMH_TWO_PI * (float)i / (float)engine->pattern_count;
         engine->pattern_offsets[i][0] = r * cosf(angle);
         engine->pattern_offsets[i][1] = r * sinf(angle);
         engine->pattern_offsets[i][2] = 0.0f;
+        engine->pattern_phases[i] = (i & 1u) != 0u ? 128u : 0u;
       }
       break;
     case 4u: /* ring with orbital phase ramp: hollow / vortex-like core */
@@ -95,8 +108,7 @@ static void motion_rebuild_pattern(umh_motion_engine_t *engine)
         engine->pattern_offsets[i][0] = r * cosf(angle);
         engine->pattern_offsets[i][1] = r * sinf(angle);
         engine->pattern_offsets[i][2] = 0.0f;
-        engine->pattern_phases[i] = (uint8_t)(((uint32_t)i * engine->trap_phase_span) /
-                                              engine->pattern_count);
+        engine->pattern_phases[i] = (uint8_t)(((uint32_t)i * span) / engine->pattern_count);
       }
       break;
     case 5u: /* two coaxial rings with opposite carrier phase */
@@ -251,6 +263,8 @@ static int motion_emit_field(umh_motion_engine_t *engine, umh_spatial_renderer_t
                              umh_output_frame_t *frame, float cx, float cy, float cz,
                              float base_level, float palette_pos)
 {
+  if (engine->trap_mode == UMH_MOTION_TRAP_DARK_VORTEX)
+    return motion_emit_dark_vortex(engine, renderer, frame, cx, cy, cz, base_level);
   uint8_t count = engine->pattern_count != 0u ? engine->pattern_count : 1u;
   float per_source = base_level / sqrtf((float)count);
   uint8_t i;
@@ -331,23 +345,25 @@ void motion_engine_init(umh_motion_engine_t *engine)
   memset(engine, 0, sizeof(*engine));
   engine->state = UMH_MOTION_STATE_OFF;
   engine->mode = UMH_MOTION_MODE_PATH;
-  engine->flags = UMH_MOTION_FLAG_LOOP | UMH_MOTION_FLAG_RGB;
+  engine->flags = UMH_MOTION_FLAG_LOOP;
   engine->output_rate_hz = 500u;
   engine->period_us = 2000u;
   engine->loop_us = 2000000u;
   engine->max_speed_um_s = 500000u;      /* 500 mm/s */
   engine->max_accel_um_s2 = 20000000u;   /* 20,000 mm/s^2 */
-  engine->level = 160u;
+  engine->level = 255u;
   engine->trap_mode = 0u;
   engine->trap_radius_um = 2000;
-  engine->trap_phase_span = 128u;
+  engine->trap_phase_span = 0u;
+  engine->ulm_wave_speed_mm_s = 5000u;
+  engine->ulm_tangent_x = 1.0f;
   engine->pos_x_um = 0.0f;
   engine->pos_y_um = 0.0f;
   engine->pos_z_um = 100000.0f;
   engine->target_x_um = 0.0f;
   engine->target_y_um = 0.0f;
   engine->target_z_um = 100000.0f;
-  engine->target_level = 160u;
+  engine->target_level = 255u;
   engine->target_palette = 0u;
   engine->current_valid = 0u;
   engine->phase = 0.0f;
@@ -395,19 +411,27 @@ int motion_engine_upload(umh_motion_engine_t *engine, const uint8_t *payload,
 int motion_engine_configure(umh_motion_engine_t *engine, const uint8_t *payload,
                             uint16_t length)
 {
-  const umh_motion_config_wire_t *wire;
+  const umh_motion_config_wire_v1_t *wire;
+  const umh_motion_config_wire_t *ext;
   uint8_t i;
   if (engine == NULL || payload == NULL) return -1;
-  if (length < sizeof(umh_motion_config_wire_t)) return -2;
-  wire = (const umh_motion_config_wire_t *)payload;
+  if (length != sizeof(umh_motion_config_wire_v1_t) &&
+      length != sizeof(umh_motion_config_wire_t)) return -2;
+  wire = (const umh_motion_config_wire_v1_t *)payload;
+  ext = length == sizeof(umh_motion_config_wire_t) ? (const umh_motion_config_wire_t *)payload : NULL;
   if (wire->mode > (uint8_t)UMH_MOTION_MODE_LIVE) return -3;
-  if (wire->trap_mode > 5u || wire->palette_count > UMH_MOTION_PALETTE_SIZE) return -4;
+  if (wire->trap_mode > UMH_MOTION_TRAP_DARK_VORTEX || wire->palette_count > UMH_MOTION_PALETTE_SIZE) return -4;
   if (wire->output_rate_hz < UMH_MOTION_MIN_RATE_HZ ||
       wire->output_rate_hz > UMH_MOTION_MAX_RATE_HZ) return -5;
-  if (wire->loop_ms < 2u || wire->loop_ms > 60000u) return -6;
+  if (wire->loop_ms < 1u || wire->loop_ms > 60000u) return -6;
   if (wire->max_speed_mm_s > 10000u || wire->max_accel_mm_s2 > 500000u) return -7;
   if (wire->z_offset_10um > UMH_MOTION_COORD_10UM_MAX ||
       wire->z_offset_10um < -UMH_MOTION_COORD_10UM_MAX) return -8;
+  if (ext != NULL) {
+    if (ext->ulm_frequency_hz > 1000u) return -10;
+    if (ext->ulm_wave_speed_mm_s > 10000u) return -11;
+    if (ext->ulm_axis > 3u) return -12;
+  }
   if (motion_lock(engine) != 0) return -9;
   engine->mode = wire->mode;
   engine->flags = wire->flags;
@@ -428,6 +452,23 @@ int motion_engine_configure(umh_motion_engine_t *engine, const uint8_t *payload,
   engine->palette_count = wire->palette_count;
   engine->palette_spin_x10 = wire->palette_spin_x10 > 250u ? 250u : wire->palette_spin_x10;
   engine->path_spin_mrad_s = wire->path_spin_mrad_s;
+  if (ext != NULL) {
+    engine->ulm_frequency_hz = ext->ulm_frequency_hz;
+    engine->ulm_wave_speed_mm_s = ext->ulm_wave_speed_mm_s != 0u ? ext->ulm_wave_speed_mm_s : 5000u;
+    engine->ulm_axis = ext->ulm_axis;
+    if (ext->ulm_amplitude_10um != 0u) {
+      engine->ulm_amplitude_um = (int32_t)ext->ulm_amplitude_10um * 10;
+    } else if (engine->ulm_frequency_hz != 0u) {
+      engine->ulm_amplitude_um = (int32_t)((float)engine->ulm_wave_speed_mm_s * 1000.0f / (2.0f * 3.14159265f * (float)engine->ulm_frequency_hz));
+    }
+    if (engine->ulm_amplitude_um > 50000) engine->ulm_amplitude_um = 50000;
+    if (engine->ulm_amplitude_um < 0) engine->ulm_amplitude_um = 0;
+  } else {
+    engine->ulm_frequency_hz = 0u;
+    engine->ulm_wave_speed_mm_s = 5000u;
+    engine->ulm_amplitude_um = 0;
+    engine->ulm_axis = 0u;
+  }
   for (i = 0u; i < UMH_MOTION_PALETTE_SIZE; ++i) {
     engine->palette[i][0] = wire->palette[i][0];
     engine->palette[i][1] = wire->palette[i][1];
@@ -504,6 +545,7 @@ int motion_engine_start(umh_motion_engine_t *engine)
     engine->current_valid = 1u;
   }
   engine->phase = 0.0f;
+  engine->ulm_phase = 0.0f;
   engine->vel_x_um_s = 0.0f;
   engine->vel_y_um_s = 0.0f;
   engine->vel_z_um_s = 0.0f;
@@ -577,6 +619,13 @@ uint8_t motion_engine_owns_output(const umh_motion_engine_t *engine)
           engine->state == UMH_MOTION_STATE_STOPPING) ? 1u : 0u;
 }
 
+uint8_t motion_engine_uses_rgb(const umh_motion_engine_t *engine)
+{
+  if (engine == NULL) return 0u;
+  return ((engine->flags & UMH_MOTION_FLAG_RGB) != 0u &&
+          engine->palette_count != 0u) ? 1u : 0u;
+}
+
 uint8_t motion_engine_is_active(const umh_motion_engine_t *engine)
 {
   return motion_engine_owns_output(engine);
@@ -613,6 +662,10 @@ uint32_t motion_engine_service(umh_motion_engine_t *engine,
     if (dt > 0.05f) dt = 0.05f;
   }
   engine->last_service_us = now_us;
+  if (dt > 0.0f && engine->ulm_frequency_hz != 0u) {
+    engine->ulm_phase += (float)engine->ulm_frequency_hz * dt;
+    while (engine->ulm_phase >= 1.0f) engine->ulm_phase -= 1.0f;
+  }
 
   desired_x = engine->pos_x_um;
   desired_y = engine->pos_y_um;
@@ -720,6 +773,14 @@ uint32_t motion_engine_service(umh_motion_engine_t *engine,
       emit_x = engine->pos_x_um * spin_cos - engine->pos_y_um * spin_sin;
       emit_y = engine->pos_x_um * spin_sin + engine->pos_y_um * spin_cos;
     }
+    if ((engine->flags & UMH_MOTION_FLAG_ULM) != 0u &&
+        engine->ulm_frequency_hz != 0u && engine->ulm_amplitude_um > 0) {
+      float ulm_off = sinf(UMH_TWO_PI * engine->ulm_phase) * (float)engine->ulm_amplitude_um;
+      float ulm_off_q = cosf(UMH_TWO_PI * engine->ulm_phase) * (float)engine->ulm_amplitude_um;
+      if (engine->ulm_axis == 1u) emit_x += ulm_off;
+      else if (engine->ulm_axis == 2u) emit_y += ulm_off;
+      else { emit_x += ulm_off; emit_y += ulm_off_q; }
+    }
     if (motion_emit_field(engine, renderer, &frame,
                           emit_x, emit_y, engine->pos_z_um,
                           level_scale,
@@ -738,7 +799,7 @@ uint32_t motion_engine_service(umh_motion_engine_t *engine,
   frame.deadline = now_us;
   {
     uint32_t submit_start_cycles = DWT->CYCCNT;
-    result = fpga_link_submit(link, &frame);
+    result = fpga_link_submit_allow_hold(link, &frame, 1u);
     motion_record_submit(engine, DWT->CYCCNT - submit_start_cycles);
   }
   if (result != 0) {
@@ -835,4 +896,99 @@ void motion_engine_get_status(const umh_motion_engine_t *engine,
   status->frame_errors = engine->frame_errors;
   status->fps_x100 = engine->fps;
   motion_unlock((umh_motion_engine_t *)engine);
+}
+
+
+/* 100 mm geometric focus places the dark vortex core near 80 mm. */
+#define UMH_LEVITATION_FOCUS_Z_UM 100000
+#define UMH_LEVITATION_SPIRAL_TURNS 1.0f
+
+static int motion_emit_dark_vortex(umh_motion_engine_t *engine,
+                                   umh_spatial_renderer_t *renderer,
+                                   umh_output_frame_t *frame,
+                                   float cx, float cy, float cz,
+                                   float base_level)
+{
+  const float two_pi = 6.28318530717958647692f;
+  uint16_t i;
+  float wavelength_um;
+  float phase_scale;
+  float magnitude;
+  float focus_z_um;
+  (void)cz;
+  if (engine == NULL || renderer == NULL || renderer->profile == NULL || frame == NULL) return -1;
+  if ((renderer->profile->capability_flags & UMH_PROFILE_CAP_GEOMETRY_VALID) == 0u) return -2;
+  if (renderer->carrier_hz == 0u || renderer->sound_speed_um_per_s == 0u) return -3;
+  if (base_level < 0.0f) base_level = 0.0f;
+  if (base_level > 255.0f) base_level = 255.0f;
+  wavelength_um = (float)renderer->sound_speed_um_per_s / (float)renderer->carrier_hz;
+  phase_scale = two_pi / wavelength_um;
+  focus_z_um = (float)UMH_LEVITATION_FOCUS_Z_UM;
+  magnitude = base_level * (1.0f / 255.0f);
+  memset(frame, 0, sizeof(*frame));
+  memset(engine->real_accum, 0, sizeof(engine->real_accum));
+  memset(engine->imag_accum, 0, sizeof(engine->imag_accum));
+  for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
+    const umh_element_coordinate_t *c = &renderer->profile->coordinates[i];
+    float ex = (float)c->x_um - cx;
+    float ey = (float)c->y_um - cy;
+    float ez = (float)c->z_um - focus_z_um;
+    float distance = sqrtf(ex * ex + ey * ey + ez * ez);
+    float theta = UMH_LEVITATION_SPIRAL_TURNS * atan2f(ey, ex);
+    float phase_q10 = (theta - phase_scale * distance) * (1024.0f / two_pi) +
+                      (float)renderer->phase_offset_q10[i];
+    float mag = magnitude * renderer->gain_scale[i];
+    int32_t q10 = (int32_t)lroundf(phase_q10);
+    engine->real_accum[i] = mag * umh_fast_cos_q10(q10);
+    engine->imag_accum[i] = mag * umh_fast_sin_q10(q10);
+  }
+  return spatial_renderer_finalize(renderer, engine->real_accum,
+                                   engine->imag_accum, frame);
+}
+
+int motion_engine_configure_levitation(umh_motion_engine_t *engine,
+                                       uint8_t level, int32_t trap_z_um)
+{
+  if (engine == NULL) return -1;
+  if (trap_z_um < (int32_t)UMH_SAFE_Z_MIN_UM || trap_z_um > (int32_t)UMH_SAFE_Z_MAX_UM) return -2;
+  if (motion_lock(engine) != 0) return -3;
+  engine->mode = UMH_MOTION_MODE_LIVE;
+  engine->flags = 0u;
+  engine->output_rate_hz = 50u;
+  engine->period_us = 20000u;
+  engine->level = 255u;
+  engine->trap_mode = UMH_MOTION_TRAP_DARK_VORTEX;
+  engine->trap_radius_um = 0;
+  engine->trap_phase_span = 0u;
+  engine->z_offset_um = 0;
+  engine->palette_count = 0u;
+  engine->palette_spin_x10 = 0u;
+  engine->path_spin_mrad_s = 0;
+  engine->ulm_frequency_hz = 0u;
+  engine->ulm_amplitude_um = 0;
+  engine->ulm_axis = 0u;
+  engine->target_valid = 1u;
+  engine->target_x_um = 0.0f;
+  engine->target_y_um = 0.0f;
+  engine->target_z_um = (float)trap_z_um;
+  engine->target_level = level;
+  engine->target_palette = 0u;
+  engine->pos_x_um = 0.0f;
+  engine->pos_y_um = 0.0f;
+  engine->pos_z_um = (float)trap_z_um;
+  engine->vel_x_um_s = 0.0f;
+  engine->vel_y_um_s = 0.0f;
+  engine->vel_z_um_s = 0.0f;
+  engine->current_valid = 1u;
+  engine->last_level = level;
+  engine->last_level_scale = 0.0f;
+  engine->last_palette = 0u;
+  engine->configured = 1u;
+  engine->stop_requested = 0u;
+  engine->last_service_us = 0u;
+  engine->next_due_us = 0u;
+  motion_rebuild_pattern(engine);
+  engine->state = UMH_MOTION_STATE_READY;
+  motion_unlock(engine);
+  return 0;
 }

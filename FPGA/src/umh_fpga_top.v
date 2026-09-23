@@ -807,11 +807,11 @@ module umh_fpga_top (
             /* FIX: Remove cs_sync gating to match WS2812 path fix. */
             if (frame_settle == 4'd1) begin
                 frame_settle <= 4'd0;
-                frame_req <= 1'b1;
-                /* A normal FRAME cancels a stale compact request outside
-                 * focused-AM mode.  Inside audio mode the pending level may
-                 * be a just-arrived audio sample and must not be lost when
-                 * the aperture frame is loaded. */
+                if (update_flags_sync[0]) frame_req <= 1'b1;
+                /* RGB/digital-only FRAMEs must not rebuild the ultrasound
+                 * event table.  A pending compact level is still handled
+                 * through frame_req_audio. */
+
                 if (audio_mode == 1'b0) frame_req_audio <= 1'b0;
                 rgb_hold  <= rgb_values;
                 rgb_update_flags_hold <= update_flags_sync;

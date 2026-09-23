@@ -10,7 +10,8 @@ typedef enum {
   UMH_SYSTEM_FLASH_READY = 1u << 3,
   UMH_SYSTEM_CALIBRATION_VALID = 1u << 4,
   UMH_SYSTEM_UNDERRUN = 1u << 5,
-  UMH_SYSTEM_ERROR = 1u << 6
+  UMH_SYSTEM_ERROR = 1u << 6,
+  UMH_SYSTEM_LEVITATION = 1u << 7
 } umh_system_flag_t;
 
 /* Stable, short identifiers used by the OLED and the USB error counters.

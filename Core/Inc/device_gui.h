@@ -19,6 +19,7 @@ typedef enum {
   DEVICE_GUI_STORAGE,
   DEVICE_GUI_DIAGNOSTICS,
   DEVICE_GUI_SYSTEM,
+  DEVICE_GUI_LEVITATION,
   DEVICE_GUI_DEMOS,
   DEVICE_GUI_WS2812_TEST,
   DEVICE_GUI_PAGE_COUNT
@@ -46,6 +47,7 @@ typedef struct {
   const flash_store_t *flash;
   const eeprom_profile_t *eeprom;
   device_gui_action_t demo;
+  device_gui_action_t levitation_toggle;
   device_gui_action_t ws2812_set;
   device_gui_action_t calibration;
   device_gui_action_t self_test;
@@ -77,6 +79,7 @@ void device_gui_init(device_gui_t *gui, oled_ssd1315_t *oled,
                      device_gui_action_t calibration,
                      device_gui_action_t self_test,
                      device_gui_action_t demo,
+                     device_gui_action_t levitation_toggle,
                      device_gui_action_t ws2812_set,
                      uint8_t demo_count,
                      void *action_context);

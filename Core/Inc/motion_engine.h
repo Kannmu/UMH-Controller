@@ -48,6 +48,10 @@ typedef enum {
 #define UMH_MOTION_FLAG_LINEAR       (1u << 4)
 #define UMH_MOTION_FLAG_TRAP_PATTERN (1u << 5)
 #define UMH_MOTION_FLAG_STEP         (1u << 6)
+#define UMH_MOTION_FLAG_ULM          (1u << 7)
+
+/* trap_mode 6: single-sided dark-core vortex levitation. */
+#define UMH_MOTION_TRAP_DARK_VORTEX 6u
 
 /* A path point is deliberately compact: signed 10 um units cover +-327 mm
  * with 10 um resolution, which is far below the 40 kHz phase resolution. */
@@ -81,9 +85,24 @@ typedef struct __attribute__((packed)) {
    * that rotates the whole path around the array z axis in real time. */
   uint8_t palette_spin_x10;
   int16_t path_spin_mrad_s;
+} umh_motion_config_wire_v1_t;
+
+_Static_assert(sizeof(umh_motion_config_wire_v1_t) == 69u, "motion config v1 wire size");
+
+/* Extension added for ULM tactile modulation.  The ULM field is a transverse
+ * spatial oscillation of the focus added on top of the macro path: the path
+ * centre moves as before while the emitted focus oscillates at the sensitive
+ * skin frequency.  UMH_MOTION_FLAG_ULM bit7 selects it, so old 69-byte host
+ * configs stay accepted and leave the feature disabled. */
+typedef struct __attribute__((packed)) {
+  umh_motion_config_wire_v1_t base;
+  uint16_t ulm_frequency_hz;
+  uint16_t ulm_amplitude_10um;
+  uint16_t ulm_wave_speed_mm_s;
+  uint8_t  ulm_axis;
 } umh_motion_config_wire_t;
 
-_Static_assert(sizeof(umh_motion_config_wire_t) == 69u, "motion config wire size");
+_Static_assert(sizeof(umh_motion_config_wire_t) == 76u, "motion config wire size");
 
 typedef struct __attribute__((packed)) {
   uint8_t version;              /* must be 1 */
@@ -140,6 +159,15 @@ typedef struct {
   uint8_t palette[UMH_MOTION_PALETTE_SIZE][3];
   uint8_t palette_spin_x10;
   int16_t path_spin_mrad_s;
+  uint16_t ulm_frequency_hz;
+  uint16_t ulm_wave_speed_mm_s;
+  int32_t ulm_amplitude_um;
+  uint8_t ulm_axis;
+  uint8_t ulm_reserved;
+  float ulm_phase;
+  float ulm_tangent_x;
+  float ulm_tangent_y;
+  uint8_t ulm_tangent_valid;
   float spin_angle;
   float palette_spin_phase;
 
@@ -206,10 +234,13 @@ int motion_engine_configure(umh_motion_engine_t *engine, const uint8_t *payload,
                             uint16_t length);
 int motion_engine_target(umh_motion_engine_t *engine, const uint8_t *payload,
                          uint16_t length);
+int motion_engine_configure_levitation(umh_motion_engine_t *engine,
+                                       uint8_t level, int32_t trap_z_um);
 int motion_engine_start(umh_motion_engine_t *engine);
 void motion_engine_request_stop(umh_motion_engine_t *engine);
 void motion_engine_abort(umh_motion_engine_t *engine, fpga_link_t *link);
 uint8_t motion_engine_owns_output(const umh_motion_engine_t *engine);
+uint8_t motion_engine_uses_rgb(const umh_motion_engine_t *engine);
 uint8_t motion_engine_is_active(const umh_motion_engine_t *engine);
 uint32_t motion_engine_service(umh_motion_engine_t *engine,
                                umh_spatial_renderer_t *renderer,

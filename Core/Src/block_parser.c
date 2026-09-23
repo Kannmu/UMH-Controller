@@ -395,7 +395,7 @@ int block_parser_begin(umh_block_parser_t *parser, const uint8_t *payload, uint1
    * across block boundaries: current_state.rgb already contains calibration
    * and brightness composition and feeding it back would apply both twice. */
   block_result = spatiotemporal_block_begin(&parser->block, payload, length);
-  if (block_result != 0) return block_result;
+  if (block_result < 0) return block_result;
   /* Reject spatial data before accepting stream bytes when geometry is not
    * available in the active device profile. */
   if (parser->renderer == NULL || parser->renderer->profile == NULL) {

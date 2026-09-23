@@ -92,7 +92,8 @@ static void update_clock_correction(umh_audio_engine_t *engine)
     correction = (int32_t)UMH_AUDIO_MAX_CORRECTION_PPM;
   if (correction < -(int32_t)UMH_AUDIO_MAX_CORRECTION_PPM)
     correction = -(int32_t)UMH_AUDIO_MAX_CORRECTION_PPM;
-  engine->clock_correction_ppm = correction;
+  engine->clock_correction_ppm += (correction - engine->clock_correction_ppm) / 4;
+  correction = engine->clock_correction_ppm;
   engine->step_q16 = (uint32_t)(65536 + ((int64_t)correction * 65536) / 1000000);
 }
 
@@ -143,6 +144,7 @@ static void service_running(umh_audio_engine_t *engine, uint64_t now_us)
     /* A failed zero-level transaction must not leave the last carrier level
      * running while the host refills the ring. */
     if (engine->last_submitted_level != 0u) (void)submit_level(engine, 0u, now_us);
+    (void)poll_link_if_due(engine, now_us);
     if (ring_count_locked(engine) >= engine->prebuffer_samples) {
       if (prime_interpolator(engine) == 0) {
         engine->waiting_refill = 0u;
@@ -176,6 +178,7 @@ static void service_running(umh_audio_engine_t *engine, uint64_t now_us)
       /* Hold the last commanded envelope and keep the 20 kHz output clock
        * running.  A short host/USB gap therefore does not blank the carrier
        * or restart the prebuffer. */
+      (void)poll_link_if_due(engine, now_us);
       ++engine->rendered_samples;
       engine->next_due_q16_us += engine->period_q16_us;
       return;
@@ -187,14 +190,7 @@ static void service_running(umh_audio_engine_t *engine, uint64_t now_us)
 
   update_clock_correction(engine);
   target = raw_level > engine->max_level ? engine->max_level : raw_level;
-  if (target > engine->fade_level) {
-    uint8_t next = (uint8_t)(engine->fade_level + UMH_AUDIO_SLEW_STEP);
-    engine->fade_level = next > target ? target : next;
-  } else if (target < engine->fade_level) {
-    engine->fade_level = engine->fade_level > UMH_AUDIO_SLEW_STEP
-                       ? (uint8_t)(engine->fade_level - UMH_AUDIO_SLEW_STEP) : 0u;
-    if (engine->fade_level < target) engine->fade_level = target;
-  }
+  engine->fade_level = target;
 
   if (engine->fade_level != engine->last_submitted_level) {
     if (submit_level(engine, engine->fade_level, now_us) != 0) {
@@ -520,7 +516,11 @@ void audio_engine_service(umh_audio_engine_t *engine, uint64_t now_us)
   if (audio_lock(engine) != 0) return;
   start_cycles = DWT->CYCCNT;
   switch (engine->state) {
+    case UMH_AUDIO_CONFIGURED:
+      (void)poll_link_if_due(engine, now_us);
+      break;
     case UMH_AUDIO_PRIMING:
+      (void)poll_link_if_due(engine, now_us);
       if (ring_count_locked(engine) >= engine->prebuffer_samples &&
           prime_interpolator(engine) == 0) {
         engine->state = UMH_AUDIO_RUNNING;

@@ -3,10 +3,10 @@ Report for cell umh_fpga_top
    Instance path: umh_fpga_top
                      Cell usage:
                                   cell	      count    Res Usage(%)
-                                  SLIC	    1028.00        100.0
-                                  LUT4	    1525.00        100.0
+                                  SLIC	    1033.00        100.0
+                                  LUT4	    1496.00        100.0
                                  IOBUF	         96        100.0
-                                PFUREG	       1841        100.0
+                                PFUREG	       1844        100.0
                                 RIPPLE	        247        100.0
                                    EBR	          7        100.0
 SUB MODULES
@@ -28,7 +28,7 @@ Report for cell spi_mic_stream
                      Cell usage:
                                   cell	      count    Res Usage(%)
                                   SLIC	      53.50         5.2
-                                  LUT4	     110.00         7.2
+                                  LUT4	     110.00         7.4
                                 PFUREG	        102         5.5
 ---------------------------------------------------
 Report for cell umh_channel_ram18
@@ -39,17 +39,17 @@ Report for cell umh_channel_ram18
                                 PFUREG	         23         1.2
                                    EBR	          1        14.3
 ---------------------------------------------------
-Report for cell ws2812_stream
-   Instance path: umh_fpga_top/ws2812_i
-                     Cell usage:
-                                  cell	      count    Res Usage(%)
-                                  SLIC	      39.33         3.8
-                                  LUT4	      65.00         4.3
-                                PFUREG	         56         3.0
-                                RIPPLE	         14         5.7
----------------------------------------------------
 Report for cell umh_mic_iq_ram
    Instance path: umh_fpga_top/mic_iq_ram
                      Cell usage:
                                   cell	      count    Res Usage(%)
                                    EBR	          1        14.3
+---------------------------------------------------
+Report for cell ws2812_stream
+   Instance path: umh_fpga_top/ws2812_i
+                     Cell usage:
+                                  cell	      count    Res Usage(%)
+                                  SLIC	      39.08         3.8
+                                  LUT4	      64.00         4.3
+                                PFUREG	         56         3.0
+                                RIPPLE	         14         5.7

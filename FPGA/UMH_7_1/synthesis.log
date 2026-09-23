@@ -5,7 +5,7 @@ Copyright (c) 1995 AT&T Corp.   All rights reserved.
 Copyright (c) 1995-2001 Lucent Technologies Inc.  All rights reserved.
 Copyright (c) 2001 Agere Systems   All rights reserved.
 Copyright (c) 2002-2023 Lattice Semiconductor Corporation,  All rights reserved.
-Mon Sep 21 22:25:07 2026
+Wed Sep 23 12:33:30 2026
 
 
 Command Line:  synthesis -f UMH_7_UMH_7_1_lattice.synproj 
@@ -116,10 +116,11 @@ WARNING - synthesis: Bit 115 of Register status_hold is stuck at Zero
 WARNING - synthesis: Bit 114 of Register status_hold is stuck at Zero
 WARNING - synthesis: Bit 113 of Register status_hold is stuck at Zero
 WARNING - synthesis: Bit 112 of Register status_hold is stuck at Zero
+######## Missing driver on net n13608. Patching with GND.
 ######## Missing driver on net n13607. Patching with GND.
-######## Missing driver on net n13606. Patching with GND.
-######## Missing driver on net n13611. Patching with GND.
 ######## Missing driver on net n13612. Patching with GND.
+######## Missing driver on net n13613. Patching with GND.
+######## Missing driver on net n13623. Patching with GND.
 ######## Missing driver on net n13622. Patching with GND.
 ######## Missing driver on net n13621. Patching with GND.
 ######## Missing driver on net n13620. Patching with GND.
@@ -129,13 +130,12 @@ WARNING - synthesis: Bit 112 of Register status_hold is stuck at Zero
 ######## Missing driver on net n13616. Patching with GND.
 ######## Missing driver on net n13615. Patching with GND.
 ######## Missing driver on net n13614. Patching with GND.
-######## Missing driver on net n13613. Patching with GND.
+######## Missing driver on net n13611. Patching with GND.
+######## Missing driver on net n13606. Patching with GND.
 ######## Missing driver on net n13610. Patching with GND.
 ######## Missing driver on net n13605. Patching with GND.
 ######## Missing driver on net n13609. Patching with GND.
 ######## Missing driver on net n13604. Patching with GND.
-######## Missing driver on net n13608. Patching with GND.
-######## Missing driver on net n13603. Patching with GND.
 WARNING - synthesis: Bit 72 of Register status_hold is stuck at Zero
 WARNING - synthesis: Bit 111 of Register status_hold is stuck at Zero
 WARNING - synthesis: Bit 110 of Register status_hold is stuck at Zero
@@ -206,16 +206,16 @@ WARNING - synthesis: Bit 0 of Register mic_win_q[3] is stuck at Zero
 
 ######## Mapping RTL RAM \staging_ram/mem to 1 EBR blocks in PSEUDO_DUAL_PORT Mode
 
-WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(1248): Register ws2812_enable_1253 is stuck at One. VDB-5014
+WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(1248): Register ws2812_enable_1254 is stuck at One. VDB-5014
 WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/spi_mic_stream.v(38): Register \mic_stream_i/shift_register_i0 is stuck at Zero. VDB-5013
 WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(712): Register spi_expected_length_i16 is stuck at Zero. VDB-5013
-WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(1248): Register mic_saturated_1314 is stuck at Zero. VDB-5013
+WARNING - synthesis: d:/data/onedrive/projects/umh/software/umh controller/fpga/src/umh_fpga_top.v(1248): Register mic_saturated_1315 is stuck at Zero. VDB-5013
 GSR instance connected to net fpga_cs_n_N_3621.
 WARNING - synthesis: Initial value found on instance ws2812_settle_i0_i0 will be ignored.
-WARNING - synthesis: Initial value found on instance swap_pending_1214 will be ignored.
-WARNING - synthesis: Initial value found on instance mic_warm_1281 will be ignored.
+WARNING - synthesis: Initial value found on instance swap_pending_1215 will be ignored.
+WARNING - synthesis: Initial value found on instance mic_warm_1282 will be ignored.
 WARNING - synthesis: Initial value found on instance mic_run_state_i0 will be ignored.
-WARNING - synthesis: Initial value found on instance mic_done_1313 will be ignored.
+WARNING - synthesis: Initial value found on instance mic_done_1314 will be ignored.
 WARNING - synthesis: Initial value found on instance mic_cfg_gap_i2 will be ignored.
 WARNING - synthesis: Initial value found on instance ws2812_settle_i0_i3 will be ignored.
 WARNING - synthesis: Initial value found on instance ws2812_settle_i0_i2 will be ignored.
@@ -236,15 +236,15 @@ All blocks are expanded and NGD expansion is successful.
 Writing NGD file UMH_7_UMH_7_1.ngd.
 
 ################### Begin Area Report (umh_fpga_top)######################
-Number of register bits => 1841 of 2427 (75 % )
+Number of register bits => 1844 of 2427 (75 % )
 CCU2D => 247
 EHXPLLJ => 1
-FD1P3AX => 983
+FD1P3AX => 984
 FD1P3AY => 8
 FD1P3DX => 101
 FD1P3IX => 428
 FD1P3JX => 6
-FD1S3AX => 294
+FD1S3AX => 296
 FD1S3AY => 5
 FD1S3DX => 1
 FD1S3IX => 12
@@ -253,12 +253,12 @@ GSR => 1
 IB => 8
 INV => 2
 L6MUX21 => 24
-LUT4 => 1524
+LUT4 => 1494
 MUX21 => 1
 OB => 87
 OBZ => 1
 PDPW8KC => 7
-PFUMX => 57
+PFUMX => 59
 ################### End Area Report ##################
 
 ################### Begin BlackBox Report ######################
@@ -268,35 +268,35 @@ TSALL => 1
 ################### Begin Clock Report ######################
 Clock Nets
 Number of Clocks: 4
-  Net : pll_clk, loads : 1465
-  Net : spi1_sck_c, loads : 280
+  Net : pll_clk, loads : 1467
+  Net : spi1_sck_c, loads : 281
   Net : spi_mic_sck_c, loads : 1
   Net : fpga_clk_8m_c, loads : 1
 Clock Enable Nets
 Number of Clock Enables: 118
 Top 10 highest fanout Clock Enables:
-  Net : mic_stream_i/sck_N_4345_enable_101, loads : 101
-  Net : fpga_cs_n_c, loads : 81
-  Net : pll_clk_enable_802, loads : 50
-  Net : pll_clk_enable_864, loads : 50
-  Net : pll_clk_enable_623, loads : 50
-  Net : pll_clk_enable_133, loads : 50
-  Net : pll_clk_enable_1062, loads : 50
-  Net : pll_clk_enable_441, loads : 50
-  Net : pll_clk_enable_988, loads : 46
-  Net : pll_clk_enable_695, loads : 41
+  Net : mic_stream_i/sck_N_4346_enable_101, loads : 101
+  Net : pll_clk_enable_1048, loads : 84
+  Net : fpga_cs_n_c, loads : 79
+  Net : pll_clk_enable_426, loads : 50
+  Net : pll_clk_enable_610, loads : 50
+  Net : pll_clk_enable_851, loads : 50
+  Net : pll_clk_enable_132, loads : 50
+  Net : pll_clk_enable_789, loads : 50
+  Net : pll_clk_enable_973, loads : 46
+  Net : pll_clk_enable_682, loads : 42
 Highest fanout non-clock nets
 Top 10 highest fanout non-clock nets:
-  Net : ev_state_3, loads : 120
+  Net : n42726, loads : 105
   Net : mic_stream_i/n13, loads : 104
   Net : spi_mic_cs_n_c, loads : 103
-  Net : n42047, loads : 103
-  Net : sck_N_4345, loads : 102
-  Net : mic_warm, loads : 101
-  Net : mic_stream_i/sck_N_4345_enable_101, loads : 101
-  Net : n41954, loads : 90
+  Net : sck_N_4346, loads : 102
+  Net : mic_stream_i/sck_N_4346_enable_101, loads : 101
+  Net : mic_warm, loads : 93
   Net : swap_now_s5, loads : 84
-  Net : n19157, loads : 84
+  Net : n28187, loads : 84
+  Net : n19158, loads : 84
+  Net : n26451, loads : 84
 ################### End Clock Report ##################
 
 Timing Report Summary
@@ -309,10 +309,10 @@ create_clock -period 7.812500 -name     |             |             |
 clk2 [get_nets spi_mic_sck_c]           |  128.008 MHz|  150.038 MHz|     4  
                                         |             |             |
 create_clock -period 7.812500 -name     |             |             |
-clk1 [get_nets pll_clk]                 |  128.008 MHz|   53.990 MHz|    15 *
+clk1 [get_nets pll_clk]                 |  128.008 MHz|   59.613 MHz|    14 *
                                         |             |             |
 create_clock -period 7.812500 -name     |             |             |
-clk0 [get_nets spi1_sck_c]              |  128.008 MHz|   55.565 MHz|    20 *
+clk0 [get_nets spi1_sck_c]              |  128.008 MHz|   54.174 MHz|    21 *
                                         |             |             |
 --------------------------------------------------------------------------------
 
@@ -320,8 +320,8 @@ clk0 [get_nets spi1_sck_c]              |  128.008 MHz|   55.565 MHz|    20 *
 2 constraints not met.
 
 
-Peak Memory Usage: 115.848  MB
+Peak Memory Usage: 116.031  MB
 
 --------------------------------------------------------------
-Elapsed CPU time for LSE flow : 0.891  secs
+Elapsed CPU time for LSE flow : 0.563  secs
 --------------------------------------------------------------

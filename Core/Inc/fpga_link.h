@@ -89,6 +89,9 @@ typedef struct {
   fpga_status_wire_t status;
   uint8_t running;
   uint8_t audio_short_supported;
+  umh_output_frame_t hold_frame;
+  uint8_t hold_valid;
+  uint32_t hold_last_tx_tick;
   osMutexId_t mutex;
   StaticSemaphore_t mutex_memory;
 } fpga_link_t;
@@ -100,6 +103,7 @@ extern uint8_t fpga_logical_to_physical[UMH_DEVICE_CHANNEL_COUNT];
 void fpga_link_init(fpga_link_t *link, SPI_HandleTypeDef *spi);
 int fpga_link_submit(fpga_link_t *link, const umh_output_frame_t *frame);
 int fpga_link_poll_status(fpga_link_t *link);
+int fpga_link_submit_allow_hold(fpga_link_t *link, const umh_output_frame_t *frame, uint8_t allow_hold);
 int fpga_link_safe_stop(fpga_link_t *link);
 int fpga_link_set_ws2812(fpga_link_t *link, uint8_t r, uint8_t g, uint8_t b);
 int fpga_link_mic_config(fpga_link_t *link, uint8_t gate_count, uint16_t start,

@@ -255,17 +255,133 @@ static void apply_digital(const umh_output_frame_t *frame)
   }
 }
 
+static uint8_t fpga_ultrasound_equal(const umh_output_frame_t *held,
+                                     const umh_output_frame_t *frame)
+{
+  if (held == NULL || frame == NULL) return 0u;
+  if ((held->update_flags & UMH_FRAME_FLAG_ULTRASOUND) == 0u ||
+      (frame->update_flags & UMH_FRAME_FLAG_ULTRASOUND) == 0u) return 0u;
+  return memcmp(held->channels, frame->channels, sizeof(frame->channels)) == 0u ? 1u : 0u;
+}
+
+static int fpga_send_rgb_locked(fpga_link_t *link, const umh_rgb_value_t *rgb)
+{
+  umh_output_frame_t rgb_frame;
+  uint16_t length;
+  if (link == NULL || rgb == NULL) return -1;
+  memset(&rgb_frame, 0, sizeof(rgb_frame));
+  rgb_frame.update_flags = UMH_FRAME_FLAG_RGB;
+  memcpy(rgb_frame.rgb, rgb, sizeof(rgb_frame.rgb));
+  length = pack_common(link, FPGA_CMD_WS2812, &rgb_frame);
+  if (length == 0u) return -1;
+  if (exchange(link, length) != 0) return -2;
+  if (unpack_status(link) != 0) return -3;
+  return 0;
+}
+static int fpga_status_locked(fpga_link_t *link)
+{
+  uint16_t length = pack_common(link, FPGA_CMD_STATUS, NULL);
+  if (length == 0u) return -1;
+  if (exchange(link, length) != 0) return -1;
+  return unpack_status(link);
+}
+
 int fpga_link_submit(fpga_link_t *link, const umh_output_frame_t *frame)
 {
+  return fpga_link_submit_allow_hold(link, frame, 0u);
+}
+
+int fpga_link_submit_allow_hold(fpga_link_t *link, const umh_output_frame_t *frame,
+                                uint8_t allow_hold)
+{
   uint16_t length;
-  if (link == NULL || frame == NULL || link->status.fifo_credit == 0u || link->mutex == NULL) return -1;
+  uint8_t frame_has_ultrasound;
+  uint8_t tx_done = 0u;
+  if (link == NULL || frame == NULL || link->mutex == NULL) return -1;
+  frame_has_ultrasound = (frame->update_flags & UMH_FRAME_FLAG_ULTRASOUND) != 0u;
   if (osMutexAcquire(link->mutex, osWaitForever) != osOK) return -1;
+
+  /* RGB/digital-only frames must not command the event builder. */
+  if (allow_hold != 0u && frame_has_ultrasound == 0u) {
+    if ((frame->update_flags & UMH_FRAME_FLAG_DIGITAL) != 0u)
+      apply_digital(frame);
+    if ((frame->update_flags & UMH_FRAME_FLAG_RGB) != 0u &&
+        (link->hold_valid == 0u ||
+         (link->hold_frame.update_flags & UMH_FRAME_FLAG_RGB) == 0u ||
+         memcmp(link->hold_frame.rgb, frame->rgb, sizeof(frame->rgb)) != 0)) {
+      if (fpga_send_rgb_locked(link, frame->rgb) != 0) {
+        osMutexRelease(link->mutex);
+        return -4;
+      }
+      link->hold_last_tx_tick = HAL_GetTick();
+      tx_done = 1u;
+    }
+    if ((frame->update_flags & UMH_FRAME_FLAG_RGB) != 0u) {
+      memcpy(link->hold_frame.rgb, frame->rgb, sizeof(link->hold_frame.rgb));
+      link->hold_frame.update_flags |= UMH_FRAME_FLAG_RGB;
+    }
+    if ((frame->update_flags & UMH_FRAME_FLAG_DIGITAL) != 0u) {
+      link->hold_frame.digital_mask = frame->digital_mask;
+      link->hold_frame.digital_state = frame->digital_state;
+      link->hold_frame.update_flags |= UMH_FRAME_FLAG_DIGITAL;
+    }
+    if (tx_done == 0u &&
+        (uint32_t)(HAL_GetTick() - link->hold_last_tx_tick) >= 10u) {
+      (void)fpga_status_locked(link);
+      link->hold_last_tx_tick = HAL_GetTick();
+    }
+    osMutexRelease(link->mutex);
+    return 0;
+  }
+
+  /* Hold a static 84-channel image; only re-send on phase/level change. */
+  if (allow_hold != 0u && frame_has_ultrasound != 0u && link->hold_valid != 0u &&
+      fpga_ultrasound_equal(&link->hold_frame, frame) != 0u) {
+    if ((frame->update_flags & UMH_FRAME_FLAG_DIGITAL) != 0u)
+      apply_digital(frame);
+    if ((frame->update_flags & UMH_FRAME_FLAG_RGB) != 0u &&
+        ((link->hold_frame.update_flags & UMH_FRAME_FLAG_RGB) == 0u ||
+         memcmp(link->hold_frame.rgb, frame->rgb, sizeof(frame->rgb)) != 0)) {
+      if (fpga_send_rgb_locked(link, frame->rgb) != 0) {
+        osMutexRelease(link->mutex);
+        return -4;
+      }
+      link->hold_last_tx_tick = HAL_GetTick();
+      tx_done = 1u;
+    }
+    {
+      umh_output_channel_t channels[UMH_DEVICE_CHANNEL_COUNT];
+      memcpy(channels, link->hold_frame.channels, sizeof(channels));
+      link->hold_frame = *frame;
+      memcpy(link->hold_frame.channels, channels, sizeof(channels));
+      link->hold_frame.update_flags |= UMH_FRAME_FLAG_ULTRASOUND;
+    }
+    if (tx_done == 0u &&
+        (uint32_t)(HAL_GetTick() - link->hold_last_tx_tick) >= 10u) {
+      (void)fpga_status_locked(link);
+      link->hold_last_tx_tick = HAL_GetTick();
+    }
+    osMutexRelease(link->mutex);
+    return 0;
+  }
+
+  if (link->status.fifo_credit == 0u) {
+    osMutexRelease(link->mutex);
+    return -1;
+  }
   length = pack_common(link, FPGA_CMD_FRAME, frame);
   if (length == 0u) { osMutexRelease(link->mutex); return -2; }
   if (exchange(link, length) != 0) { osMutexRelease(link->mutex); return -3; }
   if (unpack_status(link) != 0) { osMutexRelease(link->mutex); return -4; }
   apply_digital(frame);
   link->running = 1u;
+  if (allow_hold != 0u) {
+    link->hold_frame = *frame;
+    link->hold_valid = 1u;
+    link->hold_last_tx_tick = HAL_GetTick();
+  } else {
+    link->hold_valid = 0u;
+  }
   osMutexRelease(link->mutex);
   return 0;
 }
@@ -295,6 +411,7 @@ int fpga_link_safe_stop(fpga_link_t *link)
   if (exchange(link, length) != 0) { osMutexRelease(link->mutex); return -2; }
   if (unpack_status(link) != 0) { osMutexRelease(link->mutex); return -3; }
   link->running = 0u;
+  link->hold_valid = 0u;
   osMutexRelease(link->mutex);
   return 0;
 }
@@ -317,6 +434,10 @@ int fpga_link_set_ws2812(fpga_link_t *link, uint8_t r, uint8_t g, uint8_t b)
   if (length == 0u) { osMutexRelease(link->mutex); return -2; }
   if (exchange(link, length) != 0) { osMutexRelease(link->mutex); return -3; }
   if (unpack_status(link) != 0) { osMutexRelease(link->mutex); return -4; }
+  if (link->hold_valid != 0u) {
+    memcpy(link->hold_frame.rgb, frame.rgb, sizeof(frame.rgb));
+    link->hold_frame.update_flags |= UMH_FRAME_FLAG_RGB;
+  }
 
   osMutexRelease(link->mutex);
   return 0;
@@ -416,11 +537,16 @@ int fpga_link_audio_level(fpga_link_t *link, uint8_t level, uint32_t sequence)
 
 int fpga_link_audio_level_fast(fpga_link_t *link, uint8_t level)
 {
-  if (link == NULL || link->spi == NULL) return -1;
+  if (link == NULL || link->spi == NULL || link->mutex == NULL) return -1;
+  if (osMutexAcquire(link->mutex, 2u) != osOK) return -3;
   link->tx[0] = FPGA_CMD_AUDIO_LEVEL_SHORT;
   link->tx[1] = FPGA_PROTOCOL_VERSION;
   link->tx[2] = level;
-  if (exchange(link, 3u) != 0) return -2;
+  if (exchange(link, 3u) != 0) {
+    osMutexRelease(link->mutex);
+    return -2;
+  }
+  osMutexRelease(link->mutex);
   return 0;
 }
 

@@ -30,6 +30,14 @@
 #include <string.h>
 #include <math.h>
 
+/* Acoustic levitation switch: static single-sided dark-core vortex.
+ * Final channel level is 2x the calibration level, clamped to 24..48.
+ * The dark core keeps the particle out of the high-pressure ring while
+ * leaving enough gradient to capture it against gravity. */
+#define UMH_LEVITATION_TRAP_Z_UM 50000
+#define UMH_LEVITATION_LEVEL_MIN 44u
+#define UMH_LEVITATION_LEVEL_MAX 68u
+
 osThreadId_t umh_protocol_task_handle;
 umh_rx_ring_t umh_usb_rx_ring;
 
@@ -207,7 +215,8 @@ static const osThreadAttr_t ui_task_attributes = {
   .priority = osPriorityBelowNormal
 };
 static StaticTask_t calibration_task_cb;
-static StackType_t calibration_task_stack[1024];
+/* v4 calibration high-water is 4680 B; the old 4 KiB stack overflowed into calibration_task_cb. */
+static StackType_t calibration_task_stack[1536];
 static const osThreadAttr_t calibration_task_attributes = {
   .name = "cal", .cb_mem = &calibration_task_cb, .cb_size = sizeof(calibration_task_cb),
   .stack_mem = calibration_task_stack, .stack_size = sizeof(calibration_task_stack),
@@ -223,6 +232,7 @@ static void send_response(const umh_protocol_frame_t *request, uint8_t type,
                           const void *payload, uint16_t length);
 static void application_init(void);
 static int gui_demo(void *context);
+static int gui_levitation_toggle(void *context);
 
 static uint32_t read_u32(const uint8_t *p)
 {
@@ -636,6 +646,46 @@ static void calibration_task(void *argument)
   }
 }
 
+static uint8_t levitation_motion_level(void)
+{
+  const eeprom_profile_record_t *record = eeprom_profile_current(&eeprom_profile);
+  uint32_t channel_level = 32u;
+  if (record != NULL && record->cal_meta_valid != 0u && record->cal_level != 0u)
+    channel_level = (uint32_t)record->cal_level * 2u;
+  if (channel_level < UMH_LEVITATION_LEVEL_MIN) channel_level = UMH_LEVITATION_LEVEL_MIN;
+  if (channel_level > UMH_LEVITATION_LEVEL_MAX) channel_level = UMH_LEVITATION_LEVEL_MAX;
+  return (uint8_t)((channel_level * 255u + 64u) / 128u);
+}
+
+static int gui_levitation_toggle(void *context)
+{
+  (void)context;
+  if ((system_status_get()->flags & UMH_SYSTEM_LEVITATION) != 0u) {
+    if (motion_engine_owns_output(&motion_engine) != 0u)
+      motion_engine_request_stop(&motion_engine);
+    system_status_clear(UMH_SYSTEM_LEVITATION);
+    return 0;
+  }
+  if (device_gui_calibration_busy(&device_gui) != 0u || demo_building != 0u) return -1;
+  audio_engine_abort(&audio_engine);
+  if (motion_engine_owns_output(&motion_engine) != 0u)
+    motion_engine_abort(&motion_engine, &fpga_link);
+  playback_plan_stop(&playback_plan);
+  block_parser_cancel(&block_parser);
+  block_stream_active = 0u;
+  frame_ring_init(&frame_ring);
+  (void)fpga_link_set_ws2812(&fpga_link, 0u, 0u, 0u);
+  if (fpga_link_safe_stop(&fpga_link) != 0) return -1;
+  if (motion_engine_configure_levitation(&motion_engine, levitation_motion_level(),
+                                         UMH_LEVITATION_TRAP_Z_UM) != 0) return -1;
+  if (motion_engine_start(&motion_engine) != 0) {
+    (void)fpga_link_safe_stop(&fpga_link);
+    return -1;
+  }
+  system_status_set(UMH_SYSTEM_LEVITATION);
+  return 0;
+}
+
 static int gui_demo(void *context)
 {
   const umh_demo_descriptor_t *descriptor;
@@ -885,12 +935,12 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       }
       break;
     case UMH_MSG_MOTION_UPLOAD:
-      if (audio_owns != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (audio_owns != 0u || (system_status_get()->flags & UMH_SYSTEM_LEVITATION) != 0u) { status = UMH_STATUS_BUSY; break; }
       if (motion_engine_upload(&motion_engine, frame->payload, frame->payload_size) != 0)
         status = UMH_STATUS_BAD_LENGTH;
       break;
     case UMH_MSG_MOTION_CONFIG:
-      if (audio_owns != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (audio_owns != 0u || (system_status_get()->flags & UMH_SYSTEM_LEVITATION) != 0u) { status = UMH_STATUS_BUSY; break; }
       if (motion_engine_configure(&motion_engine, frame->payload, frame->payload_size) != 0)
         status = UMH_STATUS_BAD_LENGTH;
       break;
@@ -904,10 +954,10 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       block_stream_active = 0u;
       frame_ring_init(&frame_ring);
       if (fpga_link_safe_stop(&fpga_link) != 0) status = UMH_STATUS_IO;
-      else if (motion_engine_start(&motion_engine) != 0) status = UMH_STATUS_INVALID_STATE;
+      else { if (motion_engine_uses_rgb(&motion_engine) == 0u) (void)fpga_link_set_ws2812(&fpga_link, 0u, 0u, 0u); if (motion_engine_start(&motion_engine) != 0) status = UMH_STATUS_INVALID_STATE; }
       break;
     case UMH_MSG_MOTION_TARGET:
-      if (audio_owns != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (audio_owns != 0u || (system_status_get()->flags & UMH_SYSTEM_LEVITATION) != 0u) { status = UMH_STATUS_BUSY; break; }
       if (motion_engine_target(&motion_engine, frame->payload, frame->payload_size) != 0)
         status = UMH_STATUS_BAD_LENGTH;
       break;
@@ -1156,7 +1206,7 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       }
       if (audio_engine_owns_output(&audio_engine) != 0u)
         audio_engine_abort(&audio_engine);
-      if (audio_engine_configure(&audio_engine, &renderer, &fpga_link,
+      (void)fpga_link_set_ws2812(&fpga_link, 0u, 0u, 0u); if (audio_engine_configure(&audio_engine, &renderer, &fpga_link,
                                  frame->payload, frame->payload_size) != 0)
         status = UMH_STATUS_INVALID_STATE;
       break;
@@ -1317,6 +1367,10 @@ static void render_task(void *argument)
   (void)argument;
   render_task_handle = xTaskGetCurrentTaskHandle();
   for (;;) {
+    if ((system_status_get()->flags & UMH_SYSTEM_LEVITATION) != 0u &&
+        motion_engine_owns_output(&motion_engine) == 0u) {
+      system_status_clear(UMH_SYSTEM_LEVITATION);
+    }
     if (demo_building != 0u) {
       render_burst = 0u;
       osDelay(1u);
@@ -1385,7 +1439,7 @@ static void render_task(void *argument)
       uint8_t due = playback_plan_frame_due(&playback_plan, frame->deadline, now_us);
       if (due != 0u) {
         if (fpga_link_status(&fpga_link)->fifo_credit != 0u) {
-          int submit_result = fpga_link_submit(&fpga_link, frame);
+          int submit_result = fpga_link_submit_allow_hold(&fpga_link, frame, 1u);
           if (submit_result == 0) {
             (void)frame_ring_release_read(&frame_ring);
             playback_plan_frame_submitted(&playback_plan);
@@ -1592,7 +1646,8 @@ static void application_init(void)
   input_events_init();
   device_gui_init(&device_gui, &oled, &device_profile, system_status_get(),
                   &playback_plan, &fpga_link, &flash_store, &eeprom_profile,
-                  gui_calibration, gui_selftest, gui_demo, gui_ws2812_set,
+                  gui_calibration, gui_selftest, gui_demo,
+                  gui_levitation_toggle, gui_ws2812_set,
                   demo_engine_count(), NULL);
   {
     const osMessageQueueAttr_t storage_queue_attributes = {

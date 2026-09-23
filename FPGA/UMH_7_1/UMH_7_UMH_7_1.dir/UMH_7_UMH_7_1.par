@@ -4,7 +4,7 @@ Copyright (c) 1995 AT&T Corp.   All rights reserved.
 Copyright (c) 1995-2001 Lucent Technologies Inc.  All rights reserved.
 Copyright (c) 2001 Agere Systems   All rights reserved.
 Copyright (c) 2002-2023 Lattice Semiconductor Corporation,  All rights reserved.
-Mon Sep 21 22:25:12 2026
+Wed Sep 23 12:33:35 2026
 
 D:/Software/Lattice Diamond/diamond/3.13/ispfpga\bin\nt64\par -f
 UMH_7_UMH_7_1.p2t UMH_7_UMH_7_1_map.ncd UMH_7_UMH_7_1.dir UMH_7_UMH_7_1.prf
@@ -15,11 +15,11 @@ Preference file: UMH_7_UMH_7_1.prf.
 Level/       Number       Worst        Timing       Worst        Timing       Run          NCD
 Cost [ncd]   Unrouted     Slack        Score        Slack(hold)  Score(hold)  Time         Status
 ----------   --------     -----        ------       -----------  -----------  ----         ------
-5_1   *      0            1.621        0            0.302        0            15           Completed
+5_1   *      0            1.510        0            0.234        0            19           Completed
 
 * : Design saved.
 
-Total (real) run time for 1-seed: 15 secs 
+Total (real) run time for 1-seed: 19 secs 
 
 par done!
 

@@ -20,7 +20,7 @@ static void number(char *out, size_t size, uint32_t value);
 static const char *page_title(device_gui_page_t page)
 {
   static const char *const titles[DEVICE_GUI_PAGE_COUNT] = {
-    "STATUS", "PLAYBACK", "DEVICE", "CALIB", "STORAGE", "DEBUG", "SYSTEM", "DEMOS", "LED TEST"
+    "STATUS", "PLAYBACK", "DEVICE", "CALIB", "STORAGE", "DEBUG", "SYSTEM", "ACOUSTIC", "DEMOS", "LED TEST"
   };
   return page < DEVICE_GUI_PAGE_COUNT ? titles[page] : "UMH-84";
 }
@@ -35,6 +35,7 @@ static uint8_t page_item_count(const device_gui_t *gui)
     case DEVICE_GUI_STORAGE: return 6u;
     case DEVICE_GUI_DIAGNOSTICS: return 32u;
     case DEVICE_GUI_SYSTEM: return (uint8_t)(4u + uxTaskGetNumberOfTasks());
+    case DEVICE_GUI_LEVITATION: return 1u;
     case DEVICE_GUI_DEMOS: return gui->demo_count;
     case DEVICE_GUI_WS2812_TEST: return 5u;
     default: return 0u;
@@ -344,6 +345,13 @@ static void render_demos(device_gui_t *gui)
   }
 }
 
+static void render_levitation(device_gui_t *gui)
+{
+  uint8_t on = gui->status != NULL &&
+                (gui->status->flags & UMH_SYSTEM_LEVITATION) != 0u;
+  line(gui, 0u, "LEVITATE", on != 0u ? "ON" : "OFF");
+}
+
 static void render_ws2812_test(device_gui_t *gui)
 {
   const char *modes[] = {"OFF", "RED", "GREEN", "BLUE", "WHITE"};
@@ -364,6 +372,7 @@ void device_gui_init(device_gui_t *gui, oled_ssd1315_t *oled,
                      device_gui_action_t calibration,
                      device_gui_action_t self_test,
                      device_gui_action_t demo,
+                     device_gui_action_t levitation_toggle,
                      device_gui_action_t ws2812_set,
                      uint8_t demo_count,
                      void *action_context)
@@ -372,7 +381,8 @@ void device_gui_init(device_gui_t *gui, oled_ssd1315_t *oled,
   memset(gui, 0, sizeof(*gui));
   gui->oled = oled; gui->profile = profile; gui->status = status; gui->plan = plan;
   gui->fpga = fpga; gui->flash = flash; gui->eeprom = eeprom;
-  gui->demo = demo; gui->ws2812_set = ws2812_set; gui->calibration = calibration;
+  gui->demo = demo; gui->levitation_toggle = levitation_toggle;
+  gui->ws2812_set = ws2812_set; gui->calibration = calibration;
   gui->self_test = self_test;
   gui->demo_count = demo_count;
   gui->action_context = action_context; gui->page = DEVICE_GUI_HOME;
@@ -458,6 +468,13 @@ void device_gui_handle_event(device_gui_t *gui, const input_event_t *event)
     return;
   }
 
+  if (gui->page == DEVICE_GUI_LEVITATION && gui->row == 0u) {
+    int result = gui->levitation_toggle != NULL ? gui->levitation_toggle(gui->action_context) : -1;
+    gui->action_message = result == 0 ? 1u : 2u;
+    gui->message_until = HAL_GetTick() + GUI_MESSAGE_MS;
+    return;
+  }
+
   if (gui->page == DEVICE_GUI_WS2812_TEST && gui->row < 4u) {
     int result = -1;
     if (gui->row == 0u) {
@@ -526,6 +543,7 @@ void device_gui_render(device_gui_t *gui, uint32_t now_ms)
     case DEVICE_GUI_STORAGE: render_storage(gui); break;
     case DEVICE_GUI_DIAGNOSTICS: render_diagnostics(gui); break;
     case DEVICE_GUI_SYSTEM: render_system(gui); break;
+    case DEVICE_GUI_LEVITATION: render_levitation(gui); break;
     case DEVICE_GUI_DEMOS: render_demos(gui); break;
     case DEVICE_GUI_WS2812_TEST: render_ws2812_test(gui); break;
     default: break;
