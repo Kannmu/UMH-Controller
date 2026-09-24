@@ -98,3 +98,4 @@ tmp/
 *.vcd
 *.vvp
 FPGA/program_*.log
+Utiles/bench/

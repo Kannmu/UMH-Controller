@@ -215,12 +215,12 @@ class UmhLink:
         return None
 
     def request(self, message_type: int, payload: bytes = b"", expected: int | None = None,
-                timeout: float = 2.0) -> bytes:
+                timeout: float = 2.0, stream_sequence: int = 0) -> bytes:
         if expected is None:
             expected = MSG_ACK
         self.transaction_id = (self.transaction_id + 1) & 0xFFFFFFFF
         transaction = self.transaction_id
-        self.port.write(self._encode(message_type, payload, transaction))
+        self.port.write(self._encode(message_type, payload, transaction, stream_sequence))
         deadline = time.monotonic() + timeout
         while True:
             remaining = deadline - time.monotonic()
