@@ -91,6 +91,7 @@ Core/Src/fmac.c \
 Core/Src/fpga_link.c \
 Core/Src/frame_ring.c \
 Core/Src/gpio.c \
+Core/Src/hologram_engine.c \
 Core/Src/i2c.c \
 Core/Src/i2c_bus.c \
 Core/Src/input_events.c \

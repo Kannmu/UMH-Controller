@@ -58,7 +58,17 @@ typedef enum {
   UMH_MSG_CAL_START           = 0x82, /* bench/debug: start calibration */
   UMH_MSG_CAL_RAW             = 0x83, /* bench/debug: stream raw per-pattern I/Q */
   UMH_MSG_CAL_SELFTEST        = 0x84, /* run independent built-in phase self-test */
-  UMH_MSG_CAL_SELFTEST_RESULT = 0x85  /* query last self-test result */
+  UMH_MSG_CAL_SELFTEST_RESULT = 0x85, /* query last self-test result */
+  /* Device-side hologram keyframe executor (Core/Inc/hologram_engine.h).
+   * UPLOAD stores whole 84-channel holograms in RAM, CONFIG sets the cadence and
+   * interpolation time, START/STOP own the FPGA output exactly like motion and
+   * focused-AM audio do.  The host keeps computing the holograms; the device
+   * only interpolates between them so a long morph cannot be broken by USB. */
+  UMH_MSG_HOLOGRAM_UPLOAD     = 0xA0,
+  UMH_MSG_HOLOGRAM_CONFIG     = 0xA1,
+  UMH_MSG_HOLOGRAM_START      = 0xA2,
+  UMH_MSG_HOLOGRAM_STOP       = 0xA3,
+  UMH_MSG_HOLOGRAM_STATUS     = 0xA5
 } umh_message_type_t;
 
 typedef enum {

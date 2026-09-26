@@ -24,6 +24,7 @@
 #include "demo_engine.h"
 #include "motion_engine.h"
 #include "audio_engine.h"
+#include "hologram_engine.h"
 #include "spi.h"
 #include "i2c.h"
 #include "i2c_bus.h"
@@ -48,6 +49,7 @@ static umh_block_parser_t block_parser;
 static umh_playback_plan_t playback_plan;
 static umh_audio_engine_t audio_engine;
 static umh_motion_engine_t motion_engine;
+static umh_hologram_engine_t hologram_engine;
 static fpga_link_t fpga_link;
 static flash_store_t flash_store;
 static eeprom_profile_t eeprom_profile;
@@ -902,10 +904,12 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
   uint32_t value;
   uint8_t audio_owns;
   uint8_t motion_owns;
+  uint8_t hologram_owns;
   (void)context;
   if (frame == NULL) return;
   audio_owns = audio_engine_owns_output(&audio_engine);
   motion_owns = motion_engine_owns_output(&motion_engine);
+  hologram_owns = hologram_engine_owns_output(&hologram_engine);
   switch (frame->header.message_type) {
     case UMH_MSG_GET_PROFILE:
       if (frame->payload_size != 0u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
@@ -920,7 +924,7 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       send_response(frame, UMH_MSG_STATUS, status_payload, sizeof(status_payload));
       return;
     case UMH_MSG_BLOCK_BEGIN:
-      if (audio_owns != 0u || motion_owns != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (audio_owns != 0u || motion_owns != 0u || hologram_owns != 0u) { status = UMH_STATUS_BUSY; break; }
       if (playback_plan.running != 0u || block_stream_active != 0u ||
           frame_ring_count(&frame_ring) != 0u ||
           block_parser_begin(&block_parser, frame->payload, frame->payload_size) != 0) {
@@ -966,13 +970,13 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       block_stream_active = 0u;
       break;
     case UMH_MSG_SET_PLAN:
-      if (audio_owns != 0u || motion_owns != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (audio_owns != 0u || motion_owns != 0u || hologram_owns != 0u) { status = UMH_STATUS_BUSY; break; }
       if (playback_plan.running != 0u ||
           frame->payload_size != sizeof(umh_playback_plan_wire_t) ||
           playback_plan_set(&playback_plan, (const umh_playback_plan_wire_t *)frame->payload) != 0) status = UMH_STATUS_INVALID_STATE;
       break;
     case UMH_MSG_SET_DEMO:
-      if (audio_owns != 0u || motion_owns != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (audio_owns != 0u || motion_owns != 0u || hologram_owns != 0u) { status = UMH_STATUS_BUSY; break; }
       if (frame->payload_size != 1u || frame->payload[0] >= demo_engine_count()) {
         status = UMH_STATUS_BAD_LENGTH;
       } else {
@@ -1032,7 +1036,7 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       }
     case UMH_MSG_START_PLAN:
       if (frame->payload_size != 0u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
-      if (audio_owns != 0u || motion_owns != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (audio_owns != 0u || motion_owns != 0u || hologram_owns != 0u) { status = UMH_STATUS_BUSY; break; }
       if (playback_plan.configured == 0u ||
           (block_parser.block.active == 0u && frame_ring_count(&frame_ring) == 0u) ||
           playback_plan.wire.block_id != block_parser.block.header.block_id ||
@@ -1054,16 +1058,18 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       if (frame->payload_size != 0u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
       if (audio_owns != 0u) audio_engine_abort(&audio_engine);
       if (motion_owns != 0u) motion_engine_request_stop(&motion_engine);
+      if (hologram_owns != 0u) hologram_engine_request_stop(&hologram_engine);
       playback_plan_stop(&playback_plan);
       block_parser_cancel(&block_parser);
       block_stream_active = 0u;
       frame_ring_init(&frame_ring);
-      if (motion_owns == 0u) (void)fpga_link_safe_stop(&fpga_link);
+      if (motion_owns == 0u && hologram_owns == 0u) (void)fpga_link_safe_stop(&fpga_link);
       break;
     case UMH_MSG_CLEAR_PLAN:
       if (frame->payload_size != 0u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
       if (audio_owns != 0u) audio_engine_abort(&audio_engine);
       if (motion_owns != 0u) motion_engine_abort(&motion_engine, &fpga_link);
+      if (hologram_owns != 0u) hologram_engine_abort(&hologram_engine, &fpga_link);
       playback_plan_stop(&playback_plan);
       (void)fpga_link_safe_stop(&fpga_link);
       playback_plan_clear(&playback_plan);
@@ -1071,6 +1077,49 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       block_stream_active = 0u;
       frame_ring_init(&frame_ring);
       break;
+    case UMH_MSG_HOLOGRAM_UPLOAD:
+      if (audio_owns != 0u || motion_owns != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (hologram_engine_upload(&hologram_engine, frame->payload,
+                                 frame->payload_size) != 0)
+        status = UMH_STATUS_BAD_LENGTH;
+      break;
+    case UMH_MSG_HOLOGRAM_CONFIG:
+      if (audio_owns != 0u || motion_owns != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (hologram_engine_configure(&hologram_engine, frame->payload,
+                                    frame->payload_size) != 0)
+        status = UMH_STATUS_BAD_LENGTH;
+      break;
+    case UMH_MSG_HOLOGRAM_START:
+      if (frame->payload_size != 0u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
+      if (audio_owns != 0u || motion_owns != 0u || device_gui_calibration_busy(&device_gui) != 0u ||
+          demo_building != 0u) { status = UMH_STATUS_BUSY; break; }
+      /* Same hand-over protocol as MOTION_START: give up the block path, put the
+       * FPGA in a safe state, then own the output. */
+      playback_plan_stop(&playback_plan);
+      block_parser_cancel(&block_parser);
+      block_stream_active = 0u;
+      frame_ring_init(&frame_ring);
+      if (fpga_link_safe_stop(&fpga_link) != 0) status = UMH_STATUS_IO;
+      else {
+        (void)fpga_link_set_ws2812(&fpga_link, 0u, 0u, 0u);
+        hologram_engine_start(&hologram_engine);
+        if (hologram_engine_owns_output(&hologram_engine) == 0u)
+          status = UMH_STATUS_INVALID_STATE;
+      }
+      break;
+    case UMH_MSG_HOLOGRAM_STOP:
+      if (frame->payload_size != 0u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
+      hologram_engine_request_stop(&hologram_engine);
+      break;
+    case UMH_MSG_HOLOGRAM_STATUS:
+      if (frame->payload_size != 0u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
+      {
+        umh_hologram_status_wire_t hologram_status;
+        hologram_engine_get_status(&hologram_engine, &hologram_status);
+        send_response(frame, UMH_MSG_HOLOGRAM_STATUS, &hologram_status,
+                      (uint16_t)sizeof(hologram_status));
+        return;
+      }
     case UMH_MSG_FPGA_STATUS:
       if (frame->payload_size != 0u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
       send_response(frame, UMH_MSG_FPGA_STATUS, fpga_link_status(&fpga_link), sizeof(fpga_status_wire_t));
@@ -1141,7 +1190,7 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       }
     case UMH_MSG_CAL_RAW:
       if (frame->payload_size != 8u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
-      if (audio_owns != 0u || motion_owns != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (audio_owns != 0u || motion_owns != 0u || hologram_owns != 0u) { status = UMH_STATUS_BUSY; break; }
       if (calibration_raw_mode != 0u || device_gui_calibration_busy(&device_gui) != 0u) {
         status = UMH_STATUS_BUSY;
       } else if (frame->payload[0] == 0u || frame->payload[3] == 0u ||
@@ -1170,7 +1219,7 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       break;
     case UMH_MSG_CAL_START:
       if (frame->payload_size != 0u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
-      if (audio_owns != 0u || motion_owns != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (audio_owns != 0u || motion_owns != 0u || hologram_owns != 0u) { status = UMH_STATUS_BUSY; break; }
       if (calibration_task_handle == NULL) status = UMH_STATUS_INVALID_STATE;
       else if (calibration_raw_mode != 0u ||
                device_gui_calibration_busy(&device_gui) != 0u) status = UMH_STATUS_BUSY;
@@ -1182,7 +1231,7 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       break;
     case UMH_MSG_CAL_SELFTEST:
       if (frame->payload_size != 0u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
-      if (audio_owns != 0u || motion_owns != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (audio_owns != 0u || motion_owns != 0u || hologram_owns != 0u) { status = UMH_STATUS_BUSY; break; }
       if (calibration_task_handle == NULL) status = UMH_STATUS_INVALID_STATE;
       else if (calibration_raw_mode != 0u || calibration_selftest_mode != 0u ||
                device_gui_calibration_busy(&device_gui) != 0u) status = UMH_STATUS_BUSY;
@@ -1510,6 +1559,32 @@ static void render_task(void *argument)
       render_burst = 0u;
       continue;
     }
+    /* Hologram keyframe executor.  It owns the output the same way the motion
+     * engine does, but it never touches the frame ring: it holds its own
+     * 84-channel keyframes and interpolates them here, in the render task. */
+    if (hologram_engine_owns_output(&hologram_engine) != 0u) {
+      uint32_t hologram_wait_us = 1000u;
+      now_us = system_time_us();
+      (void)hologram_engine_service(&hologram_engine, &fpga_link, now_us,
+                                    &hologram_wait_us);
+      if (hologram_engine_owns_output(&hologram_engine) != 0u) {
+        system_status_set(UMH_SYSTEM_PLAYING);
+        system_status_clear(UMH_SYSTEM_UNDERRUN);
+      } else {
+        system_status_clear(UMH_SYSTEM_PLAYING);
+      }
+      system_status_get()->device_time = (uint32_t)now_us;
+      system_status_get()->frame_count = 0u;
+      system_status_get()->frame_free = 0u;
+      system_status_get()->fpga_credit = fpga_link_status(&fpga_link)->fifo_credit;
+      system_status_get()->fpga_depth = fpga_link_status(&fpga_link)->fifo_depth;
+      if (hologram_wait_us == 0u) hologram_wait_us = 250u;
+      if (hologram_wait_us > 50000u) hologram_wait_us = 50000u;
+      render_wait_until_us(system_time_us() + (uint64_t)hologram_wait_us);
+      last_time_us = system_time_us();
+      render_burst = 0u;
+      continue;
+    }
     now_us = system_time_us();
     elapsed_us = now_us - last_time_us;
     if (elapsed_us > UINT32_MAX) elapsed_us = UINT32_MAX;
@@ -1689,6 +1764,7 @@ static void application_init(void)
   block_parser_init(&block_parser, &renderer, &frame_ring);
   audio_engine_init(&audio_engine);
   motion_engine_init(&motion_engine);
+  hologram_engine_init(&hologram_engine);
   playback_plan_clear(&playback_plan);
   fpga_link_init(&fpga_link, &hspi1);
   /* A reboot is a new command epoch.  Always clear a possible output left

@@ -68,7 +68,8 @@ void device_profile_init(umh_device_profile_t *target)
                              UMH_PROFILE_CAP_GEOMETRY_VALID |
                              UMH_PROFILE_CAP_FOCUSED_AM |
                              UMH_PROFILE_CAP_MOTION |
-                             UMH_PROFILE_CAP_FOCUSED_AM_MULTI;
+                             UMH_PROFILE_CAP_FOCUSED_AM_MULTI |
+                             UMH_PROFILE_CAP_HOLOGRAM;
   /* Channel order is the FPGA us_tx bit / SPI serialization order.  The x/y
    * values are the measured transducer positions recovered from the 4-mic
    * short-burst time-of-flight mapping (2026-09 bench).  The theoretical
