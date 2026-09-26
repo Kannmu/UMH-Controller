@@ -421,11 +421,7 @@ static void calibration_session(void)
   const eeprom_profile_record_t *old_record = eeprom_profile_current(&eeprom_profile);
   uint8_t old_valid = (old_record != NULL && old_record->cal_meta_valid != 0u &&
                        old_record->cal_level != 0u) ? 1u : 0u;
-  float old_gain_db = old_valid != 0u ?
-                      (float)(int8_t)old_record->cal_tilt_x_x10 * 0.1f : -128.0f;
-  float old_rms_deg = old_valid != 0u ?
-                      (float)old_record->cal_rms_deg_x10 * 0.1f : 255.0f;
-  uint8_t commit_new = 0u;
+  uint8_t commit_new;
   uint32_t saved_cr1;
   if (audio_engine_owns_output(&audio_engine) != 0u) audio_engine_abort(&audio_engine);
   if (motion_engine_owns_output(&motion_engine) != 0u) motion_engine_abort(&motion_engine, &fpga_link);
@@ -443,20 +439,14 @@ static void calibration_session(void)
                           &calibration_result);
   fpga_link_calibration_link_end(&fpga_link, saved_cr1);
   if (rc == 0) {
-    /* Never replace a valid stored calibration unless the new run has a
-     * measurably better real array gain, or the stored record is unusable. */
+    /* A valid stored calibration is never overwritten automatically.  The
+     * current near-field solver has only been validated against the on-board
+     * microphones; external objects and the real focus target still have to
+     * accept a candidate before it is worth risking a known-good phase map.
+     * An empty/default record is still populated so a blank device can be
+     * commissioned without a debugger. */
     commit_new = (old_valid == 0u) ? 1u : 0u;
-    if (old_valid != 0u) {
-      if (calibration_result.verify_gain_db > old_gain_db + 1.0f) {
-        commit_new = 1u;
-      } else if (calibration_result.verify_gain_db >= old_gain_db - 0.5f &&
-                 calibration_result.fit_rms_deg + 1.0f < old_rms_deg) {
-        commit_new = 1u;
-      }
-    }
     if (commit_new == 0u) {
-      /* The scan passed its own quality gates but is not better than the
-       * calibration already in EEPROM.  Keep the stored phase map. */
       system_status_get()->cal_state = DEVICE_GUI_CAL_OK;
       system_status_get()->cal_last_ms = HAL_GetTick();
     } else {
