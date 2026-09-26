@@ -53,6 +53,75 @@ typedef enum {
 /* trap_mode 6: single-sided dark-core vortex levitation. */
 #define UMH_MOTION_TRAP_DARK_VORTEX 6u
 
+/* Acoustic vortex (foam suppression) programs.
+ *
+ * A vortex beam carries orbital angular momentum.  Every channel radiates the
+ * same amplitude, but the carrier phase is wound helically around the beam
+ * axis by |l| full turns, so the wavefront leaving the array is a spiral and
+ * the beam itself is a hollow tube with a pressure null on its axis.  Where
+ * it crosses the foam layer the ring of maximum intensity drives the bubble
+ * film tangentially and shears the lamellae apart instead of pinning them to
+ * one spot the way a plain focus does, and the hollow core keeps the peak
+ * pressure off the axis, where the liquid bulk is easiest to cavitate.
+ *
+ * Both programs use topological charge |l| = 1 and differ only in how the
+ * sign of the charge evolves:
+ *
+ *   STEADY  one fixed spiral, l = +1, for as long as the program runs.  The
+ *           phase field is constant, so the FPGA event table is written once,
+ *           every carrier period adds up coherently, and the frames in
+ *           between are suppressed by the hold optimisation.
+ *   ALT     the charge flips between +1 and -1 every half of a 20 ms period,
+ *           so the orbital motion reverses direction 100 times a second.
+ *           The foam never settles into the steady tangential flow the
+ *           single-direction beam builds up: each reversal launches a shear
+ *           wave through the lamellae at the moment they had started to move
+ *           with the field, which is the stronger defoaming action.  Nothing
+ *           else is modulated -- the focus, the amplitude and the frame
+ *           cadence are identical to STEADY, and only the winding sense of
+ *           the phase changes, so inside a half period the frame is still
+ *           constant and only the two reversal edges cost an SPI write.
+ *
+ * Both reuse the ordinary spatial renderer, calibration and FPGA frame
+ * transaction; only the phase field differs from a host motion program. */
+typedef enum {
+  UMH_VORTEX_OFF = 0u,
+  /* l = +1, held for the whole run. */
+  UMH_VORTEX_STEADY = 1u,
+  /* l = +1 / l = -1, one half of UMH_VORTEX_ALT_PERIOD_US each. */
+  UMH_VORTEX_ALT = 2u
+} umh_vortex_program_t;
+
+/* Magnitude of the topological charge both programs wind: one full phase turn
+ * per turn of azimuth around the beam axis.  ALT flips its sign, STEADY does
+ * not. */
+#define UMH_VORTEX_TURNS       1u
+/* Focal plane of the vortex: the foam layer standing on the liquid surface
+ * 100 mm above the array PCB, i.e. the (0, 0, 100 mm) working point the GUI
+ * shows as FOCUS.  Focusing there puts the intensity ring in the foam, which
+ * is what carries the angular momentum into the lamellae. */
+#define UMH_VORTEX_FOCUS_Z_UM  100000
+/* Full source amplitude.  spatial_renderer_finalize maps a full spatial
+ * magnitude to level 128, i.e. 50 % duty, which is the real full power of
+ * this hardware. */
+#define UMH_VORTEX_LEVEL       255u
+/* Frame cadence.  A static field only needs its link watchdog fed, and the
+ * alternating one only has to place two edges per period, so both run at this
+ * rate and the hold optimisation suppresses every frame that repeats one. */
+#define UMH_VORTEX_RATE_HZ     200u
+/* Reversal period of the alternating program: 20 ms, i.e. 10 ms of +1 and
+ * 10 ms of -1, so the spin turns the other way 100 times a second. */
+#define UMH_VORTEX_ALT_PERIOD_US 20000u
+/* Frames per half period.  The alternation is counted in frames rather than
+ * microseconds because a wall-clock flip read on the 5 ms frame grid can land
+ * a few hundred microseconds either side of the boundary and split one period
+ * 15 ms / 5 ms; counting frames makes the two halves equal by construction and
+ * only moves the reversal by the frame period. */
+#define UMH_VORTEX_ALT_HALF_FRAMES 2u
+_Static_assert(UMH_VORTEX_ALT_HALF_FRAMES * 2000000u ==
+               UMH_VORTEX_RATE_HZ * UMH_VORTEX_ALT_PERIOD_US,
+               "alternating vortex half period must be whole frames");
+
 /* A path point is deliberately compact: signed 10 um units cover +-327 mm
  * with 10 um resolution, which is far below the 40 kHz phase resolution. */
 typedef struct __attribute__((packed)) {
@@ -168,6 +237,11 @@ typedef struct {
   float ulm_tangent_x;
   float ulm_tangent_y;
   uint8_t ulm_tangent_valid;
+  /* Vortex program selection, UMH_VORTEX_OFF for ordinary motion. */
+  uint8_t vortex_program;
+  /* Frames emitted since the run started, which is what the alternating
+   * program counts its half periods in. */
+  uint32_t vortex_frames;
   float spin_angle;
   float palette_spin_phase;
 
@@ -236,12 +310,15 @@ int motion_engine_target(umh_motion_engine_t *engine, const uint8_t *payload,
                          uint16_t length);
 int motion_engine_configure_levitation(umh_motion_engine_t *engine,
                                        uint8_t level, int32_t trap_z_um);
+int motion_engine_configure_vortex(umh_motion_engine_t *engine, uint8_t program);
 int motion_engine_start(umh_motion_engine_t *engine);
 void motion_engine_request_stop(umh_motion_engine_t *engine);
 void motion_engine_abort(umh_motion_engine_t *engine, fpga_link_t *link);
 uint8_t motion_engine_owns_output(const umh_motion_engine_t *engine);
 uint8_t motion_engine_uses_rgb(const umh_motion_engine_t *engine);
 uint8_t motion_engine_is_active(const umh_motion_engine_t *engine);
+uint8_t motion_engine_trap_mode(const umh_motion_engine_t *engine);
+uint8_t motion_engine_vortex_program(const umh_motion_engine_t *engine);
 uint32_t motion_engine_service(umh_motion_engine_t *engine,
                                umh_spatial_renderer_t *renderer,
                                fpga_link_t *link, uint64_t now_us,

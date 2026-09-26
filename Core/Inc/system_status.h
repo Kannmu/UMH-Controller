@@ -11,8 +11,21 @@ typedef enum {
   UMH_SYSTEM_CALIBRATION_VALID = 1u << 4,
   UMH_SYSTEM_UNDERRUN = 1u << 5,
   UMH_SYSTEM_ERROR = 1u << 6,
-  UMH_SYSTEM_LEVITATION = 1u << 7
+  UMH_SYSTEM_LEVITATION = 1u << 7,
+  /* The acoustic vortex programs drive the same real-time motion engine as
+   * levitation, so they are reported the same way: the OLED toggles and the
+   * host BUSY checks read these bits instead of a second state variable.  The
+   * bit records which program the engine is emitting. */
+  UMH_SYSTEM_VORTEX_STEADY = 1u << 8,
+  UMH_SYSTEM_VORTEX_ALT = 1u << 9
 } umh_system_flag_t;
+
+/* Set exactly while the motion engine owns the 84-channel output.  Any other
+ * producer (block plan, demo, focused AM, calibration) must refuse to start
+ * while one of these is set. */
+#define UMH_SYSTEM_MOTION_MODE_MASK (UMH_SYSTEM_LEVITATION | \
+                                     UMH_SYSTEM_VORTEX_STEADY | \
+                                     UMH_SYSTEM_VORTEX_ALT)
 
 /* Stable, short identifiers used by the OLED and the USB error counters.
  * Keep these codes semantic: the UI can explain the cause without exposing

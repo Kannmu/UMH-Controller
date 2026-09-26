@@ -233,6 +233,7 @@ static void send_response(const umh_protocol_frame_t *request, uint8_t type,
 static void application_init(void);
 static int gui_demo(void *context);
 static int gui_levitation_toggle(void *context);
+static int gui_defoam_set(void *context);
 
 static uint32_t read_u32(const uint8_t *p)
 {
@@ -660,10 +661,12 @@ static uint8_t levitation_motion_level(void)
 static int gui_levitation_toggle(void *context)
 {
   (void)context;
-  if ((system_status_get()->flags & UMH_SYSTEM_LEVITATION) != 0u) {
-    if (motion_engine_owns_output(&motion_engine) != 0u)
-      motion_engine_request_stop(&motion_engine);
-    system_status_clear(UMH_SYSTEM_LEVITATION);
+  /* Ask the engine, not the status flag: the flag is derived once per render
+   * iteration, so right after a start or stop it still shows the previous
+   * state.  A dark-vortex trap is levitation whichever way it was started. */
+  if (motion_engine_owns_output(&motion_engine) != 0u &&
+      motion_engine_trap_mode(&motion_engine) == UMH_MOTION_TRAP_DARK_VORTEX) {
+    motion_engine_request_stop(&motion_engine);
     return 0;
   }
   if (device_gui_calibration_busy(&device_gui) != 0u || demo_building != 0u) return -1;
@@ -682,7 +685,60 @@ static int gui_levitation_toggle(void *context)
     (void)fpga_link_safe_stop(&fpga_link);
     return -1;
   }
-  system_status_set(UMH_SYSTEM_LEVITATION);
+  return 0;
+}
+
+static int gui_defoam_set(void *context)
+{
+  /* Row index on the defoam page maps onto the engine's vortex program. */
+  static const uint8_t program_map[2] = {
+    UMH_VORTEX_STEADY, UMH_VORTEX_ALT
+  };
+  uint8_t requested = device_gui.defoam_mode;
+  uint8_t program;
+  (void)context;
+
+  if (requested == DEVICE_GUI_DEFOAM_STOP) {
+    /* Stop button: cut every modulation source at once, whichever task or
+     * host started it, and leave the array silent. */
+    audio_engine_abort(&audio_engine);
+    motion_engine_abort(&motion_engine, &fpga_link);
+    playback_plan_stop(&playback_plan);
+    block_parser_cancel(&block_parser);
+    block_stream_active = 0u;
+    frame_ring_init(&frame_ring);
+    (void)fpga_link_set_ws2812(&fpga_link, 0u, 0u, 0u);
+    return fpga_link_safe_stop(&fpga_link) == 0 ? 0 : -1;
+  }
+  if (requested >= 2u) return -1;
+  program = program_map[requested];
+
+  /* Pressing the switch of the program that is already running turns it off;
+   * pressing the other one selects it, which is what turns the first off --
+   * the engine can only emit one vortex program at a time. */
+  if (motion_engine_owns_output(&motion_engine) != 0u &&
+      motion_engine_vortex_program(&motion_engine) == program) {
+    motion_engine_request_stop(&motion_engine);
+    return 0;
+  }
+  if (device_gui_calibration_busy(&device_gui) != 0u || demo_building != 0u) return -1;
+
+  /* Mutual exclusion: a running block plan, demo, tactile AM or host motion
+   * program would otherwise keep driving the same 84 channels. */
+  audio_engine_abort(&audio_engine);
+  if (motion_engine_owns_output(&motion_engine) != 0u)
+    motion_engine_abort(&motion_engine, &fpga_link);
+  playback_plan_stop(&playback_plan);
+  block_parser_cancel(&block_parser);
+  block_stream_active = 0u;
+  frame_ring_init(&frame_ring);
+  (void)fpga_link_set_ws2812(&fpga_link, 0u, 0u, 0u);
+  if (fpga_link_safe_stop(&fpga_link) != 0) return -1;
+  if (motion_engine_configure_vortex(&motion_engine, program) != 0) return -1;
+  if (motion_engine_start(&motion_engine) != 0) {
+    (void)fpga_link_safe_stop(&fpga_link);
+    return -1;
+  }
   return 0;
 }
 
@@ -935,12 +991,12 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       }
       break;
     case UMH_MSG_MOTION_UPLOAD:
-      if (audio_owns != 0u || (system_status_get()->flags & UMH_SYSTEM_LEVITATION) != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (audio_owns != 0u || (system_status_get()->flags & UMH_SYSTEM_MOTION_MODE_MASK) != 0u) { status = UMH_STATUS_BUSY; break; }
       if (motion_engine_upload(&motion_engine, frame->payload, frame->payload_size) != 0)
         status = UMH_STATUS_BAD_LENGTH;
       break;
     case UMH_MSG_MOTION_CONFIG:
-      if (audio_owns != 0u || (system_status_get()->flags & UMH_SYSTEM_LEVITATION) != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (audio_owns != 0u || (system_status_get()->flags & UMH_SYSTEM_MOTION_MODE_MASK) != 0u) { status = UMH_STATUS_BUSY; break; }
       if (motion_engine_configure(&motion_engine, frame->payload, frame->payload_size) != 0)
         status = UMH_STATUS_BAD_LENGTH;
       break;
@@ -957,7 +1013,7 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       else { if (motion_engine_uses_rgb(&motion_engine) == 0u) (void)fpga_link_set_ws2812(&fpga_link, 0u, 0u, 0u); if (motion_engine_start(&motion_engine) != 0) status = UMH_STATUS_INVALID_STATE; }
       break;
     case UMH_MSG_MOTION_TARGET:
-      if (audio_owns != 0u || (system_status_get()->flags & UMH_SYSTEM_LEVITATION) != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (audio_owns != 0u || (system_status_get()->flags & UMH_SYSTEM_MOTION_MODE_MASK) != 0u) { status = UMH_STATUS_BUSY; break; }
       if (motion_engine_target(&motion_engine, frame->payload, frame->payload_size) != 0)
         status = UMH_STATUS_BAD_LENGTH;
       break;
@@ -1356,6 +1412,35 @@ void TIM7_IRQHandler(void)
   }
 }
 
+/* Derive the motion-mode bits of the system flags from the engine itself.
+ *
+ * The OLED and the host BUSY checks read these bits, and the engine can start
+ * or finish from several places (GUI callback, host command, a run ending on
+ * its own), so this task -- the only place the engine is serviced -- is the
+ * single writer.  That also removes the read-modify-write race a per-callback
+ * set/clear pair had on the shared flags word. */
+static void update_motion_mode_flags(void)
+{
+  const uint32_t mask = UMH_SYSTEM_MOTION_MODE_MASK;
+  uint32_t current = system_status_get()->flags;
+  uint32_t wanted = 0u;
+  if (motion_engine_owns_output(&motion_engine) != 0u) {
+    switch (motion_engine_vortex_program(&motion_engine)) {
+      case UMH_VORTEX_STEADY: wanted = UMH_SYSTEM_VORTEX_STEADY; break;
+      case UMH_VORTEX_ALT: wanted = UMH_SYSTEM_VORTEX_ALT; break;
+      default:
+        /* Levitation is reported separately from the vortex programs: it is
+         * the same engine, but its own dark-vortex trap. */
+        if (motion_engine_trap_mode(&motion_engine) == UMH_MOTION_TRAP_DARK_VORTEX)
+          wanted = UMH_SYSTEM_LEVITATION;
+        break;
+    }
+  }
+  if ((current & mask) == wanted) return;
+  system_status_clear(mask & ~wanted);
+  system_status_set(wanted);
+}
+
 static void render_task(void *argument)
 {
   umh_output_frame_t *frame;
@@ -1367,10 +1452,7 @@ static void render_task(void *argument)
   (void)argument;
   render_task_handle = xTaskGetCurrentTaskHandle();
   for (;;) {
-    if ((system_status_get()->flags & UMH_SYSTEM_LEVITATION) != 0u &&
-        motion_engine_owns_output(&motion_engine) == 0u) {
-      system_status_clear(UMH_SYSTEM_LEVITATION);
-    }
+    update_motion_mode_flags();
     if (demo_building != 0u) {
       render_burst = 0u;
       osDelay(1u);
@@ -1647,7 +1729,7 @@ static void application_init(void)
   device_gui_init(&device_gui, &oled, &device_profile, system_status_get(),
                   &playback_plan, &fpga_link, &flash_store, &eeprom_profile,
                   gui_calibration, gui_selftest, gui_demo,
-                  gui_levitation_toggle, gui_ws2812_set,
+                  gui_levitation_toggle, gui_defoam_set, gui_ws2812_set,
                   demo_engine_count(), NULL);
   {
     const osMessageQueueAttr_t storage_queue_attributes = {
