@@ -83,8 +83,6 @@ enum {
   UMH_BENCH_CMD_APPLY_PHASE = 4u,
   UMH_BENCH_CMD_COMMIT = 5u,
   UMH_BENCH_CMD_START_DEMO = 6u,
-  UMH_BENCH_CMD_PROFILE = 7u,
-  UMH_BENCH_CMD_PROFILE_ALL = 8u,
   UMH_BENCH_CMD_PATTERN = 9u
 };
 volatile uint32_t umh_bench_cmd;
@@ -95,7 +93,6 @@ volatile uint8_t  umh_bench_phase[UMH_DEVICE_CHANNEL_COUNT];
 volatile uint8_t  umh_bench_level[UMH_DEVICE_CHANNEL_COUNT];
 volatile float    umh_bench_frame_i[UMH_DEVICE_MIC_COUNT];
 volatile float    umh_bench_frame_q[UMH_DEVICE_MIC_COUNT];
-us_cal_profile_peak_t umh_bench_peaks[UMH_DEVICE_CHANNEL_COUNT][UMH_DEVICE_MIC_COUNT];
 
 typedef struct {
   umh_protocol_frame_t frame;
@@ -333,6 +330,7 @@ static int calibration_raw_tx(uint32_t first_pattern, const uint8_t *data,
 static void calibration_raw_session(void)
 {
   int rc;
+  uint32_t saved_cr1;
   if (audio_engine_owns_output(&audio_engine) != 0u) audio_engine_abort(&audio_engine);
   if (motion_engine_owns_output(&motion_engine) != 0u) motion_engine_abort(&motion_engine, &fpga_link);
   device_gui_calibration_begin(&device_gui);
@@ -344,12 +342,14 @@ static void calibration_raw_session(void)
   demo_building = 1u;
   calibration_progress(DEVICE_GUI_CAL_WAIT, 0u, NULL);
   osDelay(1000u);
+  saved_cr1 = fpga_link_calibration_link_begin(&fpga_link);
   rc = us_calibration_capture_raw(&fpga_link, calibration_raw_level,
                                   calibration_raw_gate_start,
                                   calibration_raw_gate_width,
                                   calibration_raw_burst_us,
                                   calibration_raw_patterns,
                                   calibration_raw_tx, NULL);
+  fpga_link_calibration_link_end(&fpga_link, saved_cr1);
   if (rc != 0) {
     calibration_fail(rc == -2 ? UMH_FAULT_CAL_MIC_SILENT : UMH_FAULT_CAL_SOLVER,
                      (uint32_t)(-rc));
@@ -363,6 +363,7 @@ static void calibration_raw_session(void)
 static void calibration_selftest_session(void)
 {
   int rc;
+  uint32_t saved_cr1;
   const eeprom_profile_record_t *record = eeprom_profile_current(&eeprom_profile);
   uint8_t level = (record != NULL && record->cal_level != 0u) ? (uint8_t)record->cal_level : 8u;
   uint16_t gate_start = 0u;
@@ -385,10 +386,12 @@ static void calibration_selftest_session(void)
   demo_building = 1u;
   calibration_progress(DEVICE_GUI_CAL_WAIT, 0u, NULL);
   osDelay(300u);
+  saved_cr1 = fpga_link_calibration_link_begin(&fpga_link);
   rc = us_calibration_self_test(&fpga_link, device_profile_get(), renderer.calibration,
                                 level, gate_start, gate_width, 0u,
                                 calibration_progress, NULL,
                                 &calibration_self_test_result);
+  fpga_link_calibration_link_end(&fpga_link, saved_cr1);
   if (rc == 0) {
     umh_system_status_t *st = system_status_get();
     float coh = calibration_self_test_result.coherence * 1000.0f;
@@ -415,6 +418,15 @@ static void calibration_session(void)
   int rc;
   uint16_t i;
   const umh_device_profile_t *profile = device_profile_get();
+  const eeprom_profile_record_t *old_record = eeprom_profile_current(&eeprom_profile);
+  uint8_t old_valid = (old_record != NULL && old_record->cal_meta_valid != 0u &&
+                       old_record->cal_level != 0u) ? 1u : 0u;
+  float old_gain_db = old_valid != 0u ?
+                      (float)(int8_t)old_record->cal_tilt_x_x10 * 0.1f : -128.0f;
+  float old_rms_deg = old_valid != 0u ?
+                      (float)old_record->cal_rms_deg_x10 * 0.1f : 255.0f;
+  uint8_t commit_new = 0u;
+  uint32_t saved_cr1;
   if (audio_engine_owns_output(&audio_engine) != 0u) audio_engine_abort(&audio_engine);
   if (motion_engine_owns_output(&motion_engine) != 0u) motion_engine_abort(&motion_engine, &fpga_link);
   device_gui_calibration_begin(&device_gui);
@@ -426,9 +438,28 @@ static void calibration_session(void)
   demo_building = 1u;
   calibration_progress(DEVICE_GUI_CAL_WAIT, 0u, NULL);
   osDelay(1000u);
+  saved_cr1 = fpga_link_calibration_link_begin(&fpga_link);
   rc = us_calibration_run(&fpga_link, profile, calibration_progress, NULL,
                           &calibration_result);
+  fpga_link_calibration_link_end(&fpga_link, saved_cr1);
   if (rc == 0) {
+    /* Never replace a valid stored calibration unless the new run has a
+     * measurably better real array gain, or the stored record is unusable. */
+    commit_new = (old_valid == 0u) ? 1u : 0u;
+    if (old_valid != 0u) {
+      if (calibration_result.verify_gain_db > old_gain_db + 1.0f) {
+        commit_new = 1u;
+      } else if (calibration_result.verify_gain_db >= old_gain_db - 0.5f &&
+                 calibration_result.fit_rms_deg + 1.0f < old_rms_deg) {
+        commit_new = 1u;
+      }
+    }
+    if (commit_new == 0u) {
+      /* The scan passed its own quality gates but is not better than the
+       * calibration already in EEPROM.  Keep the stored phase map. */
+      system_status_get()->cal_state = DEVICE_GUI_CAL_OK;
+      system_status_get()->cal_last_ms = HAL_GetTick();
+    } else {
     eeprom_profile_record_t record = eeprom_profile.record;
     record.version = EEPROM_PROFILE_VERSION;
     for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
@@ -484,6 +515,7 @@ static void calibration_session(void)
       system_status_get()->cal_good_mics = calibration_result.good_mics;
       system_status_get()->cal_last_ms = HAL_GetTick();
     }
+    }
   } else {
     umh_fault_code_t code = (umh_fault_code_t)calibration_result.fault;
     if (code == UMH_FAULT_NONE) code = UMH_FAULT_CAL_SOLVER;
@@ -497,6 +529,7 @@ static void calibration_session(void)
 static void bench_service(void)
 {
   uint32_t cmd = umh_bench_cmd;
+  uint32_t saved_cr1;
   int rc = 0;
   uint16_t i;
   if (cmd == UMH_BENCH_CMD_NONE) return;
@@ -505,6 +538,7 @@ static void bench_service(void)
   umh_bench_cmd = UMH_BENCH_CMD_NONE;
   umh_bench_status = 1u;
   umh_bench_result = 0u;
+  saved_cr1 = fpga_link_calibration_link_begin(&fpga_link);
   switch (cmd) {
     case UMH_BENCH_CMD_SELFTEST:
       calibration_selftest_session();
@@ -529,26 +563,6 @@ static void bench_service(void)
       (void)fpga_link_safe_stop(&fpga_link);
       demo_building = 0u;
       break;
-    case UMH_BENCH_CMD_PROFILE:
-      playback_plan_stop(&playback_plan);
-      (void)fpga_link_safe_stop(&fpga_link);
-      block_parser_cancel(&block_parser);
-      frame_ring_init(&frame_ring);
-      block_stream_active = 0u;
-      demo_building = 1u;
-      rc = us_calibration_measure_profile(&fpga_link,
-                                          (uint8_t)umh_bench_arg[0],
-                                          (uint8_t)umh_bench_arg[1],
-                                          (uint8_t)umh_bench_arg[2],
-                                          (uint8_t)umh_bench_arg[3],
-                                          (uint16_t)umh_bench_arg[4],
-                                          (uint16_t)umh_bench_arg[5],
-                                          (uint8_t)umh_bench_arg[6],
-                                          umh_bench_arg[7],
-                                          (uint8_t)umh_bench_arg[8]);
-      (void)fpga_link_safe_stop(&fpga_link);
-      demo_building = 0u;
-      break;
     case UMH_BENCH_CMD_PATTERN:
       playback_plan_stop(&playback_plan);
       (void)fpga_link_safe_stop(&fpga_link);
@@ -565,26 +579,6 @@ static void bench_service(void)
                                           (uint8_t)umh_bench_arg[3],
                                           (float *)umh_bench_frame_i,
                                           (float *)umh_bench_frame_q);
-      (void)fpga_link_safe_stop(&fpga_link);
-      demo_building = 0u;
-      break;
-    case UMH_BENCH_CMD_PROFILE_ALL:
-      playback_plan_stop(&playback_plan);
-      (void)fpga_link_safe_stop(&fpga_link);
-      block_parser_cancel(&block_parser);
-      frame_ring_init(&frame_ring);
-      block_stream_active = 0u;
-      demo_building = 1u;
-      rc = us_calibration_measure_profile_all(&fpga_link,
-                                              (uint8_t)umh_bench_arg[0],
-                                              umh_bench_arg[1],
-                                              (uint8_t)umh_bench_arg[2],
-                                              (uint16_t)umh_bench_arg[3],
-                                              (uint16_t)umh_bench_arg[4],
-                                              (uint8_t)umh_bench_arg[5],
-                                              (uint8_t)umh_bench_arg[6],
-                                              (uint8_t)umh_bench_arg[7],
-                                              &umh_bench_peaks[0][0]);
       (void)fpga_link_safe_stop(&fpga_link);
       demo_building = 0u;
       break;
@@ -618,6 +612,7 @@ static void bench_service(void)
       rc = -2;
       break;
   }
+  fpga_link_calibration_link_end(&fpga_link, saved_cr1);
   umh_bench_result = (uint32_t)rc;
   umh_bench_status = (rc == 0) ? 2u : 3u;
 }

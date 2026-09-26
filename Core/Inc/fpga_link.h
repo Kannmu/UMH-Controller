@@ -101,6 +101,8 @@ typedef struct {
 extern uint8_t fpga_logical_to_physical[UMH_DEVICE_CHANNEL_COUNT];
 
 void fpga_link_init(fpga_link_t *link, SPI_HandleTypeDef *spi);
+uint32_t fpga_link_calibration_link_begin(fpga_link_t *link);
+void fpga_link_calibration_link_end(fpga_link_t *link, uint32_t saved_cr1);
 int fpga_link_submit(fpga_link_t *link, const umh_output_frame_t *frame);
 int fpga_link_poll_status(fpga_link_t *link);
 int fpga_link_submit_allow_hold(fpga_link_t *link, const umh_output_frame_t *frame, uint8_t allow_hold);

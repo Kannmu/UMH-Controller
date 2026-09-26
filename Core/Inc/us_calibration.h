@@ -6,8 +6,7 @@
 #include "device_profile.h"
 
 /* Quality flags reported by the built-in near-field coupling calibration.
- * Bit assignments are preserved from the previous echo calibration; the
- * meanings are updated to the v2 flow. */
+ * The bit positions are part of the host protocol and stay stable. */
 #define CAL_Q_COUPLING    (1u << 0)
 #define CAL_Q_MICS        (1u << 1)
 #define CAL_Q_FIT         (1u << 2)
@@ -105,26 +104,6 @@ int us_calibration_measure_h(fpga_link_t *link, const umh_device_profile_t *prof
                              uint32_t burst_us, uint8_t repeats,
                              us_cal_progress_cb_t progress, void *context);
 
-/* Bench instrumentation: short-burst arrival profile for one logical channel.
- * channel >= UMH_DEVICE_CHANNEL_COUNT drives nothing (noise floor).
- * The averaged per-gate I/Q is left in cal_profile_i/cal_profile_q, indexed
- * [gate][microphone], and can be read over SWD. */
-int us_calibration_measure_profile(fpga_link_t *link, uint8_t channel,
-                                   uint8_t phase, uint8_t level,
-                                   uint8_t gate_count, uint16_t gate_start,
-                                   uint16_t gate_step, uint8_t gate_width,
-                                   uint32_t burst_us, uint8_t repeats);
-
-typedef struct __attribute__((packed)) {
-  uint8_t early_gate;
-  uint8_t late_gate;
-  int16_t late_i;
-  int16_t late_q;
-} us_cal_profile_peak_t;
-
-/* Bench instrumentation: run the short-burst arrival profile for every
- * logical channel and reduce it to early/late peak per microphone.  The
- * caller supplies a UMH_DEVICE_CHANNEL_COUNT x UMH_DEVICE_MIC_COUNT array. */
 /* Bench instrumentation: drive a complete arbitrary 84-channel frame and
  * return the four microphone gate phasors. */
 int us_calibration_measure_pattern(fpga_link_t *link,
@@ -134,12 +113,6 @@ int us_calibration_measure_pattern(fpga_link_t *link,
                                    float out_i[UMH_DEVICE_MIC_COUNT],
                                    float out_q[UMH_DEVICE_MIC_COUNT]);
 
-int us_calibration_measure_profile_all(fpga_link_t *link,
-                                       uint8_t level, uint32_t burst_us,
-                                       uint8_t gate_count, uint16_t gate_start,
-                                       uint16_t gate_step, uint8_t gate_width,
-                                       uint8_t repeats, uint8_t min_gate,
-                                       us_cal_profile_peak_t *peaks);
 
 /* Raw diagnostic dump sections.  See Docs/UMH_v7_Protocol.md. */
 uint32_t us_calibration_dump_size(uint8_t section);

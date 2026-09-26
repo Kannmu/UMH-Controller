@@ -40,21 +40,6 @@
 #define CAL_PI        3.14159265358979323846f
 #define CAL_TWO_PI    6.28318530717958647692f
 
-/* --------------------------------------------------------------------------
- * Bring-up / debug switches.
- *
- * CAL_DIRECT_ID_PROBE enables the one-shot single-channel coupon probe.  It
- * is useful during the first bench session but is deliberately disabled in
- * production because it adds eight excitations and a compile-time different
- * EEPROM payload path.
- * -------------------------------------------------------------------------- */
-#ifndef CAL_DIRECT_ID_PROBE
-#define CAL_DIRECT_ID_PROBE 0
-#endif
-#ifndef CAL_QUALITY_RELAXED
-#define CAL_QUALITY_RELAXED 0
-#endif
-
 /* ---- Level / coherence probe (A1) ---------------------------------------- */
 #define CAL_LEVEL_COUNT             5u
 #define CAL_A1_GATE_START         200u   /* 5.0 ms after pattern swap       */
@@ -66,11 +51,11 @@
 #define CAL_PHASE_SCATTER_MAX_DEG 15.0f
 
 /* ---- Random projection acquisition (C) ----------------------------------- */
-#define CAL_PATTERNS_MIN          128u
-#define CAL_PATTERN_CHECK         128u
-#define CAL_PATTERNS_MAX         1800u
-#define CAL_CONVERGE_DEG            1.5f
-#define CAL_TIME_BUDGET_MS        9000u
+/* Fixed count instead of the old online convergence probe.  The saved 2.6 KiB
+ * accumulator snapshot is more valuable than early termination on this RAM-
+ * constrained MCU, and 512 i.i.d. rows leave the centered 84-column problem
+ * comfortably overdetermined even with microphone noise. */
+#define CAL_ACQUIRE_PATTERNS     512u
 #define CAL_SETTLE_US             3000u
 #define CAL_CG_ITERS                48u
 #define CAL_CG_TOL                  1.0e-4f
@@ -157,10 +142,6 @@ typedef union {
 } cal_scratch_u;
 static cal_scratch_u cal_scratch;
 
-/* Accumulator snapshot used by the early-convergence check. */
-static float cal_accum_re[CAL_MICS][CAL_CHANNELS];
-static float cal_accum_im[CAL_MICS][CAL_CHANNELS];
-
 /* Final fit state. */
 static float cal_a_re[CAL_CHANNELS];
 static float cal_a_im[CAL_CHANNELS];
@@ -170,8 +151,6 @@ static float cal_mu_re[CAL_MICS];
 static float cal_mu_im[CAL_MICS];
 static float cal_phi[CAL_CHANNELS];
 static float cal_fit_deg[CAL_CHANNELS];
-static float cal_phi_prev[CAL_CHANNELS];
-static uint8_t cal_phi_prev_valid;
 static uint8_t cal_pair_valid[CAL_MICS][CAL_CHANNELS];
 static uint8_t cal_corr[4][CAL_CHANNELS];
 static float cal_candidate_gain_db[4];
@@ -180,23 +159,6 @@ static uint8_t cal_candidate_positive[4];
 /* Transient profile, filled by phase B and exported as dump section 1. */
 static int16_t cal_profile_i[CAL_PROFILE_GATES][CAL_MICS];
 static int16_t cal_profile_q[CAL_PROFILE_GATES][CAL_MICS];
-
-/* Bench profile accumulators.  Kept out of the task stack; averaged into
- * cal_profile_i/q only after all repeats are collected. */
-static int16_t cal_profile_acc_i[CAL_PROFILE_GATES][CAL_MICS];
-static int16_t cal_profile_acc_q[CAL_PROFILE_GATES][CAL_MICS];
-
-/* Linearity diagnostic: all-channel phase-0 differential field versus the
- * sum of the individually measured channel vectors.  Exposed as CAL_DUMP
- * section 3 for bench analysis. */
-static float cal_dbg_line_re[CAL_MICS], cal_dbg_line_im[CAL_MICS];
-static float cal_dbg_line_pred_re[CAL_MICS], cal_dbg_line_pred_im[CAL_MICS];
-
-/* ID probe diagnostics (optional, Gate 1 only). */
-#if CAL_DIRECT_ID_PROBE
-static uint8_t cal_id_channel[8];
-static float cal_id_amp[8];
-#endif
 
 typedef struct __attribute__((packed)) {
   uint32_t magic;
@@ -245,7 +207,6 @@ static float cal_noise_power;
 static float cal_signal_power;
 static us_cal_progress_cb_t cal_stage_progress;
 static void *cal_stage_progress_ctx;
-static uint32_t cal_time_budget_start;
 
 typedef struct {
   float fit_rms_deg;
@@ -276,7 +237,7 @@ typedef struct {
 } cal_debug_t;
 cal_debug_t cal_debug;
 
-/* Bench/debug observables for the v4 subset self-test. */
+/* Bench/debug observables for the linear-regime self-test. */
 volatile float cal_dbg_self_y_re[CAL_MICS];
 volatile float cal_dbg_self_y_im[CAL_MICS];
 volatile float cal_dbg_self_c_re[CAL_MICS];
@@ -435,23 +396,6 @@ static int cal_submit_bits(fpga_link_t *link, const uint32_t bits[3],
   }
   return cal_submit_frame(link, &frame);
 }
-
-#if CAL_DIRECT_ID_PROBE
-static int cal_submit_single(fpga_link_t *link, uint8_t channel, uint8_t level)
-{
-  umh_output_frame_t frame;
-  uint16_t i;
-  if (link == NULL || channel >= CAL_CHANNELS) return -1;
-  memset(&frame, 0, sizeof(frame));
-  frame.update_flags = UMH_FRAME_FLAG_ULTRASOUND;
-  frame.sequence = ++cal_frame_sequence;
-  for (i = 0u; i < CAL_CHANNELS; ++i) {
-    frame.channels[i].phase = 0u;
-    frame.channels[i].level = (i == (uint16_t)channel) ? level : 0u;
-  }
-  return cal_submit_frame(link, &frame);
-}
-#endif
 
 static int cal_wait_block_fast(fpga_link_t *link, uint16_t expected,
                                uint32_t timeout_ms, fpga_mic_gate_wire_t *status_out)
@@ -627,7 +571,7 @@ static int cal_cs_reconstruct(uint8_t report_progress)
   uint16_t i;
   float x_re[CAL_CHANNELS];
   float x_im[CAL_CHANNELS];
-  if (cal_cs_patterns < CAL_PATTERNS_MIN) return -5;
+  if (cal_cs_patterns == 0u) return -5;
   for (i = 0u; i < CAL_CHANNELS; ++i)
     cal_xbar[i] = cal_sk[i] / (float)cal_cs_patterns;
   for (m = 0u; m < CAL_MICS; ++m) {
@@ -1137,22 +1081,6 @@ static float cal_gauge(const float *phi_rad, float *out_deg)
   return rms;
 }
 
-static float cal_phase_vector_rms_deg(const float *a_deg, const float *b_deg)
-{
-  uint8_t i;
-  float sr = 0.0f, si = 0.0f, mean, sum = 0.0f;
-  for (i = 0u; i < CAL_CHANNELS; ++i) {
-    float d = cal_wrap_pi(cal_rad(a_deg[i]) - cal_rad(b_deg[i]));
-    sr += cosf(d); si += sinf(d);
-  }
-  mean = cal_atan2_rad(sr, si);
-  for (i = 0u; i < CAL_CHANNELS; ++i) {
-    float d = cal_wrap_pi(cal_rad(a_deg[i]) - cal_rad(b_deg[i]) - mean);
-    sum += d * d;
-  }
-  return cal_deg(sqrtf(sum / (float)CAL_CHANNELS));
-}
-
 static void cal_make_correction_bytes(const float *fit_deg, uint8_t *out)
 {
   uint8_t i;
@@ -1370,41 +1298,6 @@ static int cal_transient_profile(fpga_link_t *link, uint8_t level,
 }
 
 /* --------------------------------------------------------------------------
- * Optional phase A3 single-channel coupon probe.
- * -------------------------------------------------------------------------- */
-#if CAL_DIRECT_ID_PROBE
-static int cal_id_probe(fpga_link_t *link, uint8_t level)
-{
-  uint8_t k;
-  if (cal_mic_start(link, 1u, cal_gate_start, cal_gate_width, cal_gate_width) != 0) return -1;
-  for (k = 0u; k < 8u; ++k) {
-    uint8_t ch = (uint8_t)(k * (CAL_CHANNELS / 8u) + 2u);
-    float yr[CAL_MICS], yi[CAL_MICS], amp = 0.0f;
-    uint8_t m;
-    if (ch >= CAL_CHANNELS) ch = CAL_CHANNELS - 1u;
-    if (cal_submit_single(link, ch, level) != 0) return -2;
-    cal_delay_us(cal_burst_us);
-    if (fpga_link_safe_stop(link) != 0) return -3;
-    {
-      fpga_mic_gate_wire_t wire;
-      uint16_t expected = (uint16_t)(cal_block_expected + 1u);
-      if (cal_wait_block_fast(link, expected, 200u, &wire) != 0) return -4;
-      cal_block_expected = expected;
-      for (m = 0u; m < CAL_MICS; ++m) {
-        yr[m] = (float)wire.i[m];
-        yi[m] = (float)wire.q[m];
-        amp += yr[m] * yr[m] + yi[m] * yi[m];
-      }
-    }
-    cal_id_channel[k] = ch;
-    cal_id_amp[k] = sqrtf(amp);
-    cal_delay_us(CAL_SETTLE_US);
-  }
-  return 0;
-}
-#endif
-
-/* --------------------------------------------------------------------------
  * Phase C: random projection acquisition in the burst steady state.
  * -------------------------------------------------------------------------- */
 static int cal_accumulate_pattern(fpga_link_t *link, uint16_t pattern,
@@ -1434,40 +1327,6 @@ static int cal_accumulate_pattern(fpga_link_t *link, uint16_t pattern,
   return 0;
 }
 
-/* Early convergence check.  Snapshot the accumulators, run D+E3, compare the
- * sign+ phase vector with the previous check, then restore. */
-static int cal_early_check(void)
-{
-  float diff;
-  cal_fit_metrics_t metrics;
-  memcpy(cal_accum_re, cal_z_re, sizeof(cal_accum_re));
-  memcpy(cal_accum_im, cal_z_im, sizeof(cal_accum_im));
-  ++cal_debug.checks;
-  if (cal_cs_reconstruct(0u) == 0) {
-    cal_prepare_pairs();
-    if (cal_fit_direct(1u, &metrics) == 0) {
-      float sr = 0.0f, si = 0.0f, mean;
-      uint8_t i;
-      for (i = 0u; i < CAL_CHANNELS; ++i) { sr += cosf(cal_phi[i]); si += sinf(cal_phi[i]); }
-      mean = cal_atan2_rad(sr, si);
-      for (i = 0u; i < CAL_CHANNELS; ++i) cal_phi[i] = cal_wrap_pi(cal_phi[i] - mean);
-      if (cal_phi_prev_valid != 0u) {
-        diff = cal_phase_vector_rms_deg(cal_phi, cal_phi_prev);
-        for (i = 0u; i < CAL_CHANNELS; ++i) cal_phi_prev[i] = cal_phi[i];
-        /* Restore the streaming accumulators before returning. */
-        memcpy(cal_z_re, cal_accum_re, sizeof(cal_accum_re));
-        memcpy(cal_z_im, cal_accum_im, sizeof(cal_accum_im));
-        return (diff < CAL_CONVERGE_DEG) ? 1 : 0;
-      }
-      for (i = 0u; i < CAL_CHANNELS; ++i) cal_phi_prev[i] = cal_phi[i];
-      cal_phi_prev_valid = 1u;
-    }
-  }
-  memcpy(cal_z_re, cal_accum_re, sizeof(cal_accum_re));
-  memcpy(cal_z_im, cal_accum_im, sizeof(cal_accum_im));
-  return 0;
-}
-
 static int cal_cs_acquire(fpga_link_t *link, us_cal_progress_cb_t cb, void *context)
 {
   float signal_power = 0.0f;
@@ -1479,28 +1338,20 @@ static int cal_cs_acquire(fpga_link_t *link, us_cal_progress_cb_t cb, void *cont
   memset(cal_sy_im, 0, sizeof(cal_sy_im));
   memset(cal_sk, 0, sizeof(cal_sk));
   cal_cs_patterns = 0u;
-  cal_phi_prev_valid = 0u;
-  cal_time_budget_start = HAL_GetTick();
-  for (p = 0u; p < CAL_PATTERNS_MAX; ++p) {
+  for (p = 0u; p < CAL_ACQUIRE_PATTERNS; ++p) {
     if (cal_accumulate_pattern(link, p, &signal_power) != 0) return -2;
     cal_cs_patterns = (uint16_t)(p + 1u);
-    if ((cal_cs_patterns & (CAL_PATTERN_CHECK - 1u)) == 0u &&
-        cal_cs_patterns >= CAL_PATTERNS_MIN) {
-      if (cal_early_check() == 1) break;
-    }
-    if ((HAL_GetTick() - cal_time_budget_start) >= CAL_TIME_BUDGET_MS) break;
     if ((p & 15u) == 0u) {
-      uint32_t elapsed = HAL_GetTick() - cal_time_budget_start;
-      uint32_t pr = 12u + (elapsed * 62u) / CAL_TIME_BUDGET_MS;
+      uint32_t pr = 12u + ((uint32_t)p * 62u) / CAL_ACQUIRE_PATTERNS;
       if (pr > 74u) pr = 74u;
       cal_report(cb, context, US_CAL_MEASURE, (uint8_t)pr);
     }
   }
-  if (cal_cs_patterns < CAL_PATTERNS_MIN) return -5;
   cal_signal_power = signal_power / ((float)cal_cs_patterns * (float)CAL_MICS);
   cal_debug.patterns = cal_cs_patterns;
   return 0;
 }
+
 
 /* --------------------------------------------------------------------------
  * Phase F: resolve the discrete ambiguities with a real measured array gain.
@@ -1667,325 +1518,6 @@ static int cal_measure_one_channel(fpga_link_t *link, uint8_t channel, uint8_t p
   return cal_measure_frame_iq(link, &frame, burst_us, yr, yi);
 }
 
-static int __attribute__((unused)) us_calibration_self_test_legacy(fpga_link_t *link, const umh_device_profile_t *profile,
-                                      const umh_channel_calibration_t *calibration,
-                             uint8_t level, uint16_t gate_start, uint8_t gate_width,
-                             uint32_t burst_us,
-                             us_cal_progress_cb_t progress, void *context,
-                             umh_cal_self_test_result_t *result)
-{
-  uint8_t m, i, ref_ch = 0u, ref_mic = 0u;
-  uint8_t used_start = (uint8_t)(gate_start > 255u ? 255u : 0u);
-  uint16_t start = gate_start;
-  uint8_t width = gate_width;
-  float c_m_s, c_mm_s, f_hz;
-  float ref_pow = -1.0f, ref_mic_pow = -1.0f;
-  float a64, a192, score_plus, score_minus;
-  float total_focus = 0.0f, total_ctrl = 0.0f;
-  float sum_coh = 0.0f, sum_pred = 0.0f, sum_avp = 0.0f;
-  int phase_sign;
-  umh_spatial_renderer_t renderer;
-  umh_spatial_point_t point;
-
-  (void)used_start;
-  if (link == NULL || profile == NULL || calibration == NULL || result == NULL) return -1;
-  memset(result, 0, sizeof(*result));
-  if (level == 0u) level = 8u;
-  result->used_level = level;
-  result->used_gate_width = width;
-  result->used_gate_start = start;
-  cal_profile = profile;
-  c_m_s = (profile->sound_speed_um_per_s != 0u) ?
-          ((float)profile->sound_speed_um_per_s * 1.0e-6f) : 343.0f;
-  c_mm_s = c_m_s * 1000.0f;
-  f_hz = (float)(profile->carrier_hz != 0u ? profile->carrier_hz : 40000u);
-  cal_k_wave_mm = CAL_TWO_PI * f_hz / c_mm_s;
-
-  if (width == 0u) {
-    int rc = cal_transient_profile(link, level, &start, &width);
-    if (rc != 0) { result->fault = UMH_FAULT_CAL_MIC_SILENT; return -2; }
-    result->used_gate_start = start;
-    result->used_gate_width = width;
-  }
-  if (burst_us == 0u)
-    burst_us = ((uint32_t)start + (uint32_t)width + (uint32_t)CAL_GATE_TAIL) * 25u;
-  if (burst_us < 500u) burst_us = 500u;
-  /* The FPGA frame builder starts after the SPI transaction and can delay
-   * the pattern swap by up to a few hundred microseconds when all 84
-   * channels are active.  Keep drive on long enough that the configured
-   * microphone gate completes after the actual swap. */
-  burst_us += 2000u;
-  cal_burst_us = burst_us;
-  if (cal_mic_start(link, 1u, start, width, width) != 0) {
-    result->fault = UMH_FAULT_CAL_MIC_SILENT; return -3;
-  }
-
-  /* ---- H matrix: each channel alone, phase 0 / phase 180 differential.
-   * Driving the same channel with opposite command phase and subtracting
-   * removes supply/mechanical/electromagnetic common-mode pickup.  That
-   * pickup is not part of the acoustic channel response and made the old
-   * absolute-phase H matrix non-repeatable across patterns and positions. */
-  for (i = 0u; i < CAL_CHANNELS; ++i) {
-    float y0r[CAL_MICS], y0i[CAL_MICS], y1r[CAL_MICS], y1i[CAL_MICS];
-    if (cal_measure_one_channel(link, i, 0u, level, burst_us, y0r, y0i) != 0) {
-      result->fault = UMH_FAULT_CAL_MIC_SILENT; return -4;
-    }
-    cal_delay_us(CAL_SETTLE_US);
-    if (cal_measure_one_channel(link, i, 128u, level, burst_us, y1r, y1i) != 0) {
-      result->fault = UMH_FAULT_CAL_MIC_SILENT; return -4;
-    }
-    for (m = 0u; m < CAL_MICS; ++m) {
-      cal_z_re[m][i] = 0.5f * (y0r[m] - y1r[m]);
-      cal_z_im[m][i] = 0.5f * (y0i[m] - y1i[m]);
-    }
-    result->channels_measured = (uint16_t)(i + 1u);
-    cal_delay_us(CAL_SETTLE_US);
-    if ((i & 7u) == 0u) {
-      result->progress = (uint8_t)(2u + (i * 30u) / CAL_CHANNELS);
-      cal_stage_update(US_CAL_VERIFY, result->progress);
-      cal_report(progress, context, US_CAL_VERIFY, result->progress);
-    }
-  }
-  for (i = 0u; i < CAL_CHANNELS; ++i) {
-    float p = 0.0f;
-    for (m = 0u; m < CAL_MICS; ++m)
-      p += cal_z_re[m][i] * cal_z_re[m][i] + cal_z_im[m][i] * cal_z_im[m][i];
-    if (p > ref_pow) { ref_pow = p; ref_ch = i; }
-  }
-  for (m = 0u; m < CAL_MICS; ++m) {
-    float p = cal_z_re[m][ref_ch] * cal_z_re[m][ref_ch] +
-              cal_z_im[m][ref_ch] * cal_z_im[m][ref_ch];
-    if (p > ref_mic_pow) { ref_mic_pow = p; ref_mic = m; }
-  }
-  if (ref_mic_pow < 1.0f) { result->fault = UMH_FAULT_CAL_MIC_SILENT; return -5; }
-
-  /* ---- all-channel linearity diagnostic ------------------------------- */
-  {
-    umh_output_frame_t line;
-    umh_output_frame_t line_inv;
-    float l0r[CAL_MICS], l0i[CAL_MICS], l1r[CAL_MICS], l1i[CAL_MICS];
-    memset(&line, 0, sizeof(line));
-    line.update_flags = UMH_FRAME_FLAG_ULTRASOUND;
-    line.sequence = ++cal_frame_sequence;
-    for (i = 0u; i < CAL_CHANNELS; ++i) line.channels[i].level = level;
-    line_inv = line;
-    line_inv.sequence = ++cal_frame_sequence;
-    for (i = 0u; i < CAL_CHANNELS; ++i) line_inv.channels[i].phase = 128u;
-    if (cal_measure_frame_iq(link, &line, burst_us, l0r, l0i) == 0) {
-      cal_delay_us(CAL_SETTLE_US);
-      if (cal_measure_frame_iq(link, &line_inv, burst_us, l1r, l1i) == 0) {
-        for (m = 0u; m < CAL_MICS; ++m) {
-          cal_dbg_line_re[m] = 0.5f * (l0r[m] - l1r[m]);
-          cal_dbg_line_im[m] = 0.5f * (l0i[m] - l1i[m]);
-        }
-      }
-    }
-    for (m = 0u; m < CAL_MICS; ++m) {
-      float pr = 0.0f, pi = 0.0f;
-      for (i = 0u; i < CAL_CHANNELS; ++i) {
-        pr += cal_z_re[m][i];
-        pi += cal_z_im[m][i];
-      }
-      cal_dbg_line_pred_re[m] = pr;
-      cal_dbg_line_pred_im[m] = pi;
-    }
-    cal_delay_us(CAL_SETTLE_US);
-  }
-
-  /* ---- determine actual command-phase rotation direction --------------- */
-  {
-    float y64r[CAL_MICS], y64i[CAL_MICS], y192r[CAL_MICS], y192i[CAL_MICS];
-    float hr = cal_z_re[ref_mic][ref_ch], hi = cal_z_im[ref_mic][ref_ch];
-    float dot, cross;
-    if (cal_measure_one_channel(link, ref_ch, 64u, level, burst_us, y64r, y64i) != 0) {
-      result->fault = UMH_FAULT_CAL_MIC_SILENT; return -6;
-    }
-    cal_delay_us(CAL_SETTLE_US);
-    if (cal_measure_one_channel(link, ref_ch, 192u, level, burst_us, y192r, y192i) != 0) {
-      result->fault = UMH_FAULT_CAL_MIC_SILENT; return -7;
-    }
-    cal_delay_us(CAL_SETTLE_US);
-    dot = y64r[ref_mic] * hr + y64i[ref_mic] * hi;
-    cross = y64i[ref_mic] * hr - y64r[ref_mic] * hi;
-    a64 = cal_atan2_rad(dot, cross);
-    dot = y192r[ref_mic] * hr + y192i[ref_mic] * hi;
-    cross = y192i[ref_mic] * hr - y192r[ref_mic] * hi;
-    a192 = cal_atan2_rad(dot, cross);
-  }
-  score_plus = cosf(cal_wrap_pi(a64 - (CAL_PI * 0.5f))) +
-               cosf(cal_wrap_pi(a192 - CAL_PI));
-  score_minus = cosf(cal_wrap_pi(a64 + (CAL_PI * 0.5f))) +
-                cosf(cal_wrap_pi(a192 + CAL_PI));
-  phase_sign = (score_plus >= score_minus) ? 1 : -1;
-
-  /* ---- production focus pattern vs random-phase control ----------------
-   * Measure each frame twice with an additional global 180 deg phase shift
-   * and subtract.  Static microphone/power-supply/mechanical pickup is
-   * common-mode under this inversion and cancels, leaving only the acoustic
-   * field produced by the addressed transmit phases.  Without this the
-   * common-mode floor dominated weak focus spots and made the self-test
-   * unable to see whether the calibration actually aligned the channels. */
-  spatial_renderer_init(&renderer, profile);
-  spatial_renderer_set_calibration(&renderer, calibration, CAL_CHANNELS);
-  for (m = 0u; m < CAL_MICS; ++m) {
-    umh_output_frame_t frame;
-    umh_output_frame_t frame_inv;
-    umh_output_frame_t control;
-    umh_output_frame_t control_inv;
-    float a0r[CAL_MICS], a0i[CAL_MICS], a1r[CAL_MICS], a1i[CAL_MICS];
-    float b0r[CAL_MICS], b0i[CAL_MICS], b1r[CAL_MICS], b1i[CAL_MICS];
-    float yfr[CAL_MICS], yfi[CAL_MICS], ycr[CAL_MICS], yci[CAL_MICS];
-    float pr = 0.0f, pi = 0.0f, sum_mag = 0.0f, sum_pow = 0.0f;
-    float pred_pow, pred_gain, focus_pow, ctrl_pow, gain_m, avp_m;
-    memset(&point, 0, sizeof(point));
-    point.x_um = (int32_t)lroundf(cal_mic_x_mm[m] * 1000.0f);
-    point.y_um = (int32_t)lroundf(cal_mic_y_mm[m] * 1000.0f);
-    point.z_um = 0;
-    point.level = (uint8_t)(((uint32_t)level * 255u + 64u) / 128u);
-    point.phase = 0u;
-    point.source_id = 0u;
-    if (spatial_renderer_point(&renderer, &point, &frame) != 0) {
-      result->fault = UMH_FAULT_CAL_QUALITY; return -8;
-    }
-    frame.sequence = ++cal_frame_sequence;
-    for (i = 0u; i < CAL_CHANNELS; ++i) cal_corr[0][i] = frame.channels[i].phase;
-
-    frame_inv = frame;
-    frame_inv.sequence = ++cal_frame_sequence;
-    for (i = 0u; i < CAL_CHANNELS; ++i)
-      frame_inv.channels[i].phase = (uint8_t)(frame_inv.channels[i].phase + 128u);
-
-    if (cal_measure_frame_iq(link, &frame, burst_us, a0r, a0i) != 0) {
-      result->fault = UMH_FAULT_CAL_MIC_SILENT; return -9;
-    }
-    cal_delay_us(CAL_SETTLE_US);
-    if (cal_measure_frame_iq(link, &frame_inv, burst_us, a1r, a1i) != 0) {
-      result->fault = UMH_FAULT_CAL_MIC_SILENT; return -9;
-    }
-    cal_delay_us(CAL_SETTLE_US);
-
-    control = frame;
-    control.sequence = ++cal_frame_sequence;
-    {
-      uint32_t bits[3];
-      cal_cs_row((uint16_t)(0x4000u + m), bits);
-      for (i = 0u; i < CAL_CHANNELS; ++i) {
-        if (cal_cs_bit(bits, i) != 0)
-          control.channels[i].phase = (uint8_t)(control.channels[i].phase + 128u);
-      }
-    }
-    control_inv = control;
-    control_inv.sequence = ++cal_frame_sequence;
-    for (i = 0u; i < CAL_CHANNELS; ++i)
-      control_inv.channels[i].phase = (uint8_t)(control_inv.channels[i].phase + 128u);
-
-    if (cal_measure_frame_iq(link, &control, burst_us, b0r, b0i) != 0) {
-      result->fault = UMH_FAULT_CAL_MIC_SILENT; return -10;
-    }
-    cal_delay_us(CAL_SETTLE_US);
-    if (cal_measure_frame_iq(link, &control_inv, burst_us, b1r, b1i) != 0) {
-      result->fault = UMH_FAULT_CAL_MIC_SILENT; return -10;
-    }
-    cal_delay_us(CAL_SETTLE_US);
-
-    for (i = 0u; i < CAL_MICS; ++i) {
-      yfr[i] = 0.5f * (a0r[i] - a1r[i]);
-      yfi[i] = 0.5f * (a0i[i] - a1i[i]);
-      ycr[i] = 0.5f * (b0r[i] - b1r[i]);
-      yci[i] = 0.5f * (b0i[i] - b1i[i]);
-    }
-
-    if (m == 0u) {
-      /* The 64/192 deg probe is ambiguous by construction when the
-       * microphone/transmit phase noise is small.  Resolve the actual
-       * command-phase rotation sign from the differential focus vector
-       * itself, which is the same convention the production renderer
-       * uses. */
-      float ppr = 0.0f, ppi = 0.0f, pmr = 0.0f, pmi = 0.0f;
-      float mag_y = sqrtf(yfr[0] * yfr[0] + yfi[0] * yfi[0]);
-      for (i = 0u; i < CAL_CHANNELS; ++i) {
-        float hr = cal_z_re[0][i];
-        float hi = cal_z_im[0][i];
-        float rot = CAL_TWO_PI * (float)cal_corr[0][i] / 256.0f;
-        float cr = cosf(rot), ci = sinf(rot);
-        ppr += hr * cr - hi * ci;
-        ppi += hr * ci + hi * cr;
-        pmr += hr * cr + hi * ci;
-        pmi += hr * ci - hi * cr;
-      }
-      {
-        float mag_pp = sqrtf(ppr * ppr + ppi * ppi);
-        float mag_pm = sqrtf(pmr * pmr + pmi * pmi);
-        float dotp = yfr[0] * ppr + yfi[0] * ppi;
-        float crossp = yfi[0] * ppr - yfr[0] * ppi;
-        float dotm = yfr[0] * pmr + yfi[0] * pmi;
-        float crossm = yfi[0] * pmr - yfr[0] * pmi;
-        float corrp = (mag_y * mag_pp > 1.0e-9f) ? sqrtf(dotp * dotp + crossp * crossp) / (mag_y * mag_pp) : 0.0f;
-        float corrm = (mag_y * mag_pm > 1.0e-9f) ? sqrtf(dotm * dotm + crossm * crossm) / (mag_y * mag_pm) : 0.0f;
-        phase_sign = (corrp >= corrm) ? 1 : -1;
-      }
-    }
-
-    for (i = 0u; i < CAL_CHANNELS; ++i) {
-      float hr = cal_z_re[m][i];
-      float hi = cal_z_im[m][i];
-      float rot = (float)phase_sign * (CAL_TWO_PI * (float)cal_corr[0][i] / 256.0f);
-      float cr = cosf(rot);
-      float ci = sinf(rot);
-      pr += hr * cr - hi * ci;
-      pi += hr * ci + hi * cr;
-      sum_mag += sqrtf(hr * hr + hi * hi);
-      sum_pow += hr * hr + hi * hi;
-    }
-    pred_pow = pr * pr + pi * pi;
-    pred_gain = 10.0f * log10f((pred_pow + 1.0f) /
-                               (sum_pow / (float)CAL_CHANNELS + 1.0f));
-    focus_pow = yfr[m] * yfr[m] + yfi[m] * yfi[m];
-    ctrl_pow = ycr[m] * ycr[m] + yci[m] * yci[m];
-    gain_m = 10.0f * log10f((focus_pow + 1.0f) / (ctrl_pow + 1.0f));
-    avp_m = 10.0f * log10f((focus_pow + 1.0f) / (pred_pow + 1.0f));
-    /* Actual measured phase coherence: |sum of the real differential focus
-     * vectors| divided by the sum of single-channel magnitudes.  Random
-     * phases give ~1/sqrt(N); a truly phase-unified array approaches 1. */
-    float actual_coh = sqrtf(focus_pow) / (sum_mag + 1.0e-9f);
-    result->per_mic_gain_db[m] = gain_m;
-    result->per_mic_coherence[m] = actual_coh;
-    result->per_mic_predicted_gain_db[m] = pred_gain;
-    result->per_mic_actual_vs_predicted_db[m] = avp_m;
-    total_focus += focus_pow;
-    total_ctrl += ctrl_pow;
-    sum_coh += actual_coh;
-    sum_pred += pred_gain;
-    sum_avp += avp_m;
-    result->progress = (uint8_t)(40u + m * 15u);
-    cal_stage_update(US_CAL_VERIFY, result->progress);
-    cal_report(progress, context, US_CAL_VERIFY, result->progress);
-  }
-
-  result->focus_gain_db = 10.0f * log10f((total_focus + 1.0f) / (total_ctrl + 1.0f));
-  result->coherence = sum_coh / (float)CAL_MICS;
-  result->predicted_gain_db = sum_pred / (float)CAL_MICS;
-  result->actual_vs_predicted_db = sum_avp / (float)CAL_MICS;
-  result->good_mics = 0u;
-  for (m = 0u; m < CAL_MICS; ++m) {
-    /* A random-phase array gives ~1/sqrt(84) = 0.109 coherence.  Requiring
-     * >0.45 at three of four microphones is a real acoustic phase-unity
-     * check with margin for PDM noise and microphone position tolerance. */
-    if (result->per_mic_coherence[m] > 0.45f &&
-        result->per_mic_gain_db[m] > 3.0f)
-      ++result->good_mics;
-  }
-  result->pass = (result->focus_gain_db > 6.0f &&
-                  result->coherence > 0.48f &&
-                  result->predicted_gain_db > 6.0f &&
-                  result->good_mics >= 3u) ? 1u : 0u;
-  result->fault = result->pass ? UMH_FAULT_NONE : UMH_FAULT_CAL_QUALITY;
-  result->progress = 100u;
-  cal_report(progress, context, result->pass ? US_CAL_OK : US_CAL_FAIL, 100u);
-  return 0;
-}
-
-
 /* --------------------------------------------------------------------------
  * Bench H-matrix acquisition with coherent repeat averaging.
  *
@@ -2046,106 +1578,8 @@ int us_calibration_measure_h(fpga_link_t *link, const umh_device_profile_t *prof
  * the static phase-model fit.  channel >= CAL_CHANNELS drives nothing and
  * therefore measures the acoustic + electrical noise floor.
  * -------------------------------------------------------------------------- */
-int us_calibration_measure_profile(fpga_link_t *link, uint8_t channel,
-                                   uint8_t phase, uint8_t level,
-                                   uint8_t gate_count, uint16_t gate_start,
-                                   uint16_t gate_step, uint8_t gate_width,
-                                   uint32_t burst_us, uint8_t repeats)
-{
-  umh_output_frame_t frame;
-  fpga_mic_gate_wire_t wire;
-  uint16_t expected;
-  uint8_t g, m, r, i;
-  if (link == NULL || gate_count == 0u || gate_count > 64u ||
-      gate_width == 0u || burst_us == 0u) return -1;
-  if (repeats == 0u) repeats = 1u;
-  cal_frame_sequence = 0u;
-  cal_block_expected = 0u;
-  if (cal_mic_start(link, gate_count, gate_start, gate_step, gate_width) != 0)
-    return -2;
-  memset(cal_profile_acc_i, 0, sizeof(cal_profile_acc_i));
-  memset(cal_profile_acc_q, 0, sizeof(cal_profile_acc_q));
-  for (r = 0u; r < repeats; ++r) {
-    memset(&frame, 0, sizeof(frame));
-    frame.update_flags = UMH_FRAME_FLAG_ULTRASOUND;
-    frame.sequence = ++cal_frame_sequence;
-    for (i = 0u; i < CAL_CHANNELS; ++i) {
-      frame.channels[i].phase = (i == channel) ? phase : 0u;
-      frame.channels[i].level = (i == channel) ? level : 0u;
-    }
-    if (cal_submit_frame(link, &frame) != 0) return -3;
-    cal_delay_us(burst_us);
-    if (fpga_link_safe_stop(link) != 0) return -4;
-    expected = (uint16_t)(cal_block_expected + 1u);
-    if (cal_wait_block_fast(link, expected, burst_us / 1000u + 500u, &wire) != 0)
-      return -5;
-    cal_block_expected = expected;
-    for (g = 0u; g < gate_count; ++g) {
-      mic_capture_gate_t sample;
-      if (mic_capture_read_gate(link, g, &sample, NULL) != 0) return -6;
-      for (m = 0u; m < CAL_MICS; ++m) {
-        int32_t ai = (int32_t)cal_profile_acc_i[g][m] + (int32_t)sample.i[m];
-        int32_t aq = (int32_t)cal_profile_acc_q[g][m] + (int32_t)sample.q[m];
-        if (ai > 32767) ai = 32767; else if (ai < -32768) ai = -32768;
-        if (aq > 32767) aq = 32767; else if (aq < -32768) aq = -32768;
-        cal_profile_acc_i[g][m] = (int16_t)ai;
-        cal_profile_acc_q[g][m] = (int16_t)aq;
-      }
-    }
-    cal_delay_us(CAL_SETTLE_US);
-  }
-  for (g = 0u; g < gate_count; ++g) {
-    for (m = 0u; m < CAL_MICS; ++m) {
-      cal_profile_i[g][m] = (int16_t)(cal_profile_acc_i[g][m] / (int32_t)repeats);
-      cal_profile_q[g][m] = (int16_t)(cal_profile_acc_q[g][m] / (int32_t)repeats);
-    }
-  }
-  return 0;
-}
 
 
-int us_calibration_measure_profile_all(fpga_link_t *link,
-                                       uint8_t level, uint32_t burst_us,
-                                       uint8_t gate_count, uint16_t gate_start,
-                                       uint16_t gate_step, uint8_t gate_width,
-                                       uint8_t repeats, uint8_t min_gate,
-                                       us_cal_profile_peak_t *peaks)
-{
-  uint8_t ch, g, m;
-  if (link == NULL || peaks == NULL || gate_count == 0u || gate_count > 64u ||
-      gate_step == 0u || gate_width == 0u || burst_us == 0u) return -1;
-  if (repeats == 0u) repeats = 1u;
-  if (min_gate >= gate_count) min_gate = (uint8_t)(gate_count - 1u);
-  for (ch = 0u; ch < CAL_CHANNELS; ++ch) {
-    int32_t bestEarly = -1, bestLate = -1;
-    int rc = us_calibration_measure_profile(link, ch, 0u, level, gate_count,
-                                            gate_start, gate_step, gate_width,
-                                            burst_us, repeats);
-    if (rc != 0) return (int)ch - 100;
-    for (m = 0u; m < CAL_MICS; ++m) {
-      uint8_t eGate = 0u, lGate = min_gate;
-      int16_t lI = 0, lQ = 0;
-      bestEarly = -1; bestLate = -1;
-      for (g = 0u; g < gate_count; ++g) {
-        int32_t iv = cal_profile_i[g][m];
-        int32_t qv = cal_profile_q[g][m];
-        int32_t p = iv * iv + qv * qv;
-        if (g < min_gate) {
-          if (p > bestEarly) { bestEarly = p; eGate = g; }
-        } else {
-          if (p > bestLate) { bestLate = p; lGate = g; lI = (int16_t)iv; lQ = (int16_t)qv; }
-        }
-      }
-      if (bestEarly < 0) eGate = 0u;
-      if (bestLate < 0) { lGate = min_gate; lI = 0; lQ = 0; }
-      peaks[(uint16_t)ch * CAL_MICS + m].early_gate = eGate;
-      peaks[(uint16_t)ch * CAL_MICS + m].late_gate = lGate;
-      peaks[(uint16_t)ch * CAL_MICS + m].late_i = lI;
-      peaks[(uint16_t)ch * CAL_MICS + m].late_q = lQ;
-    }
-  }
-  return 0;
-}
 
 
 int us_calibration_measure_pattern(fpga_link_t *link,
@@ -2193,7 +1627,6 @@ uint32_t us_calibration_dump_size(uint8_t section)
     case 0u: return (uint32_t)(CAL_MICS * CAL_CHANNELS * 2u * sizeof(float));
     case 1u: return (uint32_t)(CAL_PROFILE_GATES * CAL_MICS * 2u * sizeof(int16_t));
     case 2u: return (uint32_t)sizeof(cal_dump2_t);
-    case 3u: return (uint32_t)(16u * sizeof(float));
     default: return 0u;
   }
 }
@@ -2248,33 +1681,6 @@ static int cal_dump_read_section1(uint32_t offset, uint8_t *out, uint16_t length
   return (int)length;
 }
 
-static int cal_dump_read_section3(uint32_t offset, uint8_t *out, uint16_t length)
-{
-  const float *src[4];
-  uint32_t total = us_calibration_dump_size(3u);
-  uint16_t n = length;
-  if (out == NULL || offset >= total) return -1;
-  if ((uint32_t)length > total - offset) length = (uint16_t)(total - offset);
-  src[0] = cal_dbg_line_re;
-  src[1] = cal_dbg_line_im;
-  src[2] = cal_dbg_line_pred_re;
-  src[3] = cal_dbg_line_pred_im;
-  n = length;
-  while (n != 0u) {
-    uint32_t elem = offset >> 2u;        /* float element index */
-    uint32_t part = offset & 3u;
-    uint32_t which = elem >> 2u;         /* 0..3: measured re/im, predicted re/im */
-    uint32_t mic = elem & 3u;
-    float v = (which < 4u) ? src[which][mic] : 0.0f;
-    const uint8_t *bytes = (const uint8_t *)&v;
-    uint32_t chunk = 4u - part;
-    if (chunk > (uint32_t)n) chunk = (uint32_t)n;
-    memcpy(out, bytes + part, chunk);
-    out += chunk; offset += chunk; n = (uint16_t)(n - (uint16_t)chunk);
-  }
-  return (int)length;
-}
-
 int us_calibration_dump_read(uint8_t section, uint32_t offset, uint8_t *out, uint16_t length)
 {
   uint32_t total;
@@ -2288,7 +1694,6 @@ int us_calibration_dump_read(uint8_t section, uint32_t offset, uint8_t *out, uin
     case 2u:
       memcpy(out, ((const uint8_t *)&cal_dump2) + offset, length);
       return (int)length;
-    case 3u: return cal_dump_read_section3(offset, out, length);
     default: return -1;
   }
 }
@@ -2333,9 +1738,9 @@ static void cal_fill_dump2(const umh_calibration_result_t *result,
 /* --------------------------------------------------------------------------
  * Main state machine.
  * -------------------------------------------------------------------------- */
-int us_calibration_run_legacy(fpga_link_t *link, const umh_device_profile_t *profile,
-                              us_cal_progress_cb_t progress, void *context,
-                              umh_calibration_result_t *result)
+int us_calibration_run(fpga_link_t *link, const umh_device_profile_t *profile,
+                       us_cal_progress_cb_t progress, void *context,
+                       umh_calibration_result_t *result)
 {
   uint8_t i, m;
   int rc;
@@ -2362,7 +1767,6 @@ int us_calibration_run_legacy(fpga_link_t *link, const umh_device_profile_t *pro
   cal_stage_progress_ctx = context;
   cal_frame_sequence = 0u;
   cal_block_expected = 0u;
-  cal_phi_prev_valid = 0u;
   memset(&cal_debug, 0, sizeof(cal_debug));
   memset(&metrics_plus, 0, sizeof(metrics_plus));
   memset(&metrics_minus, 0, sizeof(metrics_minus));
@@ -2401,10 +1805,6 @@ int us_calibration_run_legacy(fpga_link_t *link, const umh_device_profile_t *pro
   if (cal_burst_us < 500u) cal_burst_us = 500u;
   cal_debug.stage = 2u;
   cal_report(progress, context, US_CAL_MEASURE, 10u);
-
-#if CAL_DIRECT_ID_PROBE
-  (void)cal_id_probe(link, cal_level_used);
-#endif
 
   /* ---- C: random projection acquisition -------------------------------- */
   cal_report(progress, context, US_CAL_MEASURE, 12u);
@@ -2562,12 +1962,10 @@ int us_calibration_run_legacy(fpga_link_t *link, const umh_device_profile_t *pro
   }
   if (result->verify_gain_db < -1.0f) result->quality_flags |= CAL_Q_COUPLING;
 
-#if !CAL_QUALITY_RELAXED
   if (result->quality_flags != 0u) {
     result->fault = UMH_FAULT_CAL_QUALITY;
     goto fail;
   }
-#endif
   cal_fill_dump2(result, &metrics_final);
   result->progress = 100u;
   result->fault = UMH_FAULT_NONE;
@@ -2587,43 +1985,20 @@ fail:
 
 
 /* ==========================================================================
- * Phase-only autonomous calibration (2026-09-17 v3)
- *
- * The near-field microphones are used only through the production spatial
- * renderer.  The fit is a phase-only maximisation of the coherent acoustic
- * power at the four microphone ports:
- *
- *   maximise  sum_m | sum_i H_mi * exp(j*2*pi*(q_i + G_mi)/256) |^2
- *
- * where H is the differential (phase 0 vs phase 180) single-channel response
- * measured one channel at a time, and G is the same geometric focusing code
- * that the production renderer applies.  This avoids the random-projection
- * reconstruction entirely and keeps every intermediate quantity acoustic.
- * ========================================================================== */
-
-
-/* ==========================================================================
- * v4 static-phase calibration and linear-regime self-test (2026-09).
+ * Independent linear-regime self-test.
  *
  * Bench findings on this hardware:
  *  - The FPGA command phase p produces a measured I/Q rotation of +2*pi*p/256
  *    (opposite to the naive delay sign).  All predictions below therefore use
  *    H * exp(+j*phase), not exp(-j*phase).
- *  - 84-channel simultaneous focusing drives the SPH0641 front ends into
- *    compression: the measured focus magnitude saturates around 1200 LSB while
- *    the linear H-model prediction reaches 5k..45k.  The old self-test used
- *    that saturated quantity as its pass gate and was therefore unable to
- *    distinguish a good static phase map from a bad one.
- *  - A 12-channel subset at duty 4 keeps the summed near-field pressure below
- *    the compression corner while still exercising the real production focus
- *    phases, so it is used as the actual focusing gate.
+ *  - 84-channel simultaneous focusing can drive the SPH0641 front ends into
+ *    compression, so the self-test exercises the real production focus
+ *    phases through a small low-duty subset instead of the full array.
  * ========================================================================== */
 
 #define CAL_FOCUS_SUBSET_COUNT 8u
 /* Channels validated by direct low-power focus measurements (actual field
- * matches the H linear prediction with 0-27 deg phase error).  A larger
- * farthest-point subset is intentionally not used until its transducer
- * positions have the same level of verification. */
+ * matches the H linear prediction with 0-27 deg phase error). */
 static const uint8_t cal_focus_subset[CAL_FOCUS_SUBSET_COUNT] = {
   0u, 1u, 4u, 8u, 10u, 13u, 17u, 18u
 };
@@ -2631,9 +2006,7 @@ static const uint8_t cal_focus_subset[CAL_FOCUS_SUBSET_COUNT] = {
 #define CAL_SELFTEST_FOCUS_REPS   2u
 #define CAL_SELFTEST_H_REPEATS     4u
 #define CAL_SELFTEST_COH_MIN       0.55f
-#define CAL_SELFTEST_GAIN_MIN_DB   3.0f
 #define CAL_SELFTEST_AVG_COH_MIN   0.60f
-#define CAL_SELFTEST_AVG_GAIN_DB   6.0f
 #define CAL_SELFTEST_PRED_MIN_DB   6.0f
 
 static float cal_duty_scale(uint8_t from, uint8_t to)
@@ -2856,58 +2229,6 @@ static int cal_self_test_eval(fpga_link_t *link,
  * The per-microphone nuisance is removed with circular means.  This candidate
  * is only an initial estimate: cal_self_test_eval() still has to accept it by
  * actual subset focusing before it is written anywhere. */
-static void cal_static_phase_candidate(uint8_t *q_out, uint8_t negate)
-{
-  float off[CAL_MICS];
-  float phi[CAL_CHANNELS];
-  uint8_t m, i, iter;
-  for (m = 0u; m < CAL_MICS; ++m) off[m] = 0.0f;
-  for (m = 0u; m < CAL_MICS; ++m) {
-    for (i = 0u; i < CAL_CHANNELS; ++i) {
-      float d = cal_direct_path_mm(m, i);
-      cal_scratch.trig.cos_re[m][i] =
-          atan2f(cal_z_im[m][i], cal_z_re[m][i]) - cal_k_wave_mm * d;
-    }
-  }
-  for (iter = 0u; iter < 4u; ++iter) {
-    for (i = 0u; i < CAL_CHANNELS; ++i) {
-      float sr = 0.0f, si = 0.0f;
-      for (m = 0u; m < CAL_MICS; ++m) {
-        float a = cal_scratch.trig.cos_re[m][i] - off[m];
-        sr += cosf(a); si += sinf(a);
-      }
-      phi[i] = atan2f(si, sr);
-    }
-    for (m = 0u; m < CAL_MICS; ++m) {
-      float sr = 0.0f, si = 0.0f;
-      for (i = 0u; i < CAL_CHANNELS; ++i) {
-        float a = cal_scratch.trig.cos_re[m][i] - phi[i];
-        sr += cosf(a); si += sinf(a);
-      }
-      off[m] = atan2f(si, sr);
-    }
-  }
-  for (i = 0u; i < CAL_CHANNELS; ++i) {
-    int32_t code = (int32_t)lroundf(-phi[i] * (256.0f / CAL_TWO_PI));
-    if (negate != 0u) code = -code;
-    code %= 256;
-    if (code < 0) code += 256;
-    q_out[i] = (uint8_t)code;
-  }
-}
-
-static int cal_self_test_score(const umh_cal_self_test_result_t *st)
-{
-  int score = 0;
-  if (st == NULL) return -1000000;
-  if (st->pass != 0u) score += 1000000;
-  score += (int)st->good_mics * 10000;
-  score += (int)(st->focus_gain_db * 1000.0f);
-  score += (int)(st->coherence * 1000.0f);
-  score += (int)(st->predicted_gain_db * 100.0f);
-  return score;
-}
-
 int us_calibration_self_test(fpga_link_t *link, const umh_device_profile_t *profile,
                              const umh_channel_calibration_t *calibration,
                              uint8_t level, uint16_t gate_start, uint8_t gate_width,
@@ -2940,128 +2261,4 @@ int us_calibration_self_test(fpga_link_t *link, const umh_device_profile_t *prof
   }
   return cal_self_test_eval(link, profile, calibration, level, gate_start,
                             gate_width, burst, progress, context, result);
-}
-
-/* v4 calibration: measure H once in the single-channel linear regime, then
- * compare candidate static corrections through the real production focus
- * phases and the unsaturated 12-channel self-test.  Nothing is committed
- * unless one candidate passes the measured gate. */
-int us_calibration_run(fpga_link_t *link, const umh_device_profile_t *profile,
-                       us_cal_progress_cb_t progress, void *context,
-                       umh_calibration_result_t *result)
-{
-  uint8_t level = 16u, width = CAL_GATE_WIDTH;
-  uint16_t start = CAL_GATE_START_MIN;
-  uint32_t burst;
-  int rc;
-  uint8_t i;
-  umh_channel_calibration_t calibration[CAL_CHANNELS];
-  umh_cal_self_test_result_t st, best_st;
-  uint8_t q_zero[CAL_CHANNELS], q_est[CAL_CHANNELS], q_neg[CAL_CHANNELS];
-  uint8_t best_q[CAL_CHANNELS];
-
-  if (link == NULL || profile == NULL || result == NULL) return -1;
-  memset(result, 0, sizeof(*result));
-  result->fault = UMH_FAULT_CAL_SOLVER;
-  cal_profile = profile;
-  cal_frame_sequence = 0u;
-  cal_block_expected = 0u;
-  cal_report(progress, context, US_CAL_WAIT, 0u);
-
-  /* Fixed, board-validated H operating point.  The previous v3 flow's
-   * A1/transient probes left the FPGA microphone block state and the H
-   * solver coupled in a way that made the first v4 subsets fail before
-   * reaching the focus gate.  Level 16 / 400 us gate at sample 232 has been
-   * verified on this hardware for both linear H and unsaturating subset
-   * focus; adaptive probing remains a separate future refinement. */
-  level = 16u;
-  start = 232u;
-  width = CAL_GATE_WIDTH;
-  burst = ((uint32_t)start + (uint32_t)width + (uint32_t)CAL_GATE_TAIL) * 25u + 2000u;
-  if (burst < 500u) burst = 500u;
-  result->level_used = level;
-  result->used_gate_start = start;
-  result->used_gate_width = width;
-
-  cal_report(progress, context, US_CAL_MEASURE, 10u);
-  rc = us_calibration_measure_h(link, profile, level, start, width, burst,
-                                CAL_SELFTEST_H_REPEATS, progress, context);
-  if (rc != 0) {
-    result->fault = UMH_FAULT_CAL_MIC_SILENT;
-    result->progress = 100u;
-    cal_report(progress, context, US_CAL_FAIL, 100u);
-    return -2;
-  }
-  if (cal_k_wave_mm == 0.0f) {
-    float c_mm_s = (profile->sound_speed_um_per_s != 0u) ?
-                   ((float)profile->sound_speed_um_per_s * 1.0e-3f) : 343000.0f;
-    cal_k_wave_mm = CAL_TWO_PI * (float)profile->carrier_hz / c_mm_s;
-  }
-
-  /* Candidate 0: zero static correction. */
-  memset(calibration, 0, sizeof(calibration));
-  for (i = 0u; i < CAL_CHANNELS; ++i) {
-    calibration[i].gain = 255u;
-    calibration[i].enabled = 1u;
-  }
-  memset(q_zero, 0, sizeof(q_zero));
-  memset(best_q, 0, sizeof(best_q));
-  cal_report(progress, context, US_CAL_VERIFY, 20u);
-  if (cal_self_test_eval(link, profile, calibration, level, start, width, burst,
-                         progress, context, &best_st) != 0) {
-    result->fault = UMH_FAULT_CAL_QUALITY;
-    result->progress = 100u;
-    return -3;
-  }
-  result->used_gate_count = 1u;
-  result->patterns_used = (uint16_t)(CAL_CHANNELS * 2u);
-
-  /* Candidate 1/2: conservative additive static phase estimate and its
-   * inverse.  A real measured subset self-test decides whether either is
-   * actually better than zero. */
-  cal_static_phase_candidate(q_est, 0u);
-  for (i = 0u; i < CAL_CHANNELS; ++i) q_neg[i] = (uint8_t)(0u - q_est[i]);
-  {
-    const uint8_t *cand[2];
-    uint8_t c;
-    cand[0] = q_est;
-    cand[1] = q_neg;
-    for (c = 0u; c < 2u; ++c) {
-      for (i = 0u; i < CAL_CHANNELS; ++i) {
-        calibration[i].phase = cand[c][i];
-        calibration[i].gain = 255u;
-        calibration[i].enabled = 1u;
-      }
-      if (cal_self_test_eval(link, profile, calibration, level, start, width,
-                             burst, progress, context, &st) != 0)
-        continue;
-      if (cal_self_test_score(&st) > cal_self_test_score(&best_st)) {
-        best_st = st;
-        memcpy(best_q, cand[c], CAL_CHANNELS);
-      }
-    }
-  }
-
-  memcpy(result->phase_byte, best_q, CAL_CHANNELS);
-  result->good_mics = best_st.good_mics;
-  result->verify_gain_db = best_st.focus_gain_db;
-  result->coupling_db = best_st.predicted_gain_db;
-  result->band_trend_deg = best_st.actual_vs_predicted_db;
-  result->fit_rms_deg = 0.0f;
-  result->rms_before_deg = 0.0f;
-  result->rms_after_deg = 0.0f;
-  result->residual = 0.0f;
-  result->drift_deg = 0.0f;
-  result->mic_consistency_deg = 0.0f;
-  result->progress = 100u;
-  if (best_st.pass != 0u) {
-    result->fault = UMH_FAULT_NONE;
-    result->quality_flags = 0u;
-    cal_report(progress, context, US_CAL_OK, 100u);
-    return 0;
-  }
-  result->fault = UMH_FAULT_CAL_QUALITY;
-  result->quality_flags = CAL_Q_VERIFY;
-  cal_report(progress, context, US_CAL_FAIL, 100u);
-  return -5;
 }

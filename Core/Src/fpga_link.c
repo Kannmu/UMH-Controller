@@ -41,6 +41,40 @@ void fpga_link_init(fpga_link_t *link, SPI_HandleTypeDef *spi)
   cs_high();
 }
 
+/* Calibration runs own the FPGA link and do not need the normal 21.25 MHz
+ * control throughput.  The microphone EBR read path (and the 84-channel
+ * FRAME/MIC_CONFIG setup used with it) has a marginal first-bit setup window
+ * at 21.25 MHz: a single MSB sampling error turns small signed I/Q values
+ * into near-full-scale numbers and makes the phase solver fail.  Calibration
+ * switches the whole link to /32 for the duration of the run, then restores
+ * the exact previous CR1 value so motion/audio throughput is untouched. */
+uint32_t fpga_link_calibration_link_begin(fpga_link_t *link)
+{
+  uint32_t saved_cr1 = 0u;
+  SPI_TypeDef *spi;
+  if (link == NULL || link->spi == NULL || link->spi->Instance == NULL ||
+      link->mutex == NULL)
+    return 0u;
+  spi = link->spi->Instance;
+  if (osMutexAcquire(link->mutex, osWaitForever) != osOK) return 0u;
+  saved_cr1 = spi->CR1;
+  spi->CR1 = (saved_cr1 & ~(SPI_CR1_BR | SPI_CR1_SPE)) |
+             SPI_BAUDRATEPRESCALER_32;
+  osMutexRelease(link->mutex);
+  return saved_cr1;
+}
+
+void fpga_link_calibration_link_end(fpga_link_t *link, uint32_t saved_cr1)
+{
+  if (link == NULL || link->spi == NULL || link->spi->Instance == NULL ||
+      link->mutex == NULL || saved_cr1 == 0u)
+    return;
+  if (osMutexAcquire(link->mutex, osWaitForever) != osOK) return;
+  link->spi->Instance->CR1 = saved_cr1;
+  osMutexRelease(link->mutex);
+}
+
+
 /* Try the DMA fast path first; if it ever times out, fall back permanently to
  * the register loop below and report the switch.  Both paths produce exactly
  * the same wire transaction (CS low for the whole frame, full duplex). */
@@ -577,7 +611,11 @@ static int mic_command(fpga_link_t *link, uint8_t command, uint32_t sequence,
   umh_output_frame_t frame;
   uint16_t length;
   int result = 0;
+  uint32_t saved_cr1 = 0u;
+  uint8_t slow_read = 0u;
+  SPI_TypeDef *spi;
   if (link == NULL || link->mutex == NULL) return -1;
+  spi = link->spi != NULL ? link->spi->Instance : NULL;
   if (extension_length > sizeof(frame.extension)) return -2;
   if (osMutexAcquire(link->mutex, osWaitForever) != osOK) return -1;
   memset(&frame, 0, sizeof(frame));
@@ -598,10 +636,26 @@ static int mic_command(fpga_link_t *link, uint8_t command, uint32_t sequence,
       }
     }
     if (result == 0 && length > 0u) {
+      /* The FPGA microphone EBR read path needs a longer SCK setup/hold
+       * window than a normal frame transaction.  At the 21.25 MHz control
+       * link rate the first bit of a freshly addressed 16-bit word can be
+       * sampled while the EBR output is still changing, which corrupts the
+       * sign bit and makes every H-matrix phase useless.  MIC_READ is a
+       * low-rate calibration-only transaction, so slow it down a little and
+       * restore the normal bus speed afterwards. */
+      if (spi != NULL && command == FPGA_CMD_MIC_READ) {
+        saved_cr1 = spi->CR1;
+        spi->CR1 = (saved_cr1 & ~(SPI_CR1_BR | SPI_CR1_SPE)) |
+                   SPI_BAUDRATEPRESCALER_256;
+        slow_read = 1u;
+      }
       if (exchange(link, length) != 0) result = -3;
       else if (unpack_status(link) != 0) result = -4;
       else if (response != NULL && response_length != 0u)
         memcpy(response, link->rx, response_length);
+      if (slow_read != 0u) {
+        spi->CR1 = saved_cr1;
+      }
     }
   }
   osMutexRelease(link->mutex);

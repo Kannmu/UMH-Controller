@@ -49,12 +49,13 @@ $env:CLEAN_DIAMOND = '1'; cmd /d /c run_diamond.cmd; Remove-Item Env:CLEAN_DIAMO
 
 - **目标**: 只把 84 路在麦克风声孔处看到的静态相位基准校准到一致，不求解绝对相位、不依赖环境反射面。四颗 SPH0641 接收 84 路阵元的平面内近场直达声；门放在每个发射 burst 的稳态内部，15 cm 以外反射来不及到达。
 - **物理坐标**: 换能器 GU1008C-40TR 的压电陶瓷在 PCB 麦克风声孔平面之上 7.0 mm；Core/Src/device_profile.c 因此把 84 路 z_um 设为 7000。麦克风声孔仍取钻孔坐标表: slot0=U181(-43.305,24.994)、slot1=U180(43.298,24.994)、slot2=U204(0,0)、slot3=U182(-0.004,-49.994)。不得退回全 z=0。
-- **采集**: cal_cs_row 使用 splitmix64 i.i.d. ±1，不要改成 Paley/均衡 H。每个图案在 FPGA pattern swap 后按 MIC_CONFIG(gate_count=1,start=gate_start,step=gate_width,width=16) 在 burst 稳态内取一个 400 us I/Q 门；C 阶段累计 Sy_m、Sk_i、Sxy_mi，用中心化最小二乘 + 复数 CG 解 84x4 的 Z_mi。矩阵按 pattern index 现场重生成，不存 R^H R。
+- **采集**: cal_cs_row 使用 splitmix64 i.i.d. ±1，不要改成 Paley/均衡 H。每个图案在 FPGA pattern swap 后按 MIC_CONFIG(gate_count=1,start=gate_start,step=gate_width,width=16) 在 burst 稳态内取一个 400 us I/Q 门；C 阶段固定采集 CAL_ACQUIRE_PATTERNS=512 个图案，累计 Sy_m、Sk_i、Sxy_mi，用中心化最小二乘 + 复数 CG 解 84x4 的 Z_mi。矩阵按 pattern index 现场重生成，不存 R^H R；不要再恢复早期收敛检查，它需要 512x84 的额外快照，本机 RAM 不允许。
+- **SPI 降速不可退回**: 校准 session 必须在开始/结束时调用 `fpga_link_calibration_link_begin/end`，把 SPI1 从正常 /8 降到 /32 再恢复。21.25 MHz 下 MIC_READ/采集路径存在首比特采样裕量不足，单个 MSB 错误会把小信号变成 ±32767 附近的伪值，使 A1、H 矩阵和拟合全部失败；已实测降速后 CAL_START 和 SELFTEST 均通过。不要只在单条 MIC_READ 里降速，FRAME/MIC_CONFIG 也必须在线路降速期间发送。
 - **发射档位**: A1 使用 5 档 {128,64,32,16,8}，按幅度-电平线性度、单图案重复相干性和 SNR 选择档位。本硬件近场耦合很强，正常工作点常在 level=16/8，不要强行固定 128。
 - **门自整定**: B 阶段发 8 次长 burst，MIC_CONFIG(64,0,step=4,width=2) 覆盖 0..6.4 ms；取 burst 尾段稳定窗，幅度距 tail 均值不超过 15%，相邻相位差不超过 5 度，至少 6 个 profile gate，避免把 LC 起振瞬态当稳态。
 - **相位拟合**: E 阶段对 Z_mi 乘 exp(±j*k*r_mi) 做逐麦克风共模 mu 加 rank-1 a_i*rho_m 交替加权拟合。cal_fit_direct 当前为 24 轮乘 8 次迭代，共 192 次，并在每轮更新 mu；早期 32 次迭代版本会停在约 20 度 RMS，不要退回。拟合后由 cal_gauge 去掉公共相位和平面项，得到修正字节约 q=负 arg(a_i)。
 - **四候选消歧**: 直接枚举 {解旋+ 乘 q, 解旋+ 乘 -q, 解旋- 乘 q, 解旋- 乘 -q}。F 阶段用生产 spatial_renderer_point 分别聚焦到四个麦克风声孔，实测 4 颗接收功率；所有候选都不优于基线才失败。rms_before 小于 20 度时不强制 6 dB 增益和 3 麦正增益，否则按严格门限。
 - **原始数据回放**: UMH_MSG_CAL_RAW=0x83 可只做 C 阶段发射采集并把原始 [pattern][mic][I,Q] int16 按 64 图案每帧流式回传到 PC，用于离线算法迭代。参数 8 字节: level u8, gate_start u16, gate_width u8, burst_us u16, patterns u16。离线工具: python Utiles/umh_cal_dump_check.py --raw Utiles/cal_capture/umh_raw_level16_gate232.bin --patterns 1024 --sign both。
 - **EEPROM v3**: EEPROM_PROFILE_VERSION=3，布局仍与 v2 相同，phase 高字节为修正。cal_meta_valid=1，cal_level 为 level_used，cal_rms_deg_x10 为 fit_rms；cal_tilt_x_x10 槽位存 verify_gain_db 乘 10，cal_tilt_y_x10 存 mic_consistency 乘 10；cal_reserved 存 patterns、gate_start、gate_width、level、geom、sign、band_trend。
-- **调试命令**: UMH_MSG_CAL_START=0x82 用于 CLI 触发一次正常校准，等价于 GUI 的 CALIB RUN。UMH_MSG_CAL_DUMP=0x80 支持 6/7 字节请求，section 0 为重构 Z float32、section 1 为 B 剖面 int16、section 2 为拟合和候选指标。
+- **调试命令**: UMH_MSG_CAL_START=0x82 用于 CLI 触发一次正常校准，等价于 GUI 的 CALIB RUN。UMH_MSG_CAL_DUMP=0x80 支持 6/7 字节请求，section 0 为重构 Z float32、section 1 为 B 剖面 int16、section 2 为拟合指标；旧的 section 3 线性/ID 诊断已删除。
 - **不退回**: 不要恢复平面回波 pose 搜索、FISTA/L1 分支、旧 Paley 码、z=0、32 次 rank 迭代或只验证一种候选；FPGA RTL 不动。
