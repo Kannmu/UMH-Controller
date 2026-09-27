@@ -1,5 +1,6 @@
 #include "motion_engine.h"
 #include "umh_fast_math.h"
+#include "cordic.h"
 #include "main.h"
 #include <math.h>
 #include <string.h>
@@ -1109,19 +1110,26 @@ static int motion_emit_dark_vortex(umh_motion_engine_t *engine,
   memset(frame, 0, sizeof(*frame));
   memset(engine->real_accum, 0, sizeof(engine->real_accum));
   memset(engine->imag_accum, 0, sizeof(engine->imag_accum));
-  for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
-    const umh_element_coordinate_t *c = &renderer->profile->coordinates[i];
-    float ex = (float)c->x_um - cx;
-    float ey = (float)c->y_um - cy;
-    float ez = (float)c->z_um - focus_z_um;
-    float distance = sqrtf(ex * ex + ey * ey + ez * ez);
-    float theta = UMH_LEVITATION_SPIRAL_TURNS * atan2f(ey, ex);
-    float phase_q10 = (theta - phase_scale * distance) * (1024.0f / two_pi) +
-                      (float)renderer->phase_offset_q10[i];
-    float mag = magnitude * renderer->gain_scale[i];
-    int32_t q10 = (int32_t)lroundf(phase_q10);
-    engine->real_accum[i] = mag * umh_fast_cos_q10(q10);
-    engine->imag_accum[i] = mag * umh_fast_sin_q10(q10);
+  /* The azimuth runs on the CORDIC: newlib atan2f + lroundf cost ~260 us of
+   * the 420 us frame and capped the trap at ~1.5 kHz.  Truncating the final
+   * q10 matches spatial_renderer_accumulate_point. */
+  {
+    const uint8_t hw = umh_cordic_phase_stream_begin() == 0 ? 1u : 0u;
+    const float delay_q10_per_um = phase_scale * (1024.0f / two_pi);
+    for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
+      const umh_element_coordinate_t *c = &renderer->profile->coordinates[i];
+      float ex = (float)c->x_um - cx;
+      float ey = (float)c->y_um - cy;
+      float ez = (float)c->z_um - focus_z_um;
+      float distance = sqrtf(ex * ex + ey * ey + ez * ez);
+      int32_t theta_q10 = hw != 0u ? umh_cordic_phase_stream_q10(ex, ey) :
+          (int32_t)(UMH_LEVITATION_SPIRAL_TURNS * atan2f(ey, ex) * (1024.0f / two_pi));
+      int32_t q10 = theta_q10 + renderer->phase_offset_q10[i] -
+                    (int32_t)(delay_q10_per_um * distance);
+      float mag = magnitude * renderer->gain_scale[i];
+      engine->real_accum[i] = mag * umh_fast_cos_q10(q10);
+      engine->imag_accum[i] = mag * umh_fast_sin_q10(q10);
+    }
   }
   return spatial_renderer_finalize(renderer, engine->real_accum,
                                    engine->imag_accum, frame);

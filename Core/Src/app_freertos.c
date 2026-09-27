@@ -314,17 +314,15 @@ static void calibration_fail(umh_fault_code_t code, uint32_t argument)
 static int calibration_raw_tx(uint32_t first_pattern, const uint8_t *data,
                               uint16_t length, void *context)
 {
-  uint8_t encoded[UMH_PROTOCOL_HEADER_SIZE + UMH_PROTOCOL_MAX_PAYLOAD];
+  uint8_t *encoded;
   uint16_t encoded_length;
   (void)context;
+  encoded = umh_usb_tx_acquire();
+  if (encoded == NULL) return -1;
   encoded_length = umh_protocol_encode(UMH_MSG_CAL_RAW, UMH_FLAG_RESPONSE,
                                        0x00524157u, first_pattern,
-                                       data, length, encoded, sizeof(encoded));
-  if (encoded_length == 0u) return -1;
-  while (umh_usb_tx_enqueue(encoded, encoded_length) == 0u) {
-    umh_usb_tx_service();
-    osDelay(1u);
-  }
+                                       data, length, encoded, UMH_USB_TX_SLOT_SIZE);
+  if (encoded_length == 0u || umh_usb_tx_commit(encoded, encoded_length) == 0u) return -1;
   umh_usb_tx_service();
   return 0;
 }
@@ -814,15 +812,21 @@ static void send_result(const umh_protocol_frame_t *request, umh_status_t status
 static void send_response(const umh_protocol_frame_t *request, uint8_t type,
                           const void *payload, uint16_t length)
 {
-  uint8_t output[UMH_PROTOCOL_HEADER_SIZE + UMH_PROTOCOL_MAX_PAYLOAD];
+  uint8_t *output;
   uint16_t encoded;
   uint8_t flags = UMH_FLAG_RESPONSE;
   if (type == UMH_MSG_NACK) flags |= UMH_FLAG_ERROR;
+  output = umh_usb_tx_acquire();
+  if (output == NULL) {
+    system_status_get()->usb_dropped++;
+    system_status_fault(UMH_FAULT_USB_TX_DROP, system_status_get()->usb_dropped, UMH_FAULT_WARNING);
+    return;
+  }
   encoded = umh_protocol_encode(type, flags,
-                                 request != NULL ? request->header.transaction_id : 0u,
-                                 request != NULL ? request->header.stream_sequence : 0u,
-                                  (const uint8_t *)payload, length, output, sizeof(output));
-  if (encoded == 0u || umh_usb_tx_enqueue(output, encoded) == 0u) {
+                                request != NULL ? request->header.transaction_id : 0u,
+                                request != NULL ? request->header.stream_sequence : 0u,
+                                (const uint8_t *)payload, length, output, UMH_USB_TX_SLOT_SIZE);
+  if (encoded == 0u || umh_usb_tx_commit(output, encoded) == 0u) {
     system_status_get()->usb_dropped++;
     system_status_fault(UMH_FAULT_USB_TX_DROP, system_status_get()->usb_dropped, UMH_FAULT_WARNING);
   }

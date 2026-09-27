@@ -217,6 +217,8 @@ ifeq ($(DEBUG), 1)
 # wrapper was the dominant cost in the first benchmark run.
 CFLAGS += -fno-math-errno -fno-trapping-math
 CFLAGS += -g -gdwarf-2
+# Stack usage analysis
+CFLAGS += -fstack-usage -fcallgraph-info=su,da
 endif
 
 

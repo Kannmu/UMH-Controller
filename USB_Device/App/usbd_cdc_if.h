@@ -52,7 +52,7 @@
 #define APP_RX_DATA_SIZE  2048
 #define APP_TX_DATA_SIZE  2048
 /* USER CODE BEGIN EXPORTED_DEFINES */
-
+#define UMH_USB_TX_SLOT_SIZE (UMH_PROTOCOL_HEADER_SIZE + UMH_PROTOCOL_MAX_PAYLOAD)
 /* USER CODE END EXPORTED_DEFINES */
 
 /**
@@ -110,6 +110,10 @@ uint8_t CDC_Transmit_FS(uint8_t* Buf, uint16_t Len);
 void umh_usb_tx_init(void);
 uint8_t umh_usb_tx_enqueue(const uint8_t *data, uint16_t length);
 void umh_usb_tx_service(void);
+
+/* Zero-copy TX API: acquire a slot, encode directly into it, then commit. */
+uint8_t *umh_usb_tx_acquire(void);
+uint8_t umh_usb_tx_commit(uint8_t *slot, uint16_t length);
 
 /* USER CODE BEGIN EXPORTED_FUNCTIONS */
 

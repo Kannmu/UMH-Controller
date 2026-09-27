@@ -391,6 +391,15 @@ int umh_cordic_phase8(float real, float imag, uint8_t *phase)
   return 0;
 }
 
+int umh_cordic_phase_stream_begin(void)
+{
+  if (umh_cordic_phase_state == 0) umh_cordic_phase_state = umh_cordic_selftest_phase();
+  if (umh_cordic_phase_state < 0) return -1;
+  CORDIC->CSR = (uint32_t)(CORDIC_FUNCTION_PHASE | CORDIC_PRECISION_6CYCLES |
+                           CORDIC_NBWRITE_2);
+  return 0;
+}
+
 int umh_cordic_phase8_batch(const float *real, const float *imag,
                             uint8_t *phase_codes, uint32_t count)
 {

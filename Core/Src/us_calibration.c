@@ -150,7 +150,6 @@ static float cal_rho_im[CAL_MICS];
 static float cal_mu_re[CAL_MICS];
 static float cal_mu_im[CAL_MICS];
 static float cal_phi[CAL_CHANNELS];
-static float cal_fit_deg[CAL_CHANNELS];
 static uint8_t cal_pair_valid[CAL_MICS][CAL_CHANNELS];
 static uint8_t cal_corr[4][CAL_CHANNELS];
 static float cal_candidate_gain_db[4];
@@ -203,7 +202,6 @@ static uint16_t cal_gate_start = CAL_GATE_START_MIN;
 static uint8_t cal_gate_width = CAL_GATE_WIDTH;
 static uint32_t cal_burst_us;
 static float cal_k_wave_mm;
-static float cal_noise_power;
 static float cal_signal_power;
 static us_cal_progress_cb_t cal_stage_progress;
 static void *cal_stage_progress_ctx;
@@ -566,36 +564,6 @@ static __attribute__((optimize("O3"))) int cal_cs_cg_solve(const float *b_re, co
   return (rsold <= rs0 * CAL_CG_TOL * CAL_CG_TOL) ? 0 : 1;
 }
 
-/* Reconstruct Z for all four microphones from the streaming accumulators.
- * Each row is transformed in place into the centered right-hand side b,
- * then CG writes the solution back into the same row. */
-static int cal_cs_reconstruct(uint8_t report_progress)
-{
-  uint8_t m;
-  uint16_t i;
-  float x_re[CAL_CHANNELS];
-  float x_im[CAL_CHANNELS];
-  if (cal_cs_patterns == 0u) return -5;
-  for (i = 0u; i < CAL_CHANNELS; ++i)
-    cal_xbar[i] = cal_sk[i] / (float)cal_cs_patterns;
-  for (m = 0u; m < CAL_MICS; ++m) {
-    int rc;
-    if (report_progress) cal_stage_update(US_CAL_SOLVE, (uint8_t)(78u + m * 2u));
-    /* b = Sxy - xbar * Sy in place. */
-    for (i = 0u; i < CAL_CHANNELS; ++i) {
-      cal_z_re[m][i] -= cal_xbar[i] * cal_sy_re[m];
-      cal_z_im[m][i] -= cal_xbar[i] * cal_sy_im[m];
-    }
-    rc = cal_cs_cg_solve(cal_z_re[m], cal_z_im[m], x_re, x_im);
-    if (rc < 0) return -2;
-    for (i = 0u; i < CAL_CHANNELS; ++i) {
-      cal_z_re[m][i] = x_re[i];
-      cal_z_im[m][i] = x_im[i];
-    }
-  }
-  return 0;
-}
-
 /* --------------------------------------------------------------------------
  * Direct-path pair validity and rank-1 fit.
  * -------------------------------------------------------------------------- */
@@ -623,54 +591,6 @@ static float cal_direct_path_mm(uint8_t mic, uint8_t channel)
   float dx = px - cal_mic_x_mm[mic];
   float dy = py - cal_mic_y_mm[mic];
   return sqrtf(dx * dx + dy * dy + CAL_SRC_Z_MM * CAL_SRC_Z_MM);
-}
-
-static void cal_prepare_pairs(void)
-{
-  uint8_t m, i;
-  float med[CAL_MICS];
-  memset(cal_pair_valid, 0, sizeof(cal_pair_valid));
-  for (m = 0u; m < CAL_MICS; ++m) {
-    uint16_t n = 0u;
-    float *scratch = cal_scratch.cg[0];
-    for (i = 0u; i < CAL_CHANNELS; ++i) {
-      float zr = cal_z_re[m][i], zi = cal_z_im[m][i];
-      float mag = sqrtf(zr * zr + zi * zi);
-      if (cal_direct_path_mm(m, i) >= CAL_MIN_PATH_MM) scratch[n++] = mag;
-    }
-    cal_median_f32(scratch, n, &med[m]);
-    if (med[m] < 1.0e-9f) med[m] = 1.0f;
-    for (i = 0u; i < CAL_CHANNELS; ++i) {
-      float zr = cal_z_re[m][i], zi = cal_z_im[m][i];
-      float mag = sqrtf(zr * zr + zi * zi);
-      if (cal_direct_path_mm(m, i) >= CAL_MIN_PATH_MM &&
-          mag >= CAL_WEIGHT_FLOOR * med[m] && mag <= CAL_WEIGHT_CAP * med[m]) {
-        cal_pair_valid[m][i] = 1u;
-      }
-    }
-  }
-  /* Every channel must have at least two valid microphone pairs, otherwise
-   * the channel phase is not observable.  Add the strongest excluded pair
-   * for that channel until the requirement is met. */
-  for (i = 0u; i < CAL_CHANNELS; ++i) {
-    uint8_t have = 0u, add;
-    for (m = 0u; m < CAL_MICS; ++m) if (cal_pair_valid[m][i] != 0u) ++have;
-    while (have < (uint8_t)CAL_MIN_PAIRS_PER_CH) {
-      float best = -1.0f;
-      add = 0xFFu;
-      for (m = 0u; m < CAL_MICS; ++m) {
-        float zr, zi, mag;
-        if (cal_pair_valid[m][i] != 0u) continue;
-        if (cal_direct_path_mm(m, i) < CAL_MIN_PATH_MM) continue;
-        zr = cal_z_re[m][i]; zi = cal_z_im[m][i];
-        mag = sqrtf(zr * zr + zi * zi);
-        if (mag > best) { best = mag; add = m; }
-      }
-      if (add == 0xFFu) break;
-      cal_pair_valid[add][i] = 1u;
-      ++have;
-    }
-  }
 }
 
 static __attribute__((always_inline)) inline void cal_d_pair(uint8_t m, uint8_t i,
@@ -1021,285 +941,13 @@ static int cal_fit_direct(uint8_t sign, cal_fit_metrics_t *metrics)
   return 0;
 }
 
-/* Gauge fixing: remove a global phase and a linear phase plane over the
- * array.  Both are free parameters for a single focus point and removing
- * them keeps the EEPROM calibration compact.  Returns the RMS of the
- * gauge-corrected static phases in degrees. */
-static float cal_gauge(const float *phi_rad, float *out_deg)
-{
-  uint8_t i;
-  float sr = 0.0f, si = 0.0f, mean, rms = 0.0f;
-  float *v = cal_scratch.cg[0];
-  float *sn = cal_scratch.cg[1];
-  float *cs = cal_scratch.cg[2];
-  double xx = 0.0, xy = 0.0, yy = 0.0, x = 0.0, y = 0.0;
-  double sv = 0.0, xv = 0.0, yv = 0.0;
-  double a[3][4], det;
-  cal_sincos_batch(phi_rad, sn, cs, CAL_CHANNELS);
-  for (i = 0u; i < CAL_CHANNELS; ++i) { sr += cs[i]; si += sn[i]; }
-  mean = cal_atan2_rad(sr, si);
-  for (i = 0u; i < CAL_CHANNELS; ++i) {
-    double px = (double)cal_profile->coordinates[i].x_um * 0.001;
-    double py = (double)cal_profile->coordinates[i].y_um * 0.001;
-    float vv;
-    v[i] = cal_wrap_pi(phi_rad[i] - mean);
-    vv = v[i];
-    xx += px * px; xy += px * py; yy += py * py; x += px; y += py;
-    xv += px * vv; yv += py * vv; sv += vv;
-    rms += vv * vv;
-  }
-  a[0][0] = xx; a[0][1] = xy; a[0][2] = x;  a[0][3] = xv;
-  a[1][0] = xy; a[1][1] = yy; a[1][2] = y;  a[1][3] = yv;
-  a[2][0] = x;  a[2][1] = y;  a[2][2] = (double)CAL_CHANNELS; a[2][3] = sv;
-  {
-    int c, r, pivot;
-    for (c = 0; c < 3; ++c) {
-      pivot = c;
-      for (r = c + 1; r < 3; ++r)
-        if (fabs(a[r][c]) > fabs(a[pivot][c])) pivot = r;
-      if (pivot != c) {
-        int kk;
-        for (kk = c; kk < 4; ++kk) { double t = a[c][kk]; a[c][kk] = a[pivot][kk]; a[pivot][kk] = t; }
-      }
-      det = a[c][c];
-      if (fabs(det) < 1.0e-12) det = 1.0e-12;
-      for (r = c + 1; r < 3; ++r) {
-        double f = a[r][c] / det;
-        int kk;
-        for (kk = c; kk < 4; ++kk) a[r][kk] -= f * a[c][kk];
-      }
-    }
-    for (r = 2; r >= 0; --r) {
-      double sum = a[r][3];
-      int kk;
-      for (kk = r + 1; kk < 3; ++kk) sum -= a[r][kk] * a[kk][3];
-      a[r][3] = sum / a[r][r];
-    }
-  }
-  rms = sqrtf(rms / (float)CAL_CHANNELS) * (180.0f / CAL_PI);
-  for (i = 0u; i < CAL_CHANNELS; ++i) {
-    double fit = a[0][3] * ((double)cal_profile->coordinates[i].x_um * 0.001) +
-                 a[1][3] * ((double)cal_profile->coordinates[i].y_um * 0.001) + a[2][3];
-    out_deg[i] = cal_deg(cal_wrap_pi((float)(v[i] - fit)));
-  }
-  return rms;
-}
-
-static void cal_make_correction_bytes(const float *fit_deg, uint8_t *out)
-{
-  uint8_t i;
-  for (i = 0u; i < CAL_CHANNELS; ++i) {
-    int32_t q = (int32_t)lroundf(-fit_deg[i] * (256.0f / 360.0f));
-    q %= 256;
-    if (q < 0) q += 256;
-    out[i] = (uint8_t)q;
-  }
-}
-
-static void cal_negate_bytes(const uint8_t *in, uint8_t *out)
-{
-  uint8_t i;
-  for (i = 0u; i < CAL_CHANNELS; ++i) out[i] = (uint8_t)(0u - in[i]);
-}
-
 /* --------------------------------------------------------------------------
  * Phase A1: drive-level linearity / coherence probe.
  * -------------------------------------------------------------------------- */
-static int cal_level_probe(fpga_link_t *link, uint8_t *level_out, float *noise_out)
-{
-  static const uint8_t ladder[CAL_LEVEL_COUNT] = {128u, 64u, 32u, 16u, 8u};
-  float amp[CAL_LEVEL_COUNT], scatter_deg[CAL_LEVEL_COUNT], snr_db[CAL_LEVEL_COUNT];
-  float norm[CAL_LEVEL_COUNT];
-  uint8_t idx, m;
-  uint32_t bits_b[3];
-  uint8_t chosen = 0xFFu;
-  if (cal_mic_start(link, 1u, CAL_A1_GATE_START, CAL_A1_GATE_WIDTH, CAL_A1_GATE_WIDTH) != 0) {
-    cal_debug.first_error = 1u; return -1; }
-  cal_cs_row(0u, bits_b);
-  for (idx = 0u; idx < CAL_LEVEL_COUNT; ++idx) {
-    float y1r[CAL_MICS], y1i[CAL_MICS], y2r[CAL_MICS], y2i[CAL_MICS];
-    float y3r[CAL_MICS], y3i[CAL_MICS];
-    float p1 = 0.0f, p2 = 0.0f, p3 = 0.0f, nsum = 0.0f;
-    float phase_diff = 0.0f;
-    uint8_t nb;
-    if (cal_measure_pattern_iq(link, NULL, ladder[idx], CAL_A1_BURST_US, y1r, y1i) != 0) { cal_debug.first_error = 2u; return -2; }
-    cal_delay_us(CAL_A1_SETTLE_US);
-    if (cal_measure_pattern_iq(link, bits_b, ladder[idx], CAL_A1_BURST_US, y2r, y2i) != 0) { cal_debug.first_error = 3u; return -3; }
-    cal_delay_us(CAL_A1_SETTLE_US);
-    if (cal_measure_pattern_iq(link, NULL, ladder[idx], CAL_A1_BURST_US, y3r, y3i) != 0) { cal_debug.first_error = 4u; return -4; }
-    cal_delay_us(CAL_A1_SETTLE_US);
-    for (m = 0u; m < CAL_MICS; ++m) {
-      p1 += y1r[m] * y1r[m] + y1i[m] * y1i[m];
-      p2 += y2r[m] * y2r[m] + y2i[m] * y2i[m];
-      p3 += y3r[m] * y3r[m] + y3i[m] * y3i[m];
-      {
-        float cr = y1r[m] * y3r[m] + y1i[m] * y3i[m];
-        float ci = y1i[m] * y3r[m] - y1r[m] * y3i[m];
-        if ((p1 + p3) > 1.0e-6f && (y1r[m] * y1r[m] + y1i[m] * y1i[m]) > 1.0e-6f &&
-            (y3r[m] * y3r[m] + y3i[m] * y3i[m]) > 1.0e-6f) {
-          float d = cal_atan2_rad(cr, ci);
-          phase_diff += fabsf(d);
-        }
-      }
-    }
-    for (nb = 0u; nb < 2u; ++nb) {
-      float yr[CAL_MICS], yi[CAL_MICS];
-      if (cal_measure_silence_iq(link, 300u, yr, yi) != 0) { cal_debug.first_error = 5u; return -5; }
-      for (m = 0u; m < CAL_MICS; ++m) nsum += yr[m] * yr[m] + yi[m] * yi[m];
-      cal_delay_us(CAL_A1_SETTLE_US);
-    }
-    {
-      float power = (p1 + p2 + p3) / 3.0f;
-      float noise = nsum / (2.0f * (float)CAL_MICS);
-      float net = power - noise;
-      if (net < 0.0f) net = 0.0f;
-      amp[idx] = sqrtf(power / (float)CAL_MICS);
-      snr_db[idx] = 10.0f * log10f((net + 1.0e-9f) / (noise + 1.0e-9f));
-      scatter_deg[idx] = cal_deg(phase_diff / (float)CAL_MICS);
-      norm[idx] = amp[idx] / sinf(CAL_PI * (float)ladder[idx] / 256.0f);
-      cal_debug.a1_amp[idx] = amp[idx];
-      cal_debug.a1_snr_db[idx] = snr_db[idx];
-      cal_debug.a1_scatter_deg[idx] = scatter_deg[idx];
-      cal_debug.a1_p1[idx] = p1;
-      cal_debug.a1_p2[idx] = p2;
-      cal_debug.a1_p3[idx] = p3;
-      cal_debug.a1_noise[idx] = nsum;
-    }
-  }
-
-  /* Choose the highest level that is consistent with all lower levels and
-   * whose coherence/SNR are acceptable.  A compressed high level therefore
-   * drops directly to the next lower one. */
-  for (idx = 0u; idx < CAL_LEVEL_COUNT; ++idx) {
-    uint8_t j;
-    int ok = (snr_db[idx] >= CAL_SNR_MIN_DB && scatter_deg[idx] <= CAL_PHASE_SCATTER_MAX_DEG);
-    for (j = idx + 1u; j < CAL_LEVEL_COUNT && ok != 0; ++j) {
-      float ref = norm[j];
-      float diff = fabsf(norm[idx] - ref);
-      float scale = (norm[idx] > ref) ? norm[idx] : ref;
-      if (scale < 1.0e-12f || diff > CAL_LEVEL_LINEARITY_MAX * scale) ok = 0;
-    }
-    if (ok != 0) { chosen = idx; break; }
-  }
-  if (chosen == 0xFFu) return -6;
-  *level_out = ladder[chosen];
-  {
-    float yr[CAL_MICS], yi[CAL_MICS], sum = 0.0f;
-    uint8_t k;
-    for (k = 0u; k < 4u; ++k) {
-      if (cal_measure_silence_iq(link, 300u, yr, yi) != 0) return -7;
-      for (m = 0u; m < CAL_MICS; ++m) sum += yr[m] * yr[m] + yi[m] * yi[m];
-      cal_delay_us(CAL_A1_SETTLE_US);
-    }
-    if (noise_out != NULL) *noise_out = sum / (4.0f * (float)CAL_MICS);
-  }
-  return 0;
-}
 
 /* --------------------------------------------------------------------------
  * Phase B: transient envelope profile and gate selection.
  * -------------------------------------------------------------------------- */
-static int cal_transient_profile(fpga_link_t *link, uint8_t level,
-                                 uint16_t *gate_start_out, uint8_t *gate_width_out)
-{
-  uint8_t rep, g, m;
-  uint32_t bits[3];
-  uint8_t stable[CAL_PROFILE_GATES];
-  uint8_t run = 0u, run_start = 0u;
-  float tail_mean[CAL_MICS];
-  (void)bits;
-  if (cal_mic_start(link, CAL_PROFILE_GATES, 0u, CAL_PROFILE_STEP, CAL_PROFILE_WIDTH) != 0)
-    return -1;
-  memset(cal_z_re, 0, sizeof(cal_z_re));
-  memset(cal_z_im, 0, sizeof(cal_z_im));
-  for (rep = 0u; rep < CAL_PROFILE_PATTERNS; ++rep) {
-    fpga_mic_gate_wire_t wire;
-    uint16_t expected;
-    if (cal_submit_bits(link, NULL, NULL, level) != 0) return -2;
-    cal_delay_us(CAL_PROFILE_BURST_US);
-    if (fpga_link_safe_stop(link) != 0) return -3;
-    expected = (uint16_t)(cal_block_expected + 1u);
-    if (cal_wait_block_fast(link, expected, 300u, &wire) != 0) return -4;
-    cal_block_expected = expected;
-    for (g = 0u; g < CAL_PROFILE_GATES; ++g) {
-      mic_capture_gate_t sample;
-      if (mic_capture_read_gate(link, g, &sample, NULL) != 0) return -5;
-      for (m = 0u; m < CAL_MICS; ++m) {
-        cal_z_re[m][g] += (float)sample.i[m];
-        cal_z_im[m][g] += (float)sample.q[m];
-      }
-    }
-    cal_delay_us(CAL_SETTLE_US);
-  }
-  for (m = 0u; m < CAL_MICS; ++m) {
-    for (g = 0u; g < CAL_PROFILE_GATES; ++g) {
-      float ar = cal_z_re[m][g] / (float)CAL_PROFILE_PATTERNS;
-      float ai = cal_z_im[m][g] / (float)CAL_PROFILE_PATTERNS;
-      float mag = sqrtf(ar * ar + ai * ai);
-      float ph = cal_atan2_rad(ar, ai);
-      cal_profile_i[g][m] = (int16_t)lroundf(ar);
-      cal_profile_q[g][m] = (int16_t)lroundf(ai);
-      cal_z_re[m][g] = mag;
-      cal_z_im[m][g] = ph;
-    }
-  }
-  for (m = 0u; m < CAL_MICS; ++m) {
-    float s = 0.0f;
-    for (g = CAL_PROFILE_GATES - 8u; g < CAL_PROFILE_GATES; ++g) s += cal_z_re[m][g];
-    tail_mean[m] = s / 8.0f;
-  }
-  {
-    float max_tail = 0.0f;
-    for (m = 0u; m < CAL_MICS; ++m) if (tail_mean[m] > max_tail) max_tail = tail_mean[m];
-    if (max_tail < 5.0f) return -8;
-  }
-  for (g = 0u; g < CAL_PROFILE_GATES; ++g) {
-    uint8_t good = 0u;
-    for (m = 0u; m < CAL_MICS; ++m) {
-      float rms_amp = fabsf(tail_mean[m]);
-      float amp_err;
-      float dphase;
-      if (rms_amp < 1.0e-6f) continue;
-      amp_err = fabsf(cal_z_re[m][g] - tail_mean[m]) / rms_amp;
-      dphase = 0.0f;
-      if (g > 0u) dphase = fabsf(cal_wrap_pi(cal_z_im[m][g] - cal_z_im[m][g - 1u]));
-      if (g + 1u < CAL_PROFILE_GATES)
-        dphase += fabsf(cal_wrap_pi(cal_z_im[m][g + 1u] - cal_z_im[m][g]));
-      if (amp_err <= (CAL_STABLE_AMP_PCT / 100.0f) &&
-          dphase <= cal_rad(CAL_STABLE_DEG)) ++good;
-    }
-    stable[g] = (good >= 2u) ? 1u : 0u;
-  }
-  {
-    uint8_t have = 0u;
-    uint16_t best_start = 0u;
-    run = 0u;
-    for (g = 0u; g < CAL_PROFILE_GATES; ++g) {
-      if (stable[g] != 0u) {
-        if (run == 0u) run_start = g;
-        ++run;
-        if (run >= CAL_STABLE_RUN) {
-          uint16_t sg = (uint16_t)(run_start + run - CAL_STABLE_RUN);
-          uint32_t end_sample = (uint32_t)sg * CAL_PROFILE_STEP + CAL_GATE_WIDTH + CAL_GATE_TAIL;
-          if (end_sample <= (CAL_PROFILE_BURST_US / 25u)) {
-            have = 1u;
-            best_start = sg;
-          }
-        }
-      } else {
-        run = 0u;
-      }
-    }
-    if (have == 0u) return -6;
-    {
-      uint16_t start = (uint16_t)(best_start * CAL_PROFILE_STEP);
-      if (start < CAL_GATE_START_MIN) start = CAL_GATE_START_MIN;
-      *gate_start_out = start;
-      *gate_width_out = CAL_GATE_WIDTH;
-    }
-  }
-  return 0;
-}
 
 /* --------------------------------------------------------------------------
  * Phase C: random projection acquisition in the burst steady state.

@@ -57,6 +57,31 @@ int umh_cordic_sincos(float angle, float *sin_out, float *cos_out);
 int umh_cordic_phase(float real, float imag, float *phase_rad);
 int umh_cordic_sqrt(float value, float *root);
 
+/* Streaming atan2 for per-channel render loops.  begin() runs the phase
+ * self-test once and leaves the unit in PHASE mode; it returns non-zero when
+ * the caller must use atan2f instead.  Each call then costs one register
+ * round trip instead of a ~300-cycle newlib atan2f.  x/y are in the caller's
+ * unit and only their ratio matters; |x|,|y| <= 262 mm when given in um.
+ * Nothing else may use the CORDIC between begin() and the last call. */
+int umh_cordic_phase_stream_begin(void);
+
+static inline int32_t umh_cordic_phase_stream_q10(float x_um, float y_um)
+{
+  /* um * 8192 = um / 2^18 in Q1.31, so +-262 mm spans the full input range. */
+  float xs = x_um * 8192.0f;
+  float ys = y_um * 8192.0f;
+  if (xs > 2147483520.0f) xs = 2147483520.0f;
+  if (xs < -2147483520.0f) xs = -2147483520.0f;
+  if (ys > 2147483520.0f) ys = 2147483520.0f;
+  if (ys < -2147483520.0f) ys = -2147483520.0f;
+  CORDIC->WDATA = (uint32_t)(int32_t)xs;
+  CORDIC->WDATA = (uint32_t)(int32_t)ys;
+  while ((CORDIC->CSR & CORDIC_CSR_RRDY) == 0u) {
+  }
+  /* Result is angle/pi in Q1.31; one 1/1024 turn is 2^22 of it. */
+  return (int32_t)CORDIC->RDATA >> 22;
+}
+
 /* USER CODE BEGIN Prototypes */
 
 /* USER CODE END Prototypes */

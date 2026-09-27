@@ -366,6 +366,39 @@ void umh_usb_tx_service(void)
   if (CDC_Transmit_FS(umh_usb_tx_pool[slot], length) != USBD_OK) umh_usb_tx_active = 0u;
 }
 
+uint8_t *umh_usb_tx_acquire(void)
+{
+  uint8_t slot;
+  taskENTER_CRITICAL();
+  if (umh_usb_tx_count >= UMH_USB_TX_SLOTS) {
+    taskEXIT_CRITICAL();
+    return NULL;
+  }
+  slot = umh_usb_tx_write;
+  taskEXIT_CRITICAL();
+  return umh_usb_tx_pool[slot];
+}
+
+uint8_t umh_usb_tx_commit(uint8_t *slot, uint16_t length)
+{
+  uint8_t slot_index;
+  if (slot == NULL || length == 0u || length > UMH_USB_TX_SLOT_SIZE) return 0u;
+  taskENTER_CRITICAL();
+  if (umh_usb_tx_count >= UMH_USB_TX_SLOTS) {
+    taskEXIT_CRITICAL();
+    return 0u;
+  }
+  slot_index = umh_usb_tx_write;
+  if (slot != umh_usb_tx_pool[slot_index]) {
+    taskEXIT_CRITICAL();
+    return 0u;
+  }
+  umh_usb_tx_write = (uint8_t)((slot_index + 1u) % UMH_USB_TX_SLOTS);
+  ++umh_usb_tx_count;
+  taskEXIT_CRITICAL();
+  return 1u;
+}
+
 /**
   * @brief  CDC_TransmitCplt_FS
   *         Data transmitted callback
