@@ -28,6 +28,24 @@
  * bits remain the RGB palette index. */
 #define UMH_MOTION_POINT_JUMP 0x80u
 
+/* MOTION_UPLOAD header flags.  KEEP_PHASE swaps the path under a running loop
+ * without restarting it at point 0, so a host can re-project a shape (e.g. a
+ * slowly rotating 3D view) while the bead keeps moving. */
+#define UMH_MOTION_UPLOAD_KEEP_PHASE (1u << 0)
+
+/* Display extension flags (CONFIG bytes 76..83).
+ *   SMOOTH_PALETTE: the point palette byte is a 0..255 position around the
+ *     palette ring instead of a 4-bit index.  Consecutive points blend along
+ *     the shorter way round the ring, so a colour wheel has no seam and no
+ *     16-step banding.  The JUMP bit is not interpreted in this mode.
+ *   POINT_BRIGHTNESS: the point level byte scales the LED brightness only; the
+ *     trap amplitude stays at the config level, so blanking a retrace segment
+ *     never weakens the trap. */
+#define UMH_MOTION_DISPLAY_SMOOTH_PALETTE   (1u << 0)
+#define UMH_MOTION_DISPLAY_POINT_BRIGHTNESS (1u << 1)
+/* Path-rate scale in 1/1000 of the programmed loop speed.  1000 = loop_ms. */
+#define UMH_MOTION_RATE_UNITY 1000u
+
 typedef enum {
   UMH_MOTION_MODE_PATH = 0u,
   UMH_MOTION_MODE_LIVE = 1u
@@ -173,6 +191,30 @@ typedef struct __attribute__((packed)) {
 
 _Static_assert(sizeof(umh_motion_config_wire_t) == 76u, "motion config wire size");
 
+/* Display extension for single-bead POV rendering.  76/69-byte configs keep
+ * the old behaviour (index palette, rate 1.0).  The rate fields let a host
+ * switch PATH on at rate 0 and ease it up on the device clock, which a USB
+ * command stream cannot do without a velocity step at the switch. */
+typedef struct __attribute__((packed)) {
+  umh_motion_config_wire_t base;
+  uint8_t  display_flags;       /* UMH_MOTION_DISPLAY_* */
+  uint8_t  reserved;
+  uint16_t rate_initial_x1000;  /* path-rate scale applied at this CONFIG */
+  uint16_t rate_target_x1000;   /* eased to this value ... */
+  uint16_t rate_ramp_ms;        /* ... over this time (smoothstep) */
+} umh_motion_config_wire_v3_t;
+
+_Static_assert(sizeof(umh_motion_config_wire_v3_t) == 84u, "motion config v3 wire size");
+
+/* MOTION_RATE: change the path-rate scale of a running program without a
+ * CONFIG (which would re-anchor the frame clock). */
+typedef struct __attribute__((packed)) {
+  uint16_t rate_target_x1000;
+  uint16_t rate_ramp_ms;
+} umh_motion_rate_wire_t;
+
+_Static_assert(sizeof(umh_motion_rate_wire_t) == 4u, "motion rate wire size");
+
 typedef struct __attribute__((packed)) {
   uint8_t version;              /* must be 1 */
   uint8_t flags;                /* reserved, must be 0 */
@@ -194,7 +236,7 @@ typedef struct __attribute__((packed)) {
   int32_t z_um;
   uint8_t level;                /* instantaneous source level 0..255 */
   uint8_t trap_mode;
-  uint16_t reserved;            /* keep the 32-bit counters word aligned */
+  uint16_t phase_q16;           /* PATH position 0..65535 of one loop (was reserved) */
   uint16_t service_max_us;      /* worst frame generation + SPI submit time */
   uint16_t service_avg_us;      /* averaged over the current run */
   uint16_t render_max_us;       /* worst spatial synthesis time */
@@ -267,6 +309,15 @@ typedef struct {
   uint8_t current_valid;
 
   float phase;                  /* path position 0..1 */
+  /* Display extension state.  palette_pos is the fractional palette position
+   * of the current sample; last_palette keeps its integer part for status. */
+  uint8_t display_flags;
+  float palette_pos;
+  float rate_scale;             /* current path-rate multiplier, 0..1 */
+  float rate_from;
+  float rate_to;
+  float rate_ramp_s;
+  float rate_elapsed_s;
   float fade_scale;
   float fade_step;
   float last_level_scale;
@@ -308,6 +359,8 @@ int motion_engine_configure(umh_motion_engine_t *engine, const uint8_t *payload,
                             uint16_t length);
 int motion_engine_target(umh_motion_engine_t *engine, const uint8_t *payload,
                          uint16_t length);
+int motion_engine_rate(umh_motion_engine_t *engine, const uint8_t *payload,
+                       uint16_t length);
 int motion_engine_configure_levitation(umh_motion_engine_t *engine,
                                        uint8_t level, int32_t trap_z_um);
 int motion_engine_configure_vortex(umh_motion_engine_t *engine, uint8_t program);

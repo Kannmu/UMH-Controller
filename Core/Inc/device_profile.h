@@ -24,6 +24,9 @@
 #define UMH_PROFILE_CAP_FOCUSED_AM_MULTI (1u << 10)
 /* Device-side hologram keyframe executor (see Core/Inc/hologram_engine.h). */
 #define UMH_PROFILE_CAP_HOLOGRAM         (1u << 11)
+/* Motion display extension: 84-byte CONFIG, MOTION_RATE, UPLOAD KEEP_PHASE,
+ * smooth palette / point brightness, dark-vortex focus = commanded z. */
+#define UMH_PROFILE_CAP_MOTION_DISPLAY   (1u << 12)
 
 _Static_assert(UMH_DEVICE_CHANNEL_COUNT == 84u, "device channel contract");
 _Static_assert(UMH_DEVICE_RGB_COUNT == 4u, "device RGB contract");

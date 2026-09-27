@@ -136,6 +136,17 @@ static void motion_rebuild_pattern(umh_motion_engine_t *engine)
   }
 }
 
+/* Palette byte -> palette position.  Index mode keeps the historic low-nibble
+ * index; SMOOTH_PALETTE maps the whole byte onto the palette ring. */
+static float motion_palette_byte_pos(const umh_motion_engine_t *engine, uint8_t raw)
+{
+  if ((engine->display_flags & UMH_MOTION_DISPLAY_SMOOTH_PALETTE) != 0u) {
+    uint8_t count = engine->palette_count != 0u ? engine->palette_count : 1u;
+    return (float)raw * (float)count * (1.0f / 256.0f);
+  }
+  return (float)(raw & 0x0Fu);
+}
+
 static void motion_point_values(const umh_motion_engine_t *engine, uint16_t index,
                                 float *x, float *y, float *z,
                                 float *level, float *palette)
@@ -145,7 +156,37 @@ static void motion_point_values(const umh_motion_engine_t *engine, uint16_t inde
   *y = (float)p->y_10um * 10.0f;
   *z = (float)p->z_10um * 10.0f;
   *level = (float)p->level;
-  *palette = (float)(p->palette & 0x0Fu);
+  *palette = motion_palette_byte_pos(engine, p->palette);
+}
+
+/* Smoothstep ease of the path-rate scale, advanced on the frame clock. */
+static void motion_set_rate(umh_motion_engine_t *engine, float from, float to,
+                            uint16_t ramp_ms)
+{
+  if (to < 0.0f) to = 0.0f;
+  if (to > 1.0f) to = 1.0f;
+  if (from < 0.0f) from = 0.0f;
+  if (from > 1.0f) from = 1.0f;
+  if (ramp_ms == 0u) from = to;
+  engine->rate_from = from;
+  engine->rate_to = to;
+  engine->rate_ramp_s = (float)ramp_ms * 0.001f;
+  engine->rate_elapsed_s = 0.0f;
+  engine->rate_scale = from;
+}
+
+static void motion_advance_rate(umh_motion_engine_t *engine, float dt)
+{
+  float s;
+  if (engine->rate_elapsed_s >= engine->rate_ramp_s) {
+    engine->rate_scale = engine->rate_to;
+    return;
+  }
+  engine->rate_elapsed_s += dt;
+  s = engine->rate_elapsed_s / engine->rate_ramp_s;
+  if (s > 1.0f) s = 1.0f;
+  s = s * s * (3.0f - 2.0f * s);
+  engine->rate_scale = engine->rate_from + (engine->rate_to - engine->rate_from) * s;
 }
 
 static float motion_catmull_rom(float p0, float p1, float p2, float p3, float t)
@@ -203,7 +244,8 @@ static void motion_sample_path(const umh_motion_engine_t *engine, float phase,
   motion_point_values(engine, i1, &p1x, &p1y, &p1z, &level1, &pal1);
   motion_point_values(engine, i2, &p2x, &p2y, &p2z, &level2, &pal2);
   motion_point_values(engine, i3, &p3x, &p3y, &p3z, &dummy0, &dummy1);
-  if ((engine->points[i1].palette & UMH_MOTION_POINT_JUMP) != 0u) {
+  if ((engine->display_flags & UMH_MOTION_DISPLAY_SMOOTH_PALETTE) == 0u &&
+      (engine->points[i1].palette & UMH_MOTION_POINT_JUMP) != 0u) {
     /* Per-point zero-transit flag: jump directly to the next stroke/point
      * and hold it for this segment.  Only used by intentional haptics
      * teleports; levitation paths leave bit7 clear. */
@@ -236,7 +278,20 @@ static void motion_sample_path(const umh_motion_engine_t *engine, float phase,
     *z = motion_catmull_rom(p0z, p1z, p2z, p3z, frac);
   }
   *level = level1 + (level2 - level1) * frac;
-  *palette = pal1 + (pal2 - pal1) * frac;
+  if ((engine->display_flags & UMH_MOTION_DISPLAY_SMOOTH_PALETTE) != 0u &&
+      engine->palette_count > 1u) {
+    /* Blend the shorter way round the palette ring so a hue wheel wraps
+     * from the last entry back to the first without sweeping backwards. */
+    float span = (float)engine->palette_count;
+    float delta = pal2 - pal1;
+    if (delta > 0.5f * span) delta -= span;
+    else if (delta < -0.5f * span) delta += span;
+    *palette = pal1 + delta * frac;
+    if (*palette < 0.0f) *palette += span;
+    else if (*palette >= span) *palette -= span;
+  } else {
+    *palette = pal1 + (pal2 - pal1) * frac;
+  }
   *z += (float)engine->z_offset_um;
 }
 
@@ -264,19 +319,10 @@ static void motion_palette_color(const umh_motion_engine_t *engine, float palett
                  ((float)engine->palette[next][2] - (float)engine->palette[base][2]) * frac + 0.5f);
 }
 
-static int motion_emit_field(umh_motion_engine_t *engine, umh_spatial_renderer_t *renderer,
-                             umh_output_frame_t *frame, float cx, float cy, float cz,
-                             float base_level, float palette_pos)
+static int motion_emit_sources(umh_motion_engine_t *engine, umh_spatial_renderer_t *renderer,
+                               umh_output_frame_t *frame, float cx, float cy, float cz,
+                               float base_level)
 {
-  if (engine->vortex_program != UMH_VORTEX_OFF) {
-    int emitted = motion_emit_vortex(engine, renderer, frame, cx, cy, cz, base_level);
-    /* The alternating program counts its half periods in emitted frames, so
-     * the counter advances with the field and not with the wall clock. */
-    if (emitted == 0) engine->vortex_frames++;
-    return emitted;
-  }
-  if (engine->trap_mode == UMH_MOTION_TRAP_DARK_VORTEX)
-    return motion_emit_dark_vortex(engine, renderer, frame, cx, cy, cz, base_level);
   uint8_t count = engine->pattern_count != 0u ? engine->pattern_count : 1u;
   float per_source = base_level / sqrtf((float)count);
   uint8_t i;
@@ -299,6 +345,29 @@ static int motion_emit_field(umh_motion_engine_t *engine, umh_spatial_renderer_t
   }
   if (spatial_renderer_finalize(renderer, engine->real_accum,
                                 engine->imag_accum, frame) != 0) return -2;
+  return 0;
+}
+
+static int motion_emit_field(umh_motion_engine_t *engine, umh_spatial_renderer_t *renderer,
+                             umh_output_frame_t *frame, float cx, float cy, float cz,
+                             float base_level, float palette_pos, uint8_t rgb_level)
+{
+  int result;
+  uint8_t i;
+  if (engine->vortex_program != UMH_VORTEX_OFF) {
+    int emitted = motion_emit_vortex(engine, renderer, frame, cx, cy, cz, base_level);
+    /* The alternating program counts its half periods in emitted frames, so
+     * the counter advances with the field and not with the wall clock. */
+    if (emitted == 0) engine->vortex_frames++;
+    return emitted;
+  }
+  /* The dark-vortex trap used to return before the RGB merge, so a coloured
+   * levitation path never lit the bead.  Both emitters now share it. */
+  if (engine->trap_mode == UMH_MOTION_TRAP_DARK_VORTEX)
+    result = motion_emit_dark_vortex(engine, renderer, frame, cx, cy, cz, base_level);
+  else
+    result = motion_emit_sources(engine, renderer, frame, cx, cy, cz, base_level);
+  if (result != 0) return result;
   if ((engine->flags & UMH_MOTION_FLAG_RGB) != 0u && engine->palette_count != 0u) {
     umh_rgb_value_t color[UMH_DEVICE_RGB_COUNT];
     uint8_t levels[UMH_DEVICE_RGB_COUNT];
@@ -308,7 +377,7 @@ static int motion_emit_field(umh_motion_engine_t *engine, umh_spatial_renderer_t
       color[i].red = r;
       color[i].green = g;
       color[i].blue = b;
-      levels[i] = 255u;
+      levels[i] = rgb_level;
     }
     spatial_renderer_merge_rgb(renderer, frame, color, levels, 0x0Fu);
   }
@@ -383,6 +452,9 @@ void motion_engine_init(umh_motion_engine_t *engine)
   engine->target_palette = 0u;
   engine->current_valid = 0u;
   engine->phase = 0.0f;
+  engine->display_flags = 0u;
+  engine->palette_pos = 0.0f;
+  motion_set_rate(engine, 1.0f, 1.0f, 0u);
   motion_rebuild_pattern(engine);
   memset(&attributes, 0, sizeof(attributes));
   attributes.name = "umh-motion";
@@ -405,8 +477,11 @@ int motion_engine_upload(umh_motion_engine_t *engine, const uint8_t *payload,
   if (motion_lock(engine) != 0) return -6;
   memcpy(engine->points, &payload[sizeof(umh_motion_upload_wire_t)],
          (size_t)count * sizeof(umh_motion_point_wire_t));
+  /* The loop position is a 0..1 fraction, so a replacement path with KEEP_PHASE
+   * continues from the same fraction of its own loop. */
+  if ((payload[1] & UMH_MOTION_UPLOAD_KEEP_PHASE) == 0u || engine->point_count == 0u)
+    engine->phase = 0.0f;
   engine->point_count = count;
-  engine->phase = 0.0f;
   engine->configured = 1u;
   if (engine->state == UMH_MOTION_STATE_OFF) engine->state = UMH_MOTION_STATE_READY;
   if (engine->current_valid == 0u && count != 0u) {
@@ -418,6 +493,7 @@ int motion_engine_upload(umh_motion_engine_t *engine, const uint8_t *payload,
     engine->last_level = (uint8_t)(point_level < 0.0f ? 0.0f :
                                    (point_level > 255.0f ? 255.0f : point_level));
     engine->last_palette = (uint8_t)point_palette;
+    engine->palette_pos = point_palette;
     engine->current_valid = 1u;
   }
   motion_unlock(engine);
@@ -429,12 +505,21 @@ int motion_engine_configure(umh_motion_engine_t *engine, const uint8_t *payload,
 {
   const umh_motion_config_wire_v1_t *wire;
   const umh_motion_config_wire_t *ext;
+  const umh_motion_config_wire_v3_t *v3;
   uint8_t i;
   if (engine == NULL || payload == NULL) return -1;
   if (length != sizeof(umh_motion_config_wire_v1_t) &&
-      length != sizeof(umh_motion_config_wire_t)) return -2;
+      length != sizeof(umh_motion_config_wire_t) &&
+      length != sizeof(umh_motion_config_wire_v3_t)) return -2;
   wire = (const umh_motion_config_wire_v1_t *)payload;
-  ext = length == sizeof(umh_motion_config_wire_t) ? (const umh_motion_config_wire_t *)payload : NULL;
+  ext = length >= sizeof(umh_motion_config_wire_t) ? (const umh_motion_config_wire_t *)payload : NULL;
+  v3 = length == sizeof(umh_motion_config_wire_v3_t) ? (const umh_motion_config_wire_v3_t *)payload : NULL;
+  if (v3 != NULL) {
+    if ((v3->display_flags & (uint8_t)~(UMH_MOTION_DISPLAY_SMOOTH_PALETTE |
+                                        UMH_MOTION_DISPLAY_POINT_BRIGHTNESS)) != 0u) return -13;
+    if (v3->rate_initial_x1000 > UMH_MOTION_RATE_UNITY ||
+        v3->rate_target_x1000 > UMH_MOTION_RATE_UNITY) return -14;
+  }
   if (wire->mode > (uint8_t)UMH_MOTION_MODE_LIVE) return -3;
   if (wire->trap_mode > UMH_MOTION_TRAP_DARK_VORTEX || wire->palette_count > UMH_MOTION_PALETTE_SIZE) return -4;
   if (wire->output_rate_hz < UMH_MOTION_MIN_RATE_HZ ||
@@ -490,8 +575,20 @@ int motion_engine_configure(umh_motion_engine_t *engine, const uint8_t *payload,
     engine->palette[i][1] = wire->palette[i][1];
     engine->palette[i][2] = wire->palette[i][2];
   }
+  if (v3 != NULL) {
+    engine->display_flags = v3->display_flags;
+    motion_set_rate(engine, (float)v3->rate_initial_x1000 * 0.001f,
+                    (float)v3->rate_target_x1000 * 0.001f, v3->rate_ramp_ms);
+  } else {
+    /* Old hosts keep the index palette and a full-speed path. */
+    engine->display_flags = 0u;
+    motion_set_rate(engine, 1.0f, 1.0f, 0u);
+  }
   engine->configured = 1u;
-  engine->last_service_us = 0u;
+  /* Re-anchor the deadline, but keep the frame clock of a running program:
+   * a zero dt would hold the trap for one frame, which is a position step for
+   * a moving bead.  start() and stop re-initialise the clock themselves. */
+  if (engine->state != UMH_MOTION_STATE_RUNNING) engine->last_service_us = 0u;
   engine->next_due_us = 0u;
   /* A host config always takes the engine back to ordinary motion: leaving a
    * vortex program selected here would make the next frame ignore the path or
@@ -525,6 +622,24 @@ int motion_engine_target(umh_motion_engine_t *engine, const uint8_t *payload,
     engine->current_valid = 1u;
   }
   if (engine->state == UMH_MOTION_STATE_OFF) engine->state = UMH_MOTION_STATE_READY;
+  motion_unlock(engine);
+  return 0;
+}
+
+int motion_engine_rate(umh_motion_engine_t *engine, const uint8_t *payload,
+                       uint16_t length)
+{
+  uint16_t target;
+  uint16_t ramp_ms;
+  if (engine == NULL || payload == NULL) return -1;
+  if (length != sizeof(umh_motion_rate_wire_t)) return -2;
+  target = motion_read_u16(&payload[0]);
+  ramp_ms = motion_read_u16(&payload[2]);
+  if (target > UMH_MOTION_RATE_UNITY) return -3;
+  if (motion_lock(engine) != 0) return -4;
+  /* Ease from wherever the current ramp is, so back-to-back commands never
+   * step the path speed. */
+  motion_set_rate(engine, engine->rate_scale, (float)target * 0.001f, ramp_ms);
   motion_unlock(engine);
   return 0;
 }
@@ -676,6 +791,7 @@ uint32_t motion_engine_service(umh_motion_engine_t *engine,
   float desired_x, desired_y, desired_z;
   float desired_level, desired_palette;
   float level_scale;
+  uint8_t rgb_level;
   int result;
   if (wait_us == NULL) return 0u;
   *wait_us = 1000u;
@@ -701,12 +817,13 @@ uint32_t motion_engine_service(umh_motion_engine_t *engine,
     engine->ulm_phase += (float)engine->ulm_frequency_hz * dt;
     while (engine->ulm_phase >= 1.0f) engine->ulm_phase -= 1.0f;
   }
+  if (dt > 0.0f) motion_advance_rate(engine, dt);
 
   desired_x = engine->pos_x_um;
   desired_y = engine->pos_y_um;
   desired_z = engine->pos_z_um;
   desired_level = (float)engine->last_level;
-  desired_palette = (float)engine->last_palette;
+  desired_palette = engine->palette_pos;
 
   if (engine->state == UMH_MOTION_STATE_STOPPING) {
     /* hold the last field while the amplitude fades out */
@@ -716,7 +833,7 @@ uint32_t motion_engine_service(umh_motion_engine_t *engine,
     /* hold the last field */
   } else if (engine->mode == UMH_MOTION_MODE_PATH) {
     if (engine->loop_us != 0u && dt > 0.0f) {
-      engine->phase += dt * 1000000.0f / (float)engine->loop_us;
+      engine->phase += engine->rate_scale * dt * 1000000.0f / (float)engine->loop_us;
       if ((engine->flags & UMH_MOTION_FLAG_LOOP) != 0u) {
         while (engine->phase >= 1.0f) engine->phase -= 1.0f;
       } else if (engine->phase > 1.0f) {
@@ -732,7 +849,9 @@ uint32_t motion_engine_service(umh_motion_engine_t *engine,
       desired_y = engine->target_y_um;
       desired_z = engine->target_z_um;
       desired_level = (float)engine->target_level;
-      desired_palette = (float)engine->target_palette;
+      desired_palette = (engine->display_flags & UMH_MOTION_DISPLAY_SMOOTH_PALETTE) != 0u ?
+          motion_palette_byte_pos(engine, engine->target_palette) :
+          (float)engine->target_palette;
     }
   }
 
@@ -779,11 +898,26 @@ uint32_t motion_engine_service(umh_motion_engine_t *engine,
 
   engine->last_level = (uint8_t)(desired_level > 255.0f ? 255.0f :
                                  (desired_level < 0.0f ? 0.0f : desired_level));
-  engine->last_palette = (uint8_t)(desired_palette < 0.0f ? 0.0f :
-                                   (desired_palette > 255.0f ? 255.0f : desired_palette));
+  if (desired_palette < 0.0f) desired_palette = 0.0f;
+  if (desired_palette > 255.0f) desired_palette = 255.0f;
+  engine->palette_pos = desired_palette;
+  engine->last_palette = (uint8_t)desired_palette;
 
-  level_scale = (float)engine->last_level * ((float)engine->level / 255.0f);
-  if (engine->state == UMH_MOTION_STATE_STOPPING) level_scale *= engine->fade_scale;
+  if ((engine->display_flags & UMH_MOTION_DISPLAY_POINT_BRIGHTNESS) != 0u) {
+    /* The point level is the LED brightness; the trap keeps the config
+     * level so a dimmed or blanked segment never loosens the bead. */
+    float rgb = (float)engine->last_level;
+    level_scale = (float)engine->level;
+    if (engine->state == UMH_MOTION_STATE_STOPPING) {
+      level_scale *= engine->fade_scale;
+      rgb *= engine->fade_scale;
+    }
+    rgb_level = (uint8_t)(rgb > 255.0f ? 255.0f : (rgb < 0.0f ? 0.0f : rgb + 0.5f));
+  } else {
+    level_scale = (float)engine->last_level * ((float)engine->level / 255.0f);
+    if (engine->state == UMH_MOTION_STATE_STOPPING) level_scale *= engine->fade_scale;
+    rgb_level = 255u;
+  }
   if (level_scale > 255.0f) level_scale = 255.0f;
   if (level_scale < 0.0f) level_scale = 0.0f;
   engine->last_level_scale = engine->fade_scale;
@@ -817,10 +951,13 @@ uint32_t motion_engine_service(umh_motion_engine_t *engine,
       else if (engine->ulm_axis == 2u) emit_y += ulm_off;
       else { emit_x += ulm_off; emit_y += ulm_off_q; }
     }
+    float palette_emit = (engine->display_flags & UMH_MOTION_DISPLAY_SMOOTH_PALETTE) != 0u ?
+        engine->palette_pos : (float)engine->last_palette;
     if (motion_emit_field(engine, renderer, &frame,
                           emit_x, emit_y, engine->pos_z_um,
                           level_scale,
-                          (float)engine->last_palette + engine->palette_spin_phase) != 0) {
+                          palette_emit + engine->palette_spin_phase,
+                          rgb_level) != 0) {
       motion_record_service(engine, service_start_cycles);
       engine->frame_errors++;
       engine->next_due_us = now_us + 1000u;
@@ -907,6 +1044,11 @@ void motion_engine_get_status(const umh_motion_engine_t *engine,
   status->level = engine->last_level;
   status->trap_mode = engine->trap_mode;
   {
+    float phase = engine->phase < 0.0f ? 0.0f : (engine->phase > 1.0f ? 1.0f : engine->phase);
+    uint32_t q = (uint32_t)(phase * 65536.0f);
+    status->phase_q16 = q > 65535u ? 65535u : (uint16_t)q;
+  }
+  {
     uint32_t cycles_per_us = SystemCoreClock / 1000000u;
     uint32_t max_us;
     uint32_t avg_us = 0u;
@@ -935,8 +1077,12 @@ void motion_engine_get_status(const umh_motion_engine_t *engine,
 }
 
 
-/* 100 mm geometric focus places the dark vortex core near 80 mm. */
-#define UMH_LEVITATION_FOCUS_Z_UM 100000
+/* The dark-vortex focus depth is the commanded z (path z + z_offset, or the
+ * LIVE target).  With the array firing at a table, the bead heights are the
+ * standing-wave rungs pinned to the table (~4.6 mm apart); the focus depth only
+ * changes how strongly each rung holds, not where it is.  Focusing on the
+ * table plane gives the strongest lower rungs.  The GUI switch therefore
+ * commands z = 100 mm, which is what this emitter hard-coded before. */
 #define UMH_LEVITATION_SPIRAL_TURNS 1.0f
 
 static int motion_emit_dark_vortex(umh_motion_engine_t *engine,
@@ -951,7 +1097,6 @@ static int motion_emit_dark_vortex(umh_motion_engine_t *engine,
   float phase_scale;
   float magnitude;
   float focus_z_um;
-  (void)cz;
   if (engine == NULL || renderer == NULL || renderer->profile == NULL || frame == NULL) return -1;
   if ((renderer->profile->capability_flags & UMH_PROFILE_CAP_GEOMETRY_VALID) == 0u) return -2;
   if (renderer->carrier_hz == 0u || renderer->sound_speed_um_per_s == 0u) return -3;
@@ -959,7 +1104,7 @@ static int motion_emit_dark_vortex(umh_motion_engine_t *engine,
   if (base_level > 255.0f) base_level = 255.0f;
   wavelength_um = (float)renderer->sound_speed_um_per_s / (float)renderer->carrier_hz;
   phase_scale = two_pi / wavelength_um;
-  focus_z_um = (float)UMH_LEVITATION_FOCUS_Z_UM;
+  focus_z_um = cz;
   magnitude = base_level * (1.0f / 255.0f);
   memset(frame, 0, sizeof(*frame));
   memset(engine->real_accum, 0, sizeof(engine->real_accum));
@@ -1084,6 +1229,9 @@ int motion_engine_configure_levitation(umh_motion_engine_t *engine,
   engine->last_level = level;
   engine->last_level_scale = 0.0f;
   engine->last_palette = 0u;
+  engine->palette_pos = 0.0f;
+  engine->display_flags = 0u;
+  motion_set_rate(engine, 1.0f, 1.0f, 0u);
   engine->configured = 1u;
   engine->stop_requested = 0u;
   engine->last_service_us = 0u;
@@ -1147,6 +1295,9 @@ int motion_engine_configure_vortex(umh_motion_engine_t *engine, uint8_t program)
   engine->last_level = UMH_VORTEX_LEVEL;
   engine->last_level_scale = 0.0f;
   engine->last_palette = 0u;
+  engine->palette_pos = 0.0f;
+  engine->display_flags = 0u;
+  motion_set_rate(engine, 1.0f, 1.0f, 0u);
   engine->configured = 1u;
   engine->stop_requested = 0u;
   engine->last_service_us = 0u;

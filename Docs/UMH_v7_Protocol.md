@@ -187,6 +187,36 @@ MCU 算力。
 运动模式与普通块、播放计划、Demo、校准和聚焦 AM 互斥：`MOTION_START`
 会清空之前的计划，其他生产者检测到 `motion_engine_owns_output` 时返回
 `BUSY`。`STOP_PLAN` 请求淡出，`CLEAR_PLAN` 立即中止并安全停止。
+
+### 显示扩展（v7.3，`capability_flags` bit12 `MOTION_DISPLAY`）
+
+面向单颗小球的视觉暂留光绘（UMH Display 上位机）。旧主机不受影响：69/76 字节
+CONFIG 仍是索引调色板、路径速率 1.0。
+
+* `MOTION_CONFIG` 可为 84 字节：76 字节基础配置后追加
+  `uint8 display_flags, uint8 reserved, uint16 rate_initial_x1000,
+  uint16 rate_target_x1000, uint16 rate_ramp_ms`。`display_flags` bit0
+  `SMOOTH_PALETTE`：路径点/目标的 `palette` 字节是调色板环上 0..255 的连续位置，
+  相邻点沿环的较短方向插值，色轮没有接缝和 16 级色带；此模式不解释 bit7 跳转。
+  bit1 `POINT_BRIGHTNESS`：点 `level` 只缩放 LED 亮度，陷阱幅度固定为配置
+  `level`，熄灭回程段不会削弱陷阱。路径速率倍率在该 CONFIG 生效时取
+  `rate_initial`，再以 smoothstep 在 `rate_ramp_ms` 内过渡到 `rate_target`
+  （0..1000 对应 0..1 倍 `loop_ms` 速度）。
+* `MOTION_RATE=0x68`，4 字节：`uint16 rate_target_x1000, uint16 rate_ramp_ms`，
+  从当前倍率平滑过渡，不重置帧时钟。用于运行中的起步/停步：先以倍率 0 切入
+  PATH（起点与当前位置重合），再在设备时钟上加速，避免主机命令间隔造成速度阶跃。
+* `MOTION_UPLOAD` 头 `flags` bit0 `KEEP_PHASE`：替换路径但保留循环相位
+  （0..1 比例），用于运行中重投影形状。
+* `MOTION_STATUS` 偏移 22 的原保留字段改为 `phase_q16`（当前循环位置 0..65535），
+  总长度仍为 52 字节。
+* `trap_mode=6`（暗核涡旋）的聚焦深度改为指令 z（路径 z + `z_offset` 或 LIVE
+  目标），不再固定 100 mm。阵列朝桌面发射时，小球高度由桌面钉住的驻波台阶决定
+  （约 4.6 mm 间隔），聚焦深度只改变各台阶的保持力，不移动台阶。GUI 悬浮开关因此
+  下发 z=100 mm，与之前的固定焦点一致。
+* 暗核涡旋现在同样执行 RGB 调色板合成（此前该分支提前返回，彩色悬浮路径不亮灯）。
+* 主机 `MOTION_UPLOAD/CONFIG/TARGET/RATE` 只在涡旋消泡程序运行时返回 `BUSY`；
+  悬浮陷阱（含 GUI 启动的）可原地重配置，上位机可以接管已悬浮的小球而不掉落。
+  已在运行时不要再发 `MOTION_START`，它会先安全停止输出。
 ## 数据路径和能力
 
 USB CDC 回调只把数据复制到 16 KiB 单生产者环形缓冲并通知协议任务。协议任务校验帧头、处理事务和块序号；编译任务执行轨道解析与空间解算；帧环使用 32 个固定 400 字节槽；FPGA 链路任务以 DMA 和 FIFO 信用额度提交原子输出帧。

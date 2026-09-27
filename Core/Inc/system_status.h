@@ -26,6 +26,11 @@ typedef enum {
 #define UMH_SYSTEM_MOTION_MODE_MASK (UMH_SYSTEM_LEVITATION | \
                                      UMH_SYSTEM_VORTEX_STEADY | \
                                      UMH_SYSTEM_VORTEX_ALT)
+/* Host motion messages (UPLOAD/CONFIG/TARGET/RATE) are refused only while a
+ * vortex (defoam) program runs.  A levitation trap may be re-programmed in
+ * place, so a host can take over a GUI-started bead without dropping it. */
+#define UMH_SYSTEM_VORTEX_MODE_MASK (UMH_SYSTEM_VORTEX_STEADY | \
+                                     UMH_SYSTEM_VORTEX_ALT)
 
 /* Stable, short identifiers used by the OLED and the USB error counters.
  * Keep these codes semantic: the UI can explain the cause without exposing

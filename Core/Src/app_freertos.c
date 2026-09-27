@@ -34,8 +34,10 @@
 /* Acoustic levitation switch: static single-sided dark-core vortex.
  * Final channel level is 2x the calibration level, clamped to 24..48.
  * The dark core keeps the particle out of the high-pressure ring while
- * leaving enough gradient to capture it against gravity. */
-#define UMH_LEVITATION_TRAP_Z_UM 50000
+ * leaving enough gradient to capture it against gravity.  The trap z is the
+ * vortex focus depth (the bead sits on a table-pinned standing-wave rung);
+ * 100 mm is the focus this switch has always emitted. */
+#define UMH_LEVITATION_TRAP_Z_UM 100000
 #define UMH_LEVITATION_LEVEL_MIN 44u
 #define UMH_LEVITATION_LEVEL_MAX 68u
 
@@ -980,13 +982,18 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       }
       break;
     case UMH_MSG_MOTION_UPLOAD:
-      if (audio_owns != 0u || (system_status_get()->flags & UMH_SYSTEM_MOTION_MODE_MASK) != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (audio_owns != 0u || (system_status_get()->flags & UMH_SYSTEM_VORTEX_MODE_MASK) != 0u) { status = UMH_STATUS_BUSY; break; }
       if (motion_engine_upload(&motion_engine, frame->payload, frame->payload_size) != 0)
         status = UMH_STATUS_BAD_LENGTH;
       break;
     case UMH_MSG_MOTION_CONFIG:
-      if (audio_owns != 0u || (system_status_get()->flags & UMH_SYSTEM_MOTION_MODE_MASK) != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (audio_owns != 0u || (system_status_get()->flags & UMH_SYSTEM_VORTEX_MODE_MASK) != 0u) { status = UMH_STATUS_BUSY; break; }
       if (motion_engine_configure(&motion_engine, frame->payload, frame->payload_size) != 0)
+        status = UMH_STATUS_BAD_LENGTH;
+      break;
+    case UMH_MSG_MOTION_RATE:
+      if (audio_owns != 0u || (system_status_get()->flags & UMH_SYSTEM_VORTEX_MODE_MASK) != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (motion_engine_rate(&motion_engine, frame->payload, frame->payload_size) != 0)
         status = UMH_STATUS_BAD_LENGTH;
       break;
     case UMH_MSG_MOTION_START:
@@ -1002,7 +1009,7 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       else { if (motion_engine_uses_rgb(&motion_engine) == 0u) (void)fpga_link_set_ws2812(&fpga_link, 0u, 0u, 0u); if (motion_engine_start(&motion_engine) != 0) status = UMH_STATUS_INVALID_STATE; }
       break;
     case UMH_MSG_MOTION_TARGET:
-      if (audio_owns != 0u || (system_status_get()->flags & UMH_SYSTEM_MOTION_MODE_MASK) != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (audio_owns != 0u || (system_status_get()->flags & UMH_SYSTEM_VORTEX_MODE_MASK) != 0u) { status = UMH_STATUS_BUSY; break; }
       if (motion_engine_target(&motion_engine, frame->payload, frame->payload_size) != 0)
         status = UMH_STATUS_BAD_LENGTH;
       break;

@@ -8,6 +8,7 @@
 - 不要使用Computer Use，全部通过CLI命令行工具来进行。
 - 不要使用SubAgents
 - PA9 是对外输出的触发信号，用于连接LDV等等外部仪器的时序触发，和超声发射部分没有关系。
+- 暗核涡旋（trap_mode 6）的聚焦深度就是指令 z；阵列朝桌面时小球高度由桌面钉住的驻波台阶决定，聚焦深度不能连续移动小球高度。GUI 悬浮必须保持 `UMH_LEVITATION_TRAP_Z_UM=100000`。主机运动消息只在涡旋消泡程序运行时 BUSY（`UMH_SYSTEM_VORTEX_MODE_MASK`），不要恢复成对悬浮也 BUSY，否则上位机无法不掉球接管。
 
 ARM_GCC_PATH = D:\SOFTWARE\GCC-ARM-NONE-EABI-10.3-2021.10\BIN
 OPENOCD = D:\Software\OpenOCD\bin\openocd.exe

@@ -218,6 +218,10 @@ typedef struct {
   float rms_after_deg;
 } cal_fit_metrics_t;
 
+static int cal_early_run(fpga_link_t *link, const umh_device_profile_t *profile,
+                           us_cal_progress_cb_t progress, void *context,
+                           umh_calibration_result_t *result);
+
 /* Runtime debug counters; visible in GDB. */
 typedef struct {
   volatile uint32_t stage;
@@ -1528,6 +1532,298 @@ static int cal_measure_one_channel(fpga_link_t *link, uint8_t channel, uint8_t p
  * coherently.  A successful run leaves the 4x84 complex matrix in
  * cal_z_re/cal_z_im.  The host/SWD side is responsible for interpreting it.
  * -------------------------------------------------------------------------- */
+
+/* --------------------------------------------------------------------------
+ * Early direct-path calibration (2026-09-26).
+ *
+ * The only field that cannot be polluted by an external room is the first
+ * arrival that leaves a transmitter and reaches an on-board microphone.  The
+ * direct distance is 7..100 mm, i.e. ~20..300 us; an external object at
+ * distance d can only contribute after the round trip 2*d/c.  The old
+ * steady-state gate at 5..6 ms therefore measured the room.  This path instead
+ * predicts the direct arrival sample for every (channel, microphone) pair
+ * from the device geometry, scans a few 25 us samples around it, and keeps
+ * the earliest narrow response.  Only the internal coupling is inside the
+ * gate; reflections from external objects are later by construction.
+ * -------------------------------------------------------------------------- */
+#define CAL_EARLY_LEVEL             128u
+#define CAL_EARLY_WIDTH               2u   /* 50 us integration */
+#define CAL_EARLY_REPEATS             4u
+#define CAL_EARLY_SCAN_END           14u   /* scan gates 0..14 = 0..350 us */
+#define CAL_EARLY_MAX_START          14u
+#define CAL_EARLY_PEAK_FRACTION      0.30f
+#define CAL_EARLY_SCAN_MIN            1u   /* ignore the pattern-swap transient */
+
+#define CAL_EARLY_MIN_MAG         10.0f
+#define CAL_EARLY_FIT_ITERS          64u
+#define CAL_EARLY_PASS_RMS_DEG     30.0f
+#define CAL_EARLY_PASS_CHANNELS      70u
+#define CAL_EARLY_PASS_MICS           3u
+#define CAL_EARLY_MM_PER_SAMPLE      8.575f  /* 343 m/s * 25 us */
+
+static uint16_t cal_early_start_samples(uint8_t mic, uint8_t channel)
+{
+  float d_mm = cal_direct_path_mm(mic, channel);
+  int32_t sample = (int32_t)lroundf(d_mm / CAL_EARLY_MM_PER_SAMPLE);
+  if (sample < 0) sample = 0;
+  if (sample > (int32_t)CAL_EARLY_MAX_START) sample = (int32_t)CAL_EARLY_MAX_START;
+  return (uint16_t)sample;
+}
+
+static int cal_early_measure_pair(fpga_link_t *link, uint8_t channel,
+                                  uint16_t start, uint32_t burst_us,
+                                  uint8_t repeats,
+                                  float out_re[CAL_MICS], float out_im[CAL_MICS])
+{
+  float sum0_re[CAL_MICS] = {0.0f}, sum0_im[CAL_MICS] = {0.0f};
+  float sum1_re[CAL_MICS] = {0.0f}, sum1_im[CAL_MICS] = {0.0f};
+  uint8_t r, m;
+  if (link == NULL || channel >= CAL_CHANNELS || repeats == 0u) return -1;
+  if (cal_mic_start(link, 1u, start, CAL_EARLY_WIDTH, CAL_EARLY_WIDTH) != 0)
+    return -2;
+  for (r = 0u; r < repeats; ++r) {
+    float y0r[CAL_MICS], y0i[CAL_MICS], y1r[CAL_MICS], y1i[CAL_MICS];
+    if (cal_measure_one_channel(link, channel, 0u, CAL_EARLY_LEVEL, burst_us,
+                                y0r, y0i) != 0)
+      return -3;
+    if (cal_measure_one_channel(link, channel, 128u, CAL_EARLY_LEVEL, burst_us,
+                                y1r, y1i) != 0)
+      return -4;
+    for (m = 0u; m < CAL_MICS; ++m) {
+      sum0_re[m] += y0r[m];
+      sum0_im[m] += y0i[m];
+      sum1_re[m] += y1r[m];
+      sum1_im[m] += y1i[m];
+    }
+    cal_delay_us(CAL_SETTLE_US);
+  }
+  for (m = 0u; m < CAL_MICS; ++m) {
+    out_re[m] = 0.5f * (sum0_re[m] - sum1_re[m]) / (float)repeats;
+    out_im[m] = 0.5f * (sum0_im[m] - sum1_im[m]) / (float)repeats;
+  }
+  return 0;
+}
+
+static int cal_early_measure_h(fpga_link_t *link, us_cal_progress_cb_t progress,
+                               void *context)
+{
+  uint8_t i, m;
+  uint16_t s;
+  if (link == NULL) return -1;
+  cal_frame_sequence = 0u;
+  cal_block_expected = 0u;
+  for (i = 0u; i < CAL_CHANNELS; ++i) {
+    float prof_re[CAL_EARLY_SCAN_END + 1u][CAL_MICS];
+    float prof_im[CAL_EARLY_SCAN_END + 1u][CAL_MICS];
+    for (s = 0u; s <= CAL_EARLY_SCAN_END; ++s) {
+      float re[CAL_MICS], im[CAL_MICS];
+      uint32_t burst_us = ((uint32_t)s + CAL_EARLY_WIDTH + CAL_GATE_TAIL) * 25u +
+                          2000u;
+      if (cal_early_measure_pair(link, i, s, burst_us, CAL_EARLY_REPEATS,
+                                 re, im) != 0)
+        return -2;
+      for (m = 0u; m < CAL_MICS; ++m) {
+        prof_re[s][m] = re[m];
+        prof_im[s][m] = im[m];
+      }
+    }
+    for (m = 0u; m < CAL_MICS; ++m) {
+      float mag[CAL_EARLY_SCAN_END + 1u];
+      float max_mag = 0.0f;
+      uint16_t first_peak = CAL_EARLY_SCAN_MIN, argmax = CAL_EARLY_SCAN_MIN;
+      for (s = CAL_EARLY_SCAN_MIN; s <= CAL_EARLY_SCAN_END; ++s) {
+        mag[s] = sqrtf(prof_re[s][m] * prof_re[s][m] +
+                       prof_im[s][m] * prof_im[s][m]);
+        if (mag[s] > max_mag) { max_mag = mag[s]; argmax = s; }
+      }
+      for (s = CAL_EARLY_SCAN_MIN + 1u; s < CAL_EARLY_SCAN_END; ++s) {
+        if (mag[s] >= mag[s - 1u] && mag[s] >= mag[s + 1u] &&
+            mag[s] >= CAL_EARLY_PEAK_FRACTION * max_mag) {
+          first_peak = s;
+          break;
+        }
+      }
+      if (first_peak == CAL_EARLY_SCAN_MIN &&
+          argmax != CAL_EARLY_SCAN_MIN)
+        first_peak = argmax;
+      {
+        float sum_re = 0.0f, sum_im = 0.0f;
+        uint16_t k, k0 = (first_peak > (CAL_EARLY_SCAN_MIN + 1u)) ?
+                         (uint16_t)(first_peak - 2u) : CAL_EARLY_SCAN_MIN;
+        uint16_t k1 = (uint16_t)(first_peak + 2u);
+        if (k1 > CAL_EARLY_SCAN_END) k1 = CAL_EARLY_SCAN_END;
+        for (k = k0; k <= k1; ++k) {
+          sum_re += prof_re[k][m];
+          sum_im += prof_im[k][m];
+        }
+        cal_z_re[m][i] = sum_re / (float)(k1 - k0 + 1u);
+        cal_z_im[m][i] = sum_im / (float)(k1 - k0 + 1u);
+      }
+    }
+    if ((i & 3u) == 0u) {
+      uint8_t p = (uint8_t)(4u + (uint32_t)i * 66u / CAL_CHANNELS);
+      if (p > 72u) p = 72u;
+      cal_report(progress, context, US_CAL_MEASURE, p);
+    }
+  }
+  return 0;
+}
+
+
+
+static float cal_early_fit_sign(uint8_t sign, float a_out[CAL_CHANNELS],
+                                uint16_t valid_out[CAL_CHANNELS],
+                                uint16_t mic_valid_out[CAL_MICS],
+                                uint16_t *valid_pairs_out)
+{
+  float off[CAL_MICS] = {0.0f};
+  float a[CAL_CHANNELS] = {0.0f};
+  float weighted_err = 0.0f, weight_sum = 0.0f;
+  uint16_t valid_pairs = 0u;
+  uint8_t iter, m, i;
+  for (m = 0u; m < CAL_MICS; ++m) mic_valid_out[m] = 0u;
+  for (iter = 0u; iter < CAL_EARLY_FIT_ITERS; ++iter) {
+    for (m = 0u; m < CAL_MICS; ++m) {
+      float sr = 0.0f, si = 0.0f;
+      for (i = 0u; i < CAL_CHANNELS; ++i) {
+        float zr = cal_z_re[m][i], zi = cal_z_im[m][i];
+        float mag = sqrtf(zr * zr + zi * zi);
+        float ph;
+        if (mag < CAL_EARLY_MIN_MAG) continue;
+        ph = cal_atan2_rad(zr, zi) - ((sign != 0u) ? 1.0f : -1.0f) *
+             cal_k_wave_mm * cal_direct_path_mm(m, i) - a[i];
+        sr += mag * cosf(ph);
+        si += mag * sinf(ph);
+      }
+      off[m] = cal_atan2_rad(sr, si);
+    }
+    for (i = 0u; i < CAL_CHANNELS; ++i) {
+      float sr = 0.0f, si = 0.0f;
+      for (m = 0u; m < CAL_MICS; ++m) {
+        float zr = cal_z_re[m][i], zi = cal_z_im[m][i];
+        float mag = sqrtf(zr * zr + zi * zi);
+        float ph;
+        if (mag < CAL_EARLY_MIN_MAG) continue;
+        ph = cal_atan2_rad(zr, zi) - ((sign != 0u) ? 1.0f : -1.0f) *
+             cal_k_wave_mm * cal_direct_path_mm(m, i) - off[m];
+        sr += mag * cosf(ph);
+        si += mag * sinf(ph);
+      }
+      a[i] = cal_atan2_rad(sr, si);
+    }
+  }
+  for (i = 0u; i < CAL_CHANNELS; ++i) {
+    uint16_t count = 0u;
+    for (m = 0u; m < CAL_MICS; ++m) {
+      float zr = cal_z_re[m][i], zi = cal_z_im[m][i];
+      float mag = sqrtf(zr * zr + zi * zi);
+      float expected, err;
+      if (mag < CAL_EARLY_MIN_MAG) continue;
+      expected = ((sign != 0u) ? 1.0f : -1.0f) * cal_k_wave_mm *
+                 cal_direct_path_mm(m, i) + off[m] + a[i];
+      err = cal_wrap_pi(cal_atan2_rad(zr, zi) - expected);
+      weighted_err += mag * err * err;
+      weight_sum += mag;
+      ++count;
+      ++valid_pairs;
+      ++mic_valid_out[m];
+    }
+    valid_out[i] = count;
+  }
+  if (weight_sum < 1.0e-6f) {
+    *valid_pairs_out = 0u;
+    return 999.0f;
+  }
+  *valid_pairs_out = valid_pairs;
+  for (i = 0u; i < CAL_CHANNELS; ++i) a_out[i] = a[i];
+  return cal_deg(sqrtf(weighted_err / weight_sum));
+}
+
+static int cal_early_run(fpga_link_t *link, const umh_device_profile_t *profile,
+                         us_cal_progress_cb_t progress, void *context,
+                         umh_calibration_result_t *result)
+{
+  float a_plus[CAL_CHANNELS], a_minus[CAL_CHANNELS];
+  uint16_t valid_plus[CAL_CHANNELS], valid_minus[CAL_CHANNELS];
+  uint16_t mic_plus[CAL_MICS], mic_minus[CAL_MICS];
+  uint16_t pairs_plus = 0u, pairs_minus = 0u;
+  float rms_plus, rms_minus;
+  uint8_t sign, i, m;
+  uint16_t valid_channels = 0u, good_mics = 0u;
+  float c_mm_s;
+
+  if (link == NULL || profile == NULL || result == NULL) return -1;
+  memset(result, 0, sizeof(*result));
+  result->fault = UMH_FAULT_CAL_SOLVER;
+  result->level_used = (uint8_t)CAL_EARLY_LEVEL;
+  result->used_gate_width = CAL_EARLY_WIDTH;
+  result->used_gate_start = 0u;
+  result->used_gate_count = 1u;
+  result->patterns_used = CAL_CHANNELS;
+  cal_profile = profile;
+  c_mm_s = (profile->sound_speed_um_per_s != 0u) ?
+           ((float)profile->sound_speed_um_per_s * 1.0e-3f) : 343000.0f;
+  cal_k_wave_mm = CAL_TWO_PI * (float)profile->carrier_hz / c_mm_s;
+
+  cal_report(progress, context, US_CAL_WAIT, 0u);
+  cal_report(progress, context, US_CAL_MEASURE, 2u);
+  if (cal_early_measure_h(link, progress, context) != 0) {
+    result->fault = UMH_FAULT_CAL_MIC_SILENT;
+    result->progress = 100u;
+    cal_report(progress, context, US_CAL_FAIL, 100u);
+    return -2;
+  }
+  cal_report(progress, context, US_CAL_SOLVE, 76u);
+
+  rms_plus = cal_early_fit_sign(1u, a_plus, valid_plus, mic_plus, &pairs_plus);
+  rms_minus = cal_early_fit_sign(0u, a_minus, valid_minus, mic_minus, &pairs_minus);
+  sign = (rms_plus <= rms_minus) ? 1u : 0u;
+  if (sign != 0u) {
+    result->fit_rms_deg = rms_plus;
+  } else {
+    result->fit_rms_deg = rms_minus;
+  }
+  for (i = 0u; i < CAL_CHANNELS; ++i) {
+    uint16_t valid = (sign != 0u) ? valid_plus[i] : valid_minus[i];
+    float a = (sign != 0u) ? a_plus[i] : a_minus[i];
+    int32_t code = (valid >= 2u) ?
+                   (int32_t)lroundf(-a * (256.0f / CAL_TWO_PI)) : 0;
+    code %= 256;
+    if (code < 0) code += 256;
+    result->phase_byte[i] = (uint8_t)code;
+    if (valid >= 2u) ++valid_channels;
+  }
+  result->sign_hypothesis = sign;
+  result->geom_hypothesis = 0u;
+  result->good_mics = 0u;
+  for (m = 0u; m < CAL_MICS; ++m) {
+    if ((sign != 0u ? mic_plus[m] : mic_minus[m]) >=
+        (CAL_CHANNELS / 4u))
+      ++good_mics;
+  }
+  result->good_mics = good_mics;
+  result->mic_consistency_deg = 0.0f;
+  result->residual = 0.0f;
+  result->verify_gain_db = 0.0f;
+  result->coupling_db = 0.0f;
+  result->rms_before_deg = result->fit_rms_deg;
+  result->rms_after_deg = result->fit_rms_deg;
+  result->progress = 100u;
+
+  if (valid_channels < CAL_EARLY_PASS_CHANNELS ||
+      good_mics < CAL_EARLY_PASS_MICS ||
+      result->fit_rms_deg > CAL_EARLY_PASS_RMS_DEG) {
+    result->fault = UMH_FAULT_CAL_QUALITY;
+    result->quality_flags = CAL_Q_FIT | CAL_Q_CONSISTENCY | CAL_Q_MICS;
+    cal_report(progress, context, US_CAL_FAIL, 100u);
+    return -3;
+  }
+  result->fault = UMH_FAULT_NONE;
+  result->quality_flags = 0u;
+  cal_report(progress, context, US_CAL_OK, 100u);
+  return 0;
+}
+
 int us_calibration_measure_h(fpga_link_t *link, const umh_device_profile_t *profile,
                              uint8_t level, uint16_t gate_start, uint8_t gate_width,
                              uint32_t burst_us, uint8_t repeats,
@@ -1742,246 +2038,9 @@ int us_calibration_run(fpga_link_t *link, const umh_device_profile_t *profile,
                        us_cal_progress_cb_t progress, void *context,
                        umh_calibration_result_t *result)
 {
-  uint8_t i, m;
-  int rc;
-  float c_m_s, c_mm_s, f_hz;
-  cal_fit_metrics_t metrics_plus, metrics_minus, metrics_final;
-  uint8_t pass_plus, pass_minus, candidate_mask;
-  float min_mean = 1.0e30f, max_mean = -1.0e30f;
-  uint8_t good_mics = 0u;
-  int best_candidate;
-  uint8_t positive_mics = 0u;
-  uint8_t chosen_sign;
-  uint32_t dbg_start = HAL_GetTick();
-
-  if (link == NULL || profile == NULL || result == NULL) return -1;
-  memset(result, 0, sizeof(*result));
-  result->fault = UMH_FAULT_NONE;
-  result->used_gate_width = CAL_GATE_WIDTH;
-  result->used_gate_start = CAL_GATE_START_MIN;
-  result->used_gate_count = 1u;
-  result->level_used = 128u;
-  result->geom_hypothesis = 0u;
-  result->sign_hypothesis = 0u;
-  cal_stage_progress = progress;
-  cal_stage_progress_ctx = context;
-  cal_frame_sequence = 0u;
-  cal_block_expected = 0u;
-  memset(&cal_debug, 0, sizeof(cal_debug));
-  memset(&metrics_plus, 0, sizeof(metrics_plus));
-  memset(&metrics_minus, 0, sizeof(metrics_minus));
-  memset(&metrics_final, 0, sizeof(metrics_final));
-  cal_profile = profile;
-  c_m_s = (profile->sound_speed_um_per_s != 0u) ?
-          ((float)profile->sound_speed_um_per_s * 1.0e-6f) : 343.0f;
-  c_mm_s = c_m_s * 1000.0f;
-  f_hz = (float)(profile->carrier_hz != 0u ? profile->carrier_hz : 40000u);
-  cal_k_wave_mm = CAL_TWO_PI * f_hz / c_mm_s;
-  cal_report(progress, context, US_CAL_WAIT, 0u);
-  cal_debug.stage = 1u;
-  cal_report(progress, context, US_CAL_MEASURE, 1u);
-
-  /* ---- A: level / coherence probe -------------------------------------- */
-  rc = cal_level_probe(link, &cal_level_used, &cal_noise_power);
-  if (rc != 0) {
-    result->quality_flags |= CAL_Q_LEVEL;
-    result->fault = UMH_FAULT_CAL_MIC_SILENT;
-    goto fail;
-  }
-  result->level_used = cal_level_used;
-
-  /* ---- B: transient profile and gate selection ------------------------- */
-  cal_report(progress, context, US_CAL_MEASURE, 6u);
-  rc = cal_transient_profile(link, cal_level_used, &cal_gate_start, &cal_gate_width);
-  if (rc != 0) {
-    result->quality_flags |= CAL_Q_MEASURE;
-    result->fault = UMH_FAULT_CAL_MIC_SILENT;
-    goto fail;
-  }
-  result->used_gate_start = cal_gate_start;
-  result->used_gate_width = cal_gate_width;
-  cal_burst_us = ((uint32_t)cal_gate_start + (uint32_t)cal_gate_width +
-                  (uint32_t)CAL_GATE_TAIL) * 25u;
-  if (cal_burst_us < 500u) cal_burst_us = 500u;
-  cal_debug.stage = 2u;
-  cal_report(progress, context, US_CAL_MEASURE, 10u);
-
-  /* ---- C: random projection acquisition -------------------------------- */
-  cal_report(progress, context, US_CAL_MEASURE, 12u);
-  rc = cal_cs_acquire(link, progress, context);
-  if (rc != 0) {
-    result->quality_flags |= CAL_Q_MEASURE;
-    result->fault = UMH_FAULT_CAL_MIC_SILENT;
-    goto fail;
-  }
-  result->patterns_used = cal_cs_patterns;
-  cal_debug.stage = 3u;
-
-  /* ---- D: centered least squares --------------------------------------- */
-  cal_report(progress, context, US_CAL_SOLVE, 76u);
-  if (cal_cs_reconstruct(1u) != 0) {
-    result->quality_flags |= CAL_Q_MEASURE;
-    result->fault = UMH_FAULT_CAL_SOLVER;
-    goto fail;
-  }
-
-  /* ---- E: direct-path fit for both de-rotation signs -------------------- */
-  cal_prepare_pairs();
-  cal_report(progress, context, US_CAL_SOLVE, 80u);
-  if (cal_fit_direct(1u, &metrics_plus) != 0) {
-    result->quality_flags |= CAL_Q_FIT;
-    result->fault = UMH_FAULT_CAL_QUALITY;
-    goto fail;
-  }
-  {
-    float gauge_rms = cal_gauge(cal_phi, cal_fit_deg);
-    metrics_plus.rms_before_deg = gauge_rms;
-    cal_make_correction_bytes(cal_fit_deg, cal_corr[0]);
-    cal_negate_bytes(cal_corr[0], cal_corr[1]);
-  }
-  cal_prepare_pairs();
-  if (cal_fit_direct(0u, &metrics_minus) != 0) {
-    result->quality_flags |= CAL_Q_FIT;
-    result->fault = UMH_FAULT_CAL_QUALITY;
-    goto fail;
-  }
-  {
-    float gauge_rms = cal_gauge(cal_phi, cal_fit_deg);
-    metrics_minus.rms_before_deg = gauge_rms;
-    cal_make_correction_bytes(cal_fit_deg, cal_corr[2]);
-    cal_negate_bytes(cal_corr[2], cal_corr[3]);
-  }
-  pass_plus = (metrics_plus.fit_rms_deg <= CAL_FIT_RMS_MAX_DEG &&
-               metrics_plus.mic_consistency_deg <= CAL_CONSIST_MAX_DEG &&
-               metrics_plus.band_trend_deg <= CAL_BAND_TREND_MAX_DEG) ? 1u : 0u;
-  pass_minus = (metrics_minus.fit_rms_deg <= CAL_FIT_RMS_MAX_DEG &&
-                metrics_minus.mic_consistency_deg <= CAL_CONSIST_MAX_DEG &&
-                metrics_minus.band_trend_deg <= CAL_BAND_TREND_MAX_DEG) ? 1u : 0u;
-  if (pass_plus == 0u && pass_minus == 0u) {
-    result->quality_flags |= CAL_Q_FIT | CAL_Q_CONSISTENCY;
-    result->fault = UMH_FAULT_CAL_QUALITY;
-    goto fail;
-  }
-  candidate_mask = (uint8_t)((pass_plus != 0u ? 0x03u : 0u) |
-                             (pass_minus != 0u ? 0x0Cu : 0u));
-
-  /* ---- F: measured focus gain resolves the discrete ambiguities -------- */
-  cal_report(progress, context, US_CAL_VERIFY, 0u);
-  best_candidate = cal_verify_focus(link, profile, candidate_mask,
-                                    result->phase_byte, &result->verify_gain_db,
-                                    &positive_mics);
-  if (best_candidate < 0) {
-    result->quality_flags |= CAL_Q_COUPLING;
-    result->fault = UMH_FAULT_CAL_QUALITY;
-    goto fail;
-  }
-  result->sign_hypothesis = (uint8_t)best_candidate;
-  if (best_candidate == 0 || best_candidate == 1) chosen_sign = 1u;
-  else chosen_sign = 0u;
-  if (((best_candidate & 1) != 0) && (best_candidate < 2)) { /* negated plus */ }
-  /* Re-run the winning fit so every reported metric and dump section is from
-   * the exact candidate that the gain gate selected. */
-  cal_prepare_pairs();
-  if (cal_fit_direct(chosen_sign, &metrics_final) != 0) {
-    result->quality_flags |= CAL_Q_FIT;
-    result->fault = UMH_FAULT_CAL_QUALITY;
-    goto fail;
-  }
-  {
-    float gauge_rms = cal_gauge(cal_phi, cal_fit_deg);
-    metrics_final.rms_before_deg = gauge_rms;
-    {
-      uint8_t qtmp[CAL_CHANNELS];
-      cal_make_correction_bytes(cal_fit_deg, qtmp);
-      if (best_candidate == 0 || best_candidate == 2) {
-        memcpy(result->phase_byte, qtmp, CAL_CHANNELS);
-      } else {
-        cal_negate_bytes(qtmp, result->phase_byte);
-      }
-    }
-  }
-  /* quantized post-correction residual */
-  {
-    float sum = 0.0f;
-    for (i = 0u; i < CAL_CHANNELS; ++i) {
-      float applied = (float)result->phase_byte[i] * (360.0f / 256.0f);
-      float e = cal_wrap_pi(cal_rad(cal_fit_deg[i]) + cal_rad(applied));
-      sum += e * e;
-    }
-    metrics_final.rms_after_deg = cal_deg(sqrtf(sum / (float)CAL_CHANNELS));
-    result->rms_after_deg = metrics_final.rms_after_deg;
-    result->rms_before_deg = metrics_final.rms_before_deg;
-  }
-  result->fit_rms_deg = metrics_final.fit_rms_deg;
-  result->mic_consistency_deg = metrics_final.mic_consistency_deg;
-  result->residual = metrics_final.residual;
-  result->drift_deg = metrics_final.drift_deg;
-  result->band_trend_deg = metrics_final.band_trend_deg;
-  result->used_gate_count = 1u;
-  result->patterns_used = cal_cs_patterns;
-
-  /* ---- microphone coupling and gain gates ------------------------------ */
-  for (m = 0u; m < CAL_MICS; ++m) {
-    float sum = 0.0f;
-    for (i = 0u; i < CAL_CHANNELS; ++i) {
-      float zr = cal_z_re[m][i], zi = cal_z_im[m][i];
-      sum += sqrtf(zr * zr + zi * zi);
-    }
-    {
-      float mean = sum / (float)CAL_CHANNELS;
-      if (mean < min_mean) min_mean = mean;
-      if (mean > max_mean) max_mean = mean;
-    }
-  }
-  for (m = 0u; m < CAL_MICS; ++m) {
-    float sum = 0.0f;
-    for (i = 0u; i < CAL_CHANNELS; ++i) {
-      float zr = cal_z_re[m][i], zi = cal_z_im[m][i];
-      sum += sqrtf(zr * zr + zi * zi);
-    }
-    if (max_mean > 1.0e-9f && (sum / (float)CAL_CHANNELS) > 0.25f * max_mean) ++good_mics;
-  }
-  result->good_mics = good_mics;
-  result->coupling_db = (min_mean > 1.0e-9f) ? (20.0f * log10f(max_mean / min_mean)) : 99.0f;
-
-  if (metrics_final.fit_rms_deg > CAL_FIT_RMS_MAX_DEG ||
-      metrics_final.band_trend_deg > CAL_BAND_TREND_MAX_DEG)
-    result->quality_flags |= CAL_Q_FIT;
-  if (metrics_final.mic_consistency_deg > CAL_CONSIST_MAX_DEG)
-    result->quality_flags |= CAL_Q_CONSISTENCY;
-  if (good_mics < 2u) result->quality_flags |= CAL_Q_MICS;
-  if (result->coupling_db > CAL_COUPLING_WARN_DB) result->quality_flags |= CAL_Q_MICS;
-  if (result->rms_before_deg >= CAL_VERIFY_RMS_GATE) {
-    if (positive_mics < CAL_VERIFY_MIC_MIN_POS) result->quality_flags |= CAL_Q_VERIFY;
-    if (result->verify_gain_db < CAL_VERIFY_MIN_DB) result->quality_flags |= CAL_Q_VERIFY;
-  } else if (result->verify_gain_db < -0.5f) {
-    /* Only demand a real array gain when the fitted static spread is large.
-     * For small spread all four candidates preserve the baseline power, so
-     * a slightly negative measured value is just noise. */
-    result->quality_flags |= CAL_Q_VERIFY;
-  }
-  if (result->verify_gain_db < -1.0f) result->quality_flags |= CAL_Q_COUPLING;
-
-  if (result->quality_flags != 0u) {
-    result->fault = UMH_FAULT_CAL_QUALITY;
-    goto fail;
-  }
-  cal_fill_dump2(result, &metrics_final);
-  result->progress = 100u;
-  result->fault = UMH_FAULT_NONE;
-  cal_debug.stage = 0u;
-  cal_debug.total_ms = HAL_GetTick() - dbg_start;
-  cal_report(progress, context, US_CAL_OK, 100u);
-  return 0;
-
-fail:
-  cal_fill_dump2(result, &metrics_final);
-  result->progress = 100u;
-  cal_debug.stage = 0u;
-  cal_debug.total_ms = HAL_GetTick() - dbg_start;
-  cal_report(progress, context, US_CAL_FAIL, 100u);
-  return -2;
+  return cal_early_run(link, profile, progress, context, result);
 }
+
 
 
 /* ==========================================================================

@@ -43,7 +43,10 @@ typedef enum {
   UMH_MSG_MOTION_START       = 0x64,
   UMH_MSG_MOTION_TARGET      = 0x65,
   UMH_MSG_MOTION_STOP        = 0x66,
-  UMH_MSG_MOTION_STATUS      = 0x67,  /* Focused-AM audio extension.  DATA frames deliberately do not require an
+  UMH_MSG_MOTION_STATUS      = 0x67,
+  /* Path-rate ease for a running PATH program (4 bytes, see motion_engine.h). */
+  UMH_MSG_MOTION_RATE        = 0x68,
+  /* Focused-AM audio extension.  DATA frames deliberately do not require an
    * ACK: the STM32 consumes envelope bytes from the USB header sequence and
    * keeps the streaming path independent of the command/response loop. */
   UMH_MSG_AUDIO_CONFIGURE    = 0x90,
