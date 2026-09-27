@@ -5,7 +5,9 @@
 _Static_assert((sizeof(UMH7_ELEMENTS) / sizeof(UMH7_ELEMENTS[0])) == UMH_DEVICE_CHANNEL_COUNT,
                "UMH7 geometry table size");
 
-static umh_device_profile_t profile;
+/* Removed static profile (1118 B): never used after app_freertos calls
+ * device_profile_init with its own copy. active_profile always points to
+ * the caller's storage. */
 static umh_device_profile_t *active_profile;
 
 const uint8_t umh_device_logical_to_physical[UMH_DEVICE_CHANNEL_COUNT] = {
@@ -89,20 +91,13 @@ void device_profile_init(umh_device_profile_t *target)
 
 const umh_device_profile_t *device_profile_get(void)
 {
-  if (active_profile == NULL) {
-    device_profile_init(&profile);
-  }
   return active_profile;
 }
 
 void device_profile_set_serial(const char *serial)
 {
   umh_device_profile_t *target = active_profile;
-  if (serial == NULL) return;
-  if (target == NULL) {
-    device_profile_init(&profile);
-    target = &profile;
-  }
+  if (serial == NULL || target == NULL) return;
   strncpy(target->serial, serial, sizeof(target->serial) - 1u);
   target->serial[sizeof(target->serial) - 1u] = '\0';
 }

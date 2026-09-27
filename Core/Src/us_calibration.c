@@ -156,8 +156,13 @@ static float cal_candidate_gain_db[4];
 static uint8_t cal_candidate_positive[4];
 
 /* Transient profile, filled by phase B and exported as dump section 1. */
-static int16_t cal_profile_i[CAL_PROFILE_GATES][CAL_MICS];
-static int16_t cal_profile_q[CAL_PROFILE_GATES][CAL_MICS];
+/* Removed dead cal_profile_i[512 B] and cal_profile_q[512 B].
+ * cal_transient_profile (the only writer) was deleted in commit 0117b44.
+ * Section 1 dump reads return zeros. */
+
+/* Removed dead cal_dump2[888 B].
+ * cal_fill_dump2 (the only writer) is unused.
+ * Section 2 dump reads return zeros. */
 
 typedef struct __attribute__((packed)) {
   uint32_t magic;
@@ -188,8 +193,6 @@ typedef struct __attribute__((packed)) {
   float mu_im[CAL_MICS];
   uint8_t q_hat[CAL_CHANNELS];
 } cal_dump2_t;
-
-static cal_dump2_t cal_dump2;
 
 /* --------------------------------------------------------------------------
  * Misc state.
@@ -1602,26 +1605,10 @@ static int cal_dump_read_section0(uint32_t offset, uint8_t *out, uint16_t length
 static int cal_dump_read_section1(uint32_t offset, uint8_t *out, uint16_t length)
 {
   uint32_t total = us_calibration_dump_size(1u);
-  const int16_t *src0 = (const int16_t *)&cal_profile_i[0][0];
-  const int16_t *src1 = (const int16_t *)&cal_profile_q[0][0];
-  uint16_t n = length;
   if (out == NULL || offset >= total) return -1;
   if ((uint32_t)length > total - offset) length = (uint16_t)(total - offset);
-  n = length;
-  while (n != 0u) {
-    uint32_t elem = offset / 2u;       /* int16 element index */
-    uint32_t half = offset & 1u;
-    uint32_t pair = elem >> 1u;        /* one (I,Q) pair per 2 elements */
-    uint32_t is_q = elem & 1u;
-    uint32_t gate = pair / CAL_MICS;
-    uint32_t mic = pair % CAL_MICS;
-    int16_t v = is_q ? src1[gate * CAL_MICS + mic] : src0[gate * CAL_MICS + mic];
-    const uint8_t *src = (const uint8_t *)&v;
-    uint32_t chunk = 2u - half;
-    if (chunk > (uint32_t)n) chunk = (uint32_t)n;
-    memcpy(out, src + half, chunk);
-    out += chunk; offset += chunk; n = (uint16_t)(n - (uint16_t)chunk);
-  }
+  /* cal_profile_i/q arrays removed (never written after commit 0117b44). */
+  memset(out, 0, length);
   return (int)length;
 }
 
@@ -1636,48 +1623,14 @@ int us_calibration_dump_read(uint8_t section, uint32_t offset, uint8_t *out, uin
     case 0u: return cal_dump_read_section0(offset, out, length);
     case 1u: return cal_dump_read_section1(offset, out, length);
     case 2u:
-      memcpy(out, ((const uint8_t *)&cal_dump2) + offset, length);
+      /* cal_dump2 removed (cal_fill_dump2 never called). */
+      memset(out, 0, length);
       return (int)length;
     default: return -1;
   }
 }
 
-static void cal_fill_dump2(const umh_calibration_result_t *result,
-                           const cal_fit_metrics_t *metrics)
-{
-  uint8_t i, m;
-  memset(&cal_dump2, 0, sizeof(cal_dump2));
-  cal_dump2.magic = 0x554D4832u; /* "UMH2" */
-  cal_dump2.version = 2u;
-  cal_dump2.patterns_used = result->patterns_used;
-  cal_dump2.level_used = result->level_used;
-  cal_dump2.geom_hypothesis = result->geom_hypothesis;
-  cal_dump2.sign_hypothesis = result->sign_hypothesis;
-  cal_dump2.good_mics = result->good_mics;
-  cal_dump2.gate_start = result->used_gate_start;
-  cal_dump2.gate_width = result->used_gate_width;
-  cal_dump2.fit_rms_deg = metrics->fit_rms_deg;
-  cal_dump2.mic_consistency_deg = metrics->mic_consistency_deg;
-  cal_dump2.residual = metrics->residual;
-  cal_dump2.drift_deg = metrics->drift_deg;
-  cal_dump2.band_trend_deg = metrics->band_trend_deg;
-  cal_dump2.verify_gain_db = result->verify_gain_db;
-  cal_dump2.coupling_db = result->coupling_db;
-  cal_dump2.rms_before_deg = result->rms_before_deg;
-  cal_dump2.rms_after_deg = result->rms_after_deg;
-  for (i = 0u; i < 4u; ++i) cal_dump2.candidate_gain_db[i] = cal_candidate_gain_db[i];
-  for (i = 0u; i < CAL_CHANNELS; ++i) {
-    cal_dump2.a_re[i] = cal_a_re[i];
-    cal_dump2.a_im[i] = cal_a_im[i];
-    cal_dump2.q_hat[i] = result->phase_byte[i];
-  }
-  for (m = 0u; m < CAL_MICS; ++m) {
-    cal_dump2.rho_re[m] = cal_rho_re[m];
-    cal_dump2.rho_im[m] = cal_rho_im[m];
-    cal_dump2.mu_re[m] = cal_mu_re[m];
-    cal_dump2.mu_im[m] = cal_mu_im[m];
-  }
-}
+/* cal_fill_dump2 removed: never called, only writer for cal_dump2. */
 
 /* --------------------------------------------------------------------------
  * Main state machine.

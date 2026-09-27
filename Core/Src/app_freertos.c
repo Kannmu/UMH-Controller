@@ -104,9 +104,19 @@ static osMessageQueueId_t storage_queue;
 static StaticQueue_t storage_queue_cb;
 static uint32_t storage_queue_memory[(sizeof(storage_request_t) * 2u + sizeof(uint32_t) - 1u) / sizeof(uint32_t)];
 static storage_request_t storage_request_buffer;
-static uint8_t storage_response[UMH_PROTOCOL_MAX_PAYLOAD];
-static uint8_t storage_data[UMH_PROTOCOL_MAX_PAYLOAD];
-static flash_store_record_t storage_records[FLASH_STORE_MAX_OBJECTS];
+/* Consolidate three 2048 B storage buffers into one union to save 4096 B.
+ * storage_response and storage_data are used by different FLASH message types
+ * (LIST uses response, READ uses both with data as scratch, WRITE reads from
+ * the incoming frame). storage_records is only used by FLASH_LIST and never
+ * overlaps with READ/WRITE operations. */
+static union {
+  uint8_t response[UMH_PROTOCOL_MAX_PAYLOAD];
+  uint8_t data[UMH_PROTOCOL_MAX_PAYLOAD];
+  flash_store_record_t records[FLASH_STORE_MAX_OBJECTS];
+} storage_scratch;
+#define storage_response (storage_scratch.response)
+#define storage_data (storage_scratch.data)
+#define storage_records (storage_scratch.records)
 static eeprom_profile_record_t eeprom_pending;
 static uint8_t eeprom_pending_valid;
 typedef struct __attribute__((packed)) {
@@ -834,9 +844,11 @@ static void send_response(const umh_protocol_frame_t *request, uint8_t type,
 
 static int queue_storage_request(const umh_protocol_frame_t *frame)
 {
+  /* Pass frame pointer directly to storage task; the frame is copied by
+   * osMessageQueuePut into storage_queue_memory. Eliminates 2066 B stack copy. */
   storage_request_t request;
   if (storage_queue == NULL || frame == NULL) return -1;
-  memcpy(&request.frame, frame, sizeof(request.frame));
+  request.frame = *frame;
   return osMessageQueuePut(storage_queue, &request, 0u, 0u) == osOK ? 0 : -1;
 }
 

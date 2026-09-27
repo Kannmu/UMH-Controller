@@ -109,25 +109,28 @@ static int append_metadata(flash_store_t *store, flash_store_record_t *record)
   return 0;
 }
 
+/* Shared snapshot buffer for both rotate_metadata and compact_data.
+ * These functions never overlap (compact_data may call rotate_metadata,
+ * but rotate_metadata never calls compact_data). Saves 2048 B. */
+static flash_store_record_t flash_snapshot[FLASH_STORE_MAX_OBJECTS];
+
 static int rotate_metadata(flash_store_t *store)
 {
-  static flash_store_record_t snapshot[FLASH_STORE_MAX_OBJECTS];
   uint16_t count;
   uint16_t i;
   if (store == NULL) return -1;
   count = store->count;
-  memcpy(snapshot, store->records, count * sizeof(snapshot[0]));
+  memcpy(flash_snapshot, store->records, count * sizeof(flash_snapshot[0]));
   if (flash_nor_erase_block(FLASH_STORE_METADATA_BASE) != FLASH_NOR_OK) return -2;
   store->next_metadata_address = FLASH_STORE_METADATA_BASE;
   for (i = 0u; i < count; ++i) {
-    if (append_metadata(store, &snapshot[i]) != 0) return -3;
+    if (append_metadata(store, &flash_snapshot[i]) != 0) return -3;
   }
   return 0;
 }
 
 static int compact_data(flash_store_t *store)
 {
-  static flash_store_record_t snapshot[FLASH_STORE_MAX_OBJECTS];
   static uint8_t buffer[FLASH_NOR_PAGE_SIZE];
   uint32_t source;
   uint32_t target;
@@ -149,11 +152,11 @@ static int compact_data(flash_store_t *store)
     if (flash_nor_erase_block(source) != FLASH_NOR_OK) return -2;
   }
 
-  memcpy(snapshot, store->records, store->count * sizeof(snapshot[0]));
+  memcpy(flash_snapshot, store->records, store->count * sizeof(flash_snapshot[0]));
   for (i = 0u; i < store->count; ++i) {
-    source = snapshot[i].address;
-    remaining = snapshot[i].length;
-    snapshot[i].address = target;
+    source = flash_snapshot[i].address;
+    remaining = flash_snapshot[i].length;
+    flash_snapshot[i].address = target;
     while (remaining != 0u) {
       chunk = remaining > sizeof(buffer) ? sizeof(buffer) : remaining;
       if (flash_nor_read_dma(source, buffer, chunk) != FLASH_NOR_OK ||
@@ -163,17 +166,17 @@ static int compact_data(flash_store_t *store)
       target += chunk;
       remaining -= chunk;
     }
-    snapshot[i].generation = store->next_generation++;
+    flash_snapshot[i].generation = store->next_generation++;
   }
 
-  if (store->next_metadata_address + store->count * sizeof(snapshot[0]) >
+  if (store->next_metadata_address + store->count * sizeof(flash_snapshot[0]) >
       FLASH_STORE_METADATA_BASE + FLASH_STORE_METADATA_SIZE) {
-    memcpy(store->records, snapshot, store->count * sizeof(snapshot[0]));
+    memcpy(store->records, flash_snapshot, store->count * sizeof(flash_snapshot[0]));
     if (rotate_metadata(store) != 0) return -4;
   } else {
     for (i = 0u; i < store->count; ++i)
-      if (append_metadata(store, &snapshot[i]) != 0) return -5;
-    memcpy(store->records, snapshot, store->count * sizeof(snapshot[0]));
+      if (append_metadata(store, &flash_snapshot[i]) != 0) return -5;
+    memcpy(store->records, flash_snapshot, store->count * sizeof(flash_snapshot[0]));
   }
   store->data_bank = target_bank;
   store->next_address = target;
