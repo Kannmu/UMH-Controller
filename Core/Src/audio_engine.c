@@ -86,15 +86,23 @@ static void commit_interpolated(umh_audio_engine_t *engine)
 
 static void update_clock_correction(umh_audio_engine_t *engine)
 {
-  int32_t error = (int32_t)ring_count_locked(engine) - (int32_t)engine->prebuffer_samples;
-  int32_t correction = error * 2;
+  /* One-pole low-pass of the fill error (Q12, tau 2^11 ticks) removes the
+   * 256-sample packet sawtooth, so the playback rate only follows the real
+   * host/device clock difference instead of wobbling with every packet. */
+  int32_t error_q12 = ((int32_t)ring_count_locked(engine) -
+                       (int32_t)engine->prebuffer_samples) * 4096;
+  int32_t correction;
+  engine->fill_error_q12 += (error_q12 - engine->fill_error_q12) >>
+                            UMH_AUDIO_FILL_FILTER_SHIFT;
+  correction = (engine->fill_error_q12 / 4096) * UMH_AUDIO_FILL_GAIN_PPM;
   if (correction > (int32_t)UMH_AUDIO_MAX_CORRECTION_PPM)
     correction = (int32_t)UMH_AUDIO_MAX_CORRECTION_PPM;
   if (correction < -(int32_t)UMH_AUDIO_MAX_CORRECTION_PPM)
     correction = -(int32_t)UMH_AUDIO_MAX_CORRECTION_PPM;
-  engine->clock_correction_ppm += (correction - engine->clock_correction_ppm) / 4;
-  correction = engine->clock_correction_ppm;
-  engine->step_q16 = (uint32_t)(65536 + ((int64_t)correction * 65536) / 1000000);
+  engine->clock_correction_ppm = correction;
+  /* 65536 / 1e6 ~= 4295 / 2^16; |ppm| <= 3000 keeps the product in 32 bits
+   * and avoids a 64-bit software division on every 50 us tick. */
+  engine->step_q16 = (uint32_t)(65536 + ((correction * 4295) >> 16));
 }
 
 static int submit_level(umh_audio_engine_t *engine, uint8_t level, uint64_t now_us)
@@ -365,6 +373,7 @@ int audio_engine_configure(umh_audio_engine_t *engine,
   engine->fade_step = 0u;
   engine->underrun_grace = 0u;
   engine->clock_correction_ppm = 0;
+  engine->fill_error_q12 = 0;
   engine->underrun_count = 0u;
   engine->overrun_count = 0u;
   engine->packet_loss_count = 0u;
@@ -500,11 +509,13 @@ uint8_t audio_engine_next_deadline(const umh_audio_engine_t *engine,
   return result;
 }
 
-void audio_engine_service(umh_audio_engine_t *engine, uint64_t now_us)
+uint8_t audio_engine_service(umh_audio_engine_t *engine, uint64_t now_us,
+                             uint64_t *deadline_us)
 {
   uint32_t start_cycles;
-  if (engine == NULL) return;
-  if (audio_lock(engine) != 0) return;
+  uint8_t timed = 0u;
+  if (engine == NULL) return 0u;
+  if (audio_lock(engine) != 0) return 0u;
   start_cycles = DWT->CYCCNT;
   switch (engine->state) {
     case UMH_AUDIO_CONFIGURED:
@@ -516,6 +527,7 @@ void audio_engine_service(umh_audio_engine_t *engine, uint64_t now_us)
           prime_interpolator(engine) == 0) {
         engine->state = UMH_AUDIO_RUNNING;
         engine->waiting_refill = 0u;
+        engine->fill_error_q12 = 0;
         engine->next_due_q16_us = ((now_us + UMH_AUDIO_LEAD_US) << 16);
       }
       break;
@@ -533,7 +545,15 @@ void audio_engine_service(umh_audio_engine_t *engine, uint64_t now_us)
     if (elapsed_cycles > engine->max_service_cycles)
       engine->max_service_cycles = elapsed_cycles;
   }
+  /* Report the next deadline under the same lock, so the render task needs
+   * one mutex round-trip per 50 us tick instead of three. */
+  if ((engine->state == UMH_AUDIO_RUNNING && engine->waiting_refill == 0u) ||
+      (engine->state == UMH_AUDIO_STOPPING && engine->next_due_q16_us != 0u)) {
+    if (deadline_us != NULL) *deadline_us = engine->next_due_q16_us >> 16;
+    timed = 1u;
+  }
   audio_unlock(engine);
+  return timed;
 }
 
 void audio_engine_get_status(const umh_audio_engine_t *engine,

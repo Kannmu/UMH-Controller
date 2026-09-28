@@ -1565,6 +1565,13 @@ static void render_wait_until_us(uint64_t target_us)
       osDelay(1u);
       continue;
     }
+    /* A 1 us request would program ARR = 0, which blocks the STM32 basic
+     * timer: no update event, so the task only woke on the 2 ms notify
+     * timeout.  At 20 kHz audio that stalled the envelope for 1-2 ms and then
+     * replayed the backlog in a burst (measured p99 lag 1.8 ms), heard as
+     * noise and smeared/slowed sound.  Spin out spans too short to be worth
+     * a context switch instead. */
+    if (delta < 4u) continue;
     render_timer_arm_us((uint32_t)delta);
     (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(2u));
   }
@@ -1628,32 +1635,31 @@ static void render_task(void *argument)
       continue;
     }
     if (audio_engine_owns_output(&audio_engine) != 0u) {
+      /* 20 kHz hot path: one engine lock per tick (service also returns the
+       * next deadline), no status snapshot, and system flags only written
+       * when they change.  The old loop took the engine mutex three times,
+       * built a 32-byte status with a 64-bit division and toggled two flags
+       * every 50 us, which left too little CPU for USB reception. */
       uint64_t audio_deadline_us = 0u;
-      uint8_t have_audio_deadline = audio_engine_next_deadline(&audio_engine, &audio_deadline_us);
+      uint32_t audio_flags;
+      uint8_t have_audio_deadline;
       now_us = system_time_us();
-      if (have_audio_deadline != 0u && now_us < audio_deadline_us) {
-        render_wait_until_us(audio_deadline_us);
-        continue;
-      }
-      audio_engine_service(&audio_engine, now_us);
-      {
-        umh_audio_status_wire_t audio_status;
-        audio_engine_get_status(&audio_engine, &audio_status);
-        if (audio_status.state == (uint8_t)UMH_AUDIO_RUNNING)
-          system_status_set(UMH_SYSTEM_PLAYING);
-        else
-          system_status_clear(UMH_SYSTEM_PLAYING);
-        if ((audio_status.flags & UMH_AUDIO_STATUS_UNDERRUN) != 0u)
-          system_status_set(UMH_SYSTEM_UNDERRUN);
-        else
-          system_status_clear(UMH_SYSTEM_UNDERRUN);
-        system_status_get()->device_time = (uint32_t)now_us;
-        system_status_get()->frame_count = 0u;
-        system_status_get()->frame_free = 0u;
-      }
-      if (have_audio_deadline == 0u) osDelay(1u);
+      have_audio_deadline = audio_engine_service(&audio_engine, now_us, &audio_deadline_us);
+      audio_flags = (audio_engine.state == UMH_AUDIO_RUNNING ? UMH_SYSTEM_PLAYING : 0u) |
+                    ((audio_engine.underrun_count != 0u &&
+                      audio_engine.state != UMH_AUDIO_OFF) ? UMH_SYSTEM_UNDERRUN : 0u);
+      if ((system_status_get()->flags & (UMH_SYSTEM_PLAYING | UMH_SYSTEM_UNDERRUN)) != audio_flags)
+        system_status_modify(UMH_SYSTEM_PLAYING | UMH_SYSTEM_UNDERRUN, audio_flags);
+      system_status_get()->device_time = (uint32_t)now_us;
       last_time_us = now_us;
       render_burst = 0u;
+      if (have_audio_deadline != 0u) {
+        render_wait_until_us(audio_deadline_us);
+      } else {
+        system_status_get()->frame_count = 0u;
+        system_status_get()->frame_free = 0u;
+        osDelay(1u);
+      }
       continue;
     }
     if (motion_engine_owns_output(&motion_engine) != 0u) {

@@ -30,6 +30,12 @@
  * cannot gradually empty the ring.  The correction is only applied while the
  * fill deviates from the prebuffer target. */
 #define UMH_AUDIO_MAX_CORRECTION_PPM 3000
+/* The fill arrives in 256-sample packets, so the raw fill is a ~78 Hz
+ * sawtooth.  It is low-passed with tau = 2^SHIFT ticks (102 ms at 20 kHz)
+ * before it steers the clock; the unfiltered servo swung the playback rate
+ * by several hundred ppm per packet, which is audible as a warble. */
+#define UMH_AUDIO_FILL_FILTER_SHIFT 11u
+#define UMH_AUDIO_FILL_GAIN_PPM 4
 /* Host USB scheduling can leave a short gap between packets.  Hold the last
  * envelope for up to 25 ms before declaring a real underrun; this covers
  * ordinary Windows/USB jitter without inserting an audible zero. */
@@ -146,6 +152,7 @@ typedef struct {
   uint32_t max_service_cycles;
   uint8_t sequence_valid;
   uint32_t expected_sequence;
+  int32_t fill_error_q12;       /* low-passed (fill - prebuffer), Q12; tail padding */
 } umh_audio_engine_t;
 
 void audio_engine_init(umh_audio_engine_t *engine);
@@ -162,7 +169,10 @@ void audio_engine_abort(umh_audio_engine_t *engine);
 uint8_t audio_engine_owns_output(const umh_audio_engine_t *engine);
 uint8_t audio_engine_next_deadline(const umh_audio_engine_t *engine,
                                    uint64_t *deadline_us);
-void audio_engine_service(umh_audio_engine_t *engine, uint64_t now_us);
+/* Runs every due tick and returns 1 with the next deadline when the render
+ * task should sleep until it, 0 when the engine has no timed work. */
+uint8_t audio_engine_service(umh_audio_engine_t *engine, uint64_t now_us,
+                             uint64_t *deadline_us);
 void audio_engine_get_status(const umh_audio_engine_t *engine,
                              umh_audio_status_wire_t *status);
 
