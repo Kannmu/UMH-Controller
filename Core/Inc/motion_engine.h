@@ -17,7 +17,12 @@
  * spatial_renderer calibration and the same FPGA frame transaction as every
  * other producer. */
 
-#define UMH_MOTION_MAX_POINTS 255u
+/* 1024 points (8 KiB) since v7.4: a POV text string with blanked transits
+ * needs ~1 ms per point so the LED blanking edge lands within ~0.2 mm of the
+ * stroke end.  One UPLOAD frame still carries at most 255 points (2048-byte
+ * payload), longer paths arrive in CHUNKED pieces. */
+#define UMH_MOTION_MAX_POINTS 1024u
+#define UMH_MOTION_UPLOAD_CHUNK_MAX 255u
 #define UMH_MOTION_MAX_PATTERN_SOURCES 8u
 #define UMH_MOTION_PALETTE_SIZE 16u
 #define UMH_MOTION_MIN_RATE_HZ 50u
@@ -32,6 +37,11 @@
  * without restarting it at point 0, so a host can re-project a shape (e.g. a
  * slowly rotating 3D view) while the bead keeps moving. */
 #define UMH_MOTION_UPLOAD_KEEP_PHASE (1u << 0)
+/* CHUNKED (v7.4, cap LONG_PATH): reserved[0..1] = first_index, reserved[2..3]
+ * = total_count.  The chunk's points are written at first_index; the path
+ * (point_count, phase reset unless KEEP_PHASE) is committed only by the chunk
+ * that ends at total_count, so a partially uploaded path is never sampled. */
+#define UMH_MOTION_UPLOAD_CHUNKED    (1u << 1)
 
 /* Display extension flags (CONFIG bytes 76..83).
  *   SMOOTH_PALETTE: the point palette byte is a 0..255 position around the
@@ -217,9 +227,10 @@ _Static_assert(sizeof(umh_motion_rate_wire_t) == 4u, "motion rate wire size");
 
 typedef struct __attribute__((packed)) {
   uint8_t version;              /* must be 1 */
-  uint8_t flags;                /* reserved, must be 0 */
-  uint16_t point_count;         /* 0..UMH_MOTION_MAX_POINTS */
-  uint8_t reserved[4];
+  uint8_t flags;                /* UMH_MOTION_UPLOAD_* */
+  uint16_t point_count;         /* points in this frame, 0..UMH_MOTION_UPLOAD_CHUNK_MAX */
+  uint16_t first_index;         /* CHUNKED only, else 0 */
+  uint16_t total_count;         /* CHUNKED only: path length, else 0 */
   /* umh_motion_point_wire_t points[point_count] follows */
 } umh_motion_upload_wire_t;
 

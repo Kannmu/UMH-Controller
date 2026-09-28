@@ -27,6 +27,8 @@
 /* Motion display extension: 84-byte CONFIG, MOTION_RATE, UPLOAD KEEP_PHASE,
  * smooth palette / point brightness, dark-vortex focus = commanded z. */
 #define UMH_PROFILE_CAP_MOTION_DISPLAY   (1u << 12)
+/* v7.4: 1024-point motion path, MOTION_UPLOAD CHUNKED. */
+#define UMH_PROFILE_CAP_MOTION_LONG_PATH (1u << 13)
 
 _Static_assert(UMH_DEVICE_CHANNEL_COUNT == 84u, "device channel contract");
 _Static_assert(UMH_DEVICE_RGB_COUNT == 4u, "device RGB contract");

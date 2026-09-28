@@ -468,21 +468,38 @@ int motion_engine_upload(umh_motion_engine_t *engine, const uint8_t *payload,
                          uint16_t length)
 {
   uint16_t count;
+  uint16_t first = 0u;
+  uint16_t total;
+  uint8_t flags;
   if (engine == NULL || payload == NULL) return -1;
   if (length < sizeof(umh_motion_upload_wire_t)) return -2;
   if (payload[0] != 1u) return -3;
+  flags = payload[1];
   count = motion_read_u16(&payload[2]);
-  if (count > UMH_MOTION_MAX_POINTS) return -4;
+  if (count > UMH_MOTION_UPLOAD_CHUNK_MAX) return -4;
   if ((uint32_t)count * sizeof(umh_motion_point_wire_t) +
       sizeof(umh_motion_upload_wire_t) != (uint32_t)length) return -5;
+  total = count;
+  if ((flags & UMH_MOTION_UPLOAD_CHUNKED) != 0u) {
+    first = motion_read_u16(&payload[4]);
+    total = motion_read_u16(&payload[6]);
+    if (total > UMH_MOTION_MAX_POINTS) return -4;
+    if ((uint32_t)first + (uint32_t)count > (uint32_t)total) return -7;
+  }
   if (motion_lock(engine) != 0) return -6;
-  memcpy(engine->points, &payload[sizeof(umh_motion_upload_wire_t)],
+  /* Chunks past the live point_count are never sampled; chunks inside it
+   * replace points of a same-length path (recolour) in place. */
+  memcpy(&engine->points[first], &payload[sizeof(umh_motion_upload_wire_t)],
          (size_t)count * sizeof(umh_motion_point_wire_t));
+  if ((uint32_t)first + (uint32_t)count != (uint32_t)total) {
+    motion_unlock(engine);
+    return 0;
+  }
   /* The loop position is a 0..1 fraction, so a replacement path with KEEP_PHASE
    * continues from the same fraction of its own loop. */
-  if ((payload[1] & UMH_MOTION_UPLOAD_KEEP_PHASE) == 0u || engine->point_count == 0u)
+  if ((flags & UMH_MOTION_UPLOAD_KEEP_PHASE) == 0u || engine->point_count == 0u)
     engine->phase = 0.0f;
-  engine->point_count = count;
+  engine->point_count = total;
   engine->configured = 1u;
   if (engine->state == UMH_MOTION_STATE_OFF) engine->state = UMH_MOTION_STATE_READY;
   if (engine->current_valid == 0u && count != 0u) {

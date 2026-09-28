@@ -217,6 +217,18 @@ CONFIG 仍是索引调色板、路径速率 1.0。
 * 主机 `MOTION_UPLOAD/CONFIG/TARGET/RATE` 只在涡旋消泡程序运行时返回 `BUSY`；
   悬浮陷阱（含 GUI 启动的）可原地重配置，上位机可以接管已悬浮的小球而不掉落。
   已在运行时不要再发 `MOTION_START`，它会先安全停止输出。
+
+### 长路径（v7.4，`capability_flags` bit13 `MOTION_LONG_PATH`）
+
+* 设备路径缓冲扩大到 1024 点；单帧仍最多 255 点。
+* `MOTION_UPLOAD` 头 `flags` bit1 `CHUNKED`：头部变为 8 字节
+  `uint8 version, uint8 flags, uint16 point_count, uint16 first_index, uint16 total_count`，
+  随后是 `point_count` 个点，写入 `points[first_index..]`。要求
+  `point_count ≤ 255` 且 `first_index + point_count ≤ total_count ≤ 1024`，否则返回 -7。
+  只有 `first_index + point_count == total_count` 的那一块才提交点数（和 `KEEP_PHASE`
+  的相位处理），之前各块不影响正在运行的路径。主机应按顺序发送，最后一块收尾。
+* 未置 `CHUNKED` 时与 v7.3 完全相同（6 字节头，≤255 点）。
+
 ## 数据路径和能力
 
 USB CDC 回调只把数据复制到 16 KiB 单生产者环形缓冲并通知协议任务。协议任务校验帧头、处理事务和块序号；编译任务执行轨道解析与空间解算；帧环使用 32 个固定 400 字节槽；FPGA 链路任务以 DMA 和 FIFO 信用额度提交原子输出帧。
