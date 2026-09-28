@@ -159,7 +159,6 @@ int audio_engine_feed(umh_audio_engine_t *engine, const uint8_t *levels,
                       uint16_t length, uint32_t stream_sequence);
 void audio_engine_request_stop(umh_audio_engine_t *engine);
 void audio_engine_abort(umh_audio_engine_t *engine);
-uint8_t audio_engine_is_active(const umh_audio_engine_t *engine);
 uint8_t audio_engine_owns_output(const umh_audio_engine_t *engine);
 uint8_t audio_engine_next_deadline(const umh_audio_engine_t *engine,
                                    uint64_t *deadline_us);

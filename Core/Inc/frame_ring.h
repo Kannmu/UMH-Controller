@@ -65,6 +65,5 @@ uint16_t frame_ring_free(const umh_frame_ring_t *ring);
 int frame_ring_snapshot(umh_frame_ring_t *ring, uint64_t duration);
 int frame_ring_restore_loop(umh_frame_ring_t *ring, uint32_t iteration);
 uint8_t frame_ring_loop_valid(const umh_frame_ring_t *ring);
-uint64_t frame_ring_loop_duration(const umh_frame_ring_t *ring);
 
 #endif

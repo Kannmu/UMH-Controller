@@ -77,14 +77,35 @@ void system_status_init(void)
   system_time_init();
 }
 umh_system_status_t *system_status_get(void) { return &status; }
-void system_status_set(uint32_t flags) { status.flags |= flags; }
-void system_status_clear(uint32_t flags) { status.flags &= ~flags; }
-void system_status_error(uint32_t count)
+
+/* Multi-task flag updates: a plain read-modify-write loses bits when a
+ * higher-priority task updates another flag between the load and store.
+ * Disabling interrupts makes each update a single atomic operation; the
+ * sections contain only two register accesses. */
+void system_status_set(uint32_t flags)
 {
-  status.protocol_errors += count;
-  system_status_fault(UMH_FAULT_PROTOCOL_NACK, count, UMH_FAULT_CRITICAL);
+  uint32_t primask = __get_PRIMASK();
+  __disable_irq();
+  status.flags |= flags;
+  __set_PRIMASK(primask);
 }
 
+void system_status_clear(uint32_t flags)
+{
+  uint32_t primask = __get_PRIMASK();
+  __disable_irq();
+  status.flags &= ~flags;
+  __set_PRIMASK(primask);
+}
+
+/* Atomic clear-then-set, used where a mode field must change as one unit. */
+void system_status_modify(uint32_t clear_mask, uint32_t set_mask)
+{
+  uint32_t primask = __get_PRIMASK();
+  __disable_irq();
+  status.flags = (status.flags & ~clear_mask) | set_mask;
+  __set_PRIMASK(primask);
+}
 void system_status_fault(umh_fault_code_t code, uint32_t argument,
                          umh_fault_severity_t severity)
 {

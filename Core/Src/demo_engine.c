@@ -1,6 +1,7 @@
 #include "demo_engine.h"
 #include "spatiotemporal_block.h"
 #include "system_status.h"
+#include "umh_utils.h"
 #include <math.h>
 #include <string.h>
 
@@ -19,7 +20,7 @@
 #define DEMO_TOTAL_PATH_UM        30000.0f
 #define DEMO_ULM_HALF_UM          15000.0f
 #define DEMO_LML_HALF_UM           7500.0f
-#define DEMO_LMC_RADIUS_UM        (DEMO_TOTAL_PATH_UM / 6.28318530717958647692f)
+#define DEMO_LMC_RADIUS_UM        (DEMO_TOTAL_PATH_UM / UMH_TWO_PI)
 
 static const umh_demo_descriptor_t demos[UMH_DEMO_COUNT] = {
   { UMH_DEMO_ULM, "ULM", "30 mm unidirectional sweep" },
@@ -44,7 +45,7 @@ static void point_for(uint8_t id, uint16_t index, umh_spatial_point_t *point)
      * at the loop boundary, so one period covers the complete circumference
      * continuously (r = 4.77465 mm -> 30.000 mm). */
     const float t = (float)index / (float)last;
-    const float angle = 6.28318530717958647692f * t;
+    const float angle = UMH_TWO_PI * t;
     x = DEMO_LMC_RADIUS_UM * cosf(angle);
     y = DEMO_LMC_RADIUS_UM * sinf(angle);
   } else if (id == UMH_DEMO_ULM) {

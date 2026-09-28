@@ -1,5 +1,6 @@
 #include "hologram_engine.h"
 #include "main.h"
+#include "umh_utils.h"
 #include <math.h>
 #include <string.h>
 
@@ -22,11 +23,11 @@ static uint8_t hologram_level_lut_ready;
 static void hologram_build_level_lut(void)
 {
   uint32_t i;
-  float peak = sinf(3.14159265358979f * (float)UMH_HOLOGRAM_GAMMA_MAX / 256.0f);
+  float peak = sinf(UMH_PI * (float)UMH_HOLOGRAM_GAMMA_MAX / 256.0f);
   if (peak <= 0.0f) peak = 1.0f;
   hologram_level_lut[0] = 0u;
   for (i = 1u; i <= UMH_HOLOGRAM_GAMMA_MAX; ++i) {
-    float value = sinf(3.14159265358979f * (float)i / 256.0f) / peak;
+    float value = sinf(UMH_PI * (float)i / 256.0f) / peak;
     float scaled = value * (float)UMH_HOLOGRAM_LEVEL_FULL + 0.5f;
     if (scaled < 1.0f) scaled = 1.0f;
     if (scaled > (float)UMH_HOLOGRAM_LEVEL_FULL) scaled = (float)UMH_HOLOGRAM_LEVEL_FULL;
@@ -406,11 +407,6 @@ uint8_t hologram_engine_owns_output(const umh_hologram_engine_t *engine)
   if (engine == NULL) return 0u;
   return (engine->state == UMH_HOLOGRAM_STATE_RUNNING ||
           engine->state == UMH_HOLOGRAM_STATE_STOPPING) ? 1u : 0u;
-}
-
-uint8_t hologram_engine_is_active(const umh_hologram_engine_t *engine)
-{
-  return hologram_engine_owns_output(engine);
 }
 
 uint32_t hologram_engine_service(umh_hologram_engine_t *engine, fpga_link_t *link,

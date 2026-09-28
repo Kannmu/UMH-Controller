@@ -20,20 +20,6 @@ uint32_t umh_varuint_decode(const uint8_t *data, uint16_t length, uint32_t *valu
   return 0u;
 }
 
-uint16_t umh_varuint_encode(uint32_t value, uint8_t *data, uint16_t capacity)
-{
-  uint16_t i = 0u;
-  if (data == NULL) return 0u;
-  do {
-    if (i >= capacity) return 0u;
-    data[i] = (uint8_t)(value & 0x7Fu);
-    value >>= 7;
-    if (value != 0u) data[i] |= 0x80u;
-    ++i;
-  } while (value != 0u);
-  return i;
-}
-
 int spatiotemporal_block_begin(umh_block_context_t *block,
                                const uint8_t *payload, uint16_t length)
 {
@@ -86,50 +72,6 @@ int spatiotemporal_block_begin(umh_block_context_t *block,
   block->current_time = block->header.start_time;
   block->active = 1u;
   return (int)(sizeof(umh_block_wire_header_t) + descriptor_bytes);
-}
-
-int spatiotemporal_block_append(umh_block_context_t *block,
-                                const uint8_t *payload, uint16_t length)
-{
-  uint16_t pos = 0u;
-  uint32_t delta;
-  uint32_t consumed;
-  uint16_t track_id;
-  uint8_t flags;
-  uint16_t payload_length;
-  const umh_track_wire_descriptor_t *track;
-  uint16_t fixed_length;
-  uint32_t variable_length;
-  uint32_t length_consumed;
-  if (block == NULL || payload == NULL || block->active == 0u) return -1;
-  while (pos < length) {
-    consumed = umh_varuint_decode(&payload[pos], (uint16_t)(length - pos), &delta);
-    if (consumed == 0u || (uint32_t)pos + consumed + sizeof(uint16_t) + 1u > length) return -2;
-    pos = (uint16_t)(pos + consumed);
-    track_id = (uint16_t)payload[pos] | ((uint16_t)payload[pos + 1u] << 8); pos += 2u;
-    flags = payload[pos++];
-    (void)flags;
-    track = spatiotemporal_block_track(block, track_id);
-    if (track == NULL) return -3;
-    fixed_length = spatiotemporal_track_fixed_payload_size(track);
-    if (fixed_length != 0u) payload_length = fixed_length;
-    else {
-      length_consumed = umh_varuint_decode(&payload[pos], (uint16_t)(length - pos),
-                                           &variable_length);
-      if (length_consumed == 0u || variable_length > UINT16_MAX) return -2;
-      pos = (uint16_t)(pos + length_consumed);
-      payload_length = (uint16_t)variable_length;
-    }
-    if ((uint32_t)pos + payload_length > length) return -3;
-    if (delta > UINT64_MAX - block->current_time ||
-        block->current_time + delta > block->header.start_time + block->header.duration) return -4;
-    block->current_time += delta;
-    pos = (uint16_t)(pos + payload_length);
-    ++block->records_received;
-    (void)flags;
-    if (block->records_received > block->header.record_count) return -5;
-  }
-  return 0;
 }
 
 int spatiotemporal_block_end(umh_block_context_t *block)

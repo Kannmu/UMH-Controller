@@ -1,5 +1,6 @@
 #include "motion_engine.h"
 #include "umh_fast_math.h"
+#include "umh_utils.h"
 #include "cordic.h"
 #include "main.h"
 #include <math.h>
@@ -16,7 +17,6 @@ static int motion_emit_vortex(umh_motion_engine_t *engine,
                               float cx, float cy, float cz,
                               float base_level);
 
-#define UMH_TWO_PI 6.28318530717958647692f
 #define UMH_SAFE_X_UM 100000
 #define UMH_SAFE_Y_UM 100000
 #define UMH_SAFE_Z_MIN_UM 10000
@@ -24,7 +24,7 @@ static int motion_emit_vortex(umh_motion_engine_t *engine,
 
 static uint16_t motion_read_u16(const uint8_t *p)
 {
-  return (uint16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8));
+  return umh_read_u16_le(p);
 }
 
 static int motion_lock(umh_motion_engine_t *engine)
@@ -561,7 +561,7 @@ int motion_engine_configure(umh_motion_engine_t *engine, const uint8_t *payload,
     if (ext->ulm_amplitude_10um != 0u) {
       engine->ulm_amplitude_um = (int32_t)ext->ulm_amplitude_10um * 10;
     } else if (engine->ulm_frequency_hz != 0u) {
-      engine->ulm_amplitude_um = (int32_t)((float)engine->ulm_wave_speed_mm_s * 1000.0f / (2.0f * 3.14159265f * (float)engine->ulm_frequency_hz));
+      engine->ulm_amplitude_um = (int32_t)((float)engine->ulm_wave_speed_mm_s * 1000.0f / (UMH_TWO_PI * (float)engine->ulm_frequency_hz));
     }
     if (engine->ulm_amplitude_um > 50000) engine->ulm_amplitude_um = 50000;
     if (engine->ulm_amplitude_um < 0) engine->ulm_amplitude_um = 0;
@@ -763,11 +763,6 @@ uint8_t motion_engine_uses_rgb(const umh_motion_engine_t *engine)
   if (engine == NULL) return 0u;
   return ((engine->flags & UMH_MOTION_FLAG_RGB) != 0u &&
           engine->palette_count != 0u) ? 1u : 0u;
-}
-
-uint8_t motion_engine_is_active(const umh_motion_engine_t *engine)
-{
-  return motion_engine_owns_output(engine);
 }
 
 uint8_t motion_engine_trap_mode(const umh_motion_engine_t *engine)
@@ -1092,10 +1087,9 @@ static int motion_emit_dark_vortex(umh_motion_engine_t *engine,
                                    float cx, float cy, float cz,
                                    float base_level)
 {
-  const float two_pi = 6.28318530717958647692f;
   uint16_t i;
   float wavelength_um;
-  float phase_scale;
+  float phase_scale_q10;
   float magnitude;
   float focus_z_um;
   if (engine == NULL || renderer == NULL || renderer->profile == NULL || frame == NULL) return -1;
@@ -1104,7 +1098,9 @@ static int motion_emit_dark_vortex(umh_motion_engine_t *engine,
   if (base_level < 0.0f) base_level = 0.0f;
   if (base_level > 255.0f) base_level = 255.0f;
   wavelength_um = (float)renderer->sound_speed_um_per_s / (float)renderer->carrier_hz;
-  phase_scale = two_pi / wavelength_um;
+  /* phase_q10 = distance_um * 1024 / wavelength_um, directly in the LUT
+   * domain.  The old two_pi/(1024/2pi) round trip is removed. */
+  phase_scale_q10 = 1024.0f / wavelength_um;
   focus_z_um = cz;
   magnitude = base_level * (1.0f / 255.0f);
   memset(frame, 0, sizeof(*frame));
@@ -1115,7 +1111,6 @@ static int motion_emit_dark_vortex(umh_motion_engine_t *engine,
    * q10 matches spatial_renderer_accumulate_point. */
   {
     const uint8_t hw = umh_cordic_phase_stream_begin() == 0 ? 1u : 0u;
-    const float delay_q10_per_um = phase_scale * (1024.0f / two_pi);
     for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
       const umh_element_coordinate_t *c = &renderer->profile->coordinates[i];
       float ex = (float)c->x_um - cx;
@@ -1123,12 +1118,11 @@ static int motion_emit_dark_vortex(umh_motion_engine_t *engine,
       float ez = (float)c->z_um - focus_z_um;
       float distance = sqrtf(ex * ex + ey * ey + ez * ez);
       int32_t theta_q10 = hw != 0u ? umh_cordic_phase_stream_q10(ex, ey) :
-          (int32_t)(UMH_LEVITATION_SPIRAL_TURNS * atan2f(ey, ex) * (1024.0f / two_pi));
+          (int32_t)(UMH_LEVITATION_SPIRAL_TURNS * atan2f(ey, ex) * (1024.0f / UMH_TWO_PI));
       int32_t q10 = theta_q10 + renderer->phase_offset_q10[i] -
-                    (int32_t)(delay_q10_per_um * distance);
-      float mag = magnitude * renderer->gain_scale[i];
-      engine->real_accum[i] = mag * umh_fast_cos_q10(q10);
-      engine->imag_accum[i] = mag * umh_fast_sin_q10(q10);
+                    (int32_t)(phase_scale_q10 * distance);
+      spatial_renderer_accumulate_q10(renderer, i, q10, magnitude,
+                                      engine->real_accum, engine->imag_accum);
     }
   }
   return spatial_renderer_finalize(renderer, engine->real_accum,
@@ -1152,10 +1146,9 @@ static int motion_emit_vortex(umh_motion_engine_t *engine,
                               float cx, float cy, float cz,
                               float base_level)
 {
-  const float two_pi = 6.28318530717958647692f;
   uint16_t i;
   float wavelength_um;
-  float phase_scale;
+  float phase_scale_q10;
   float magnitude;
   float turns;
   if (engine == NULL || renderer == NULL || renderer->profile == NULL || frame == NULL) return -1;
@@ -1164,7 +1157,7 @@ static int motion_emit_vortex(umh_motion_engine_t *engine,
   if (base_level < 0.0f) base_level = 0.0f;
   if (base_level > 255.0f) base_level = 255.0f;
   wavelength_um = (float)renderer->sound_speed_um_per_s / (float)renderer->carrier_hz;
-  phase_scale = two_pi / wavelength_um;
+  phase_scale_q10 = 1024.0f / wavelength_um;
   turns = (float)UMH_VORTEX_TURNS;
   /* Time reversal: every other half period the spiral is wound the other way,
    * so the ring reverses its orbital motion and shears the film in the
@@ -1178,23 +1171,29 @@ static int motion_emit_vortex(umh_motion_engine_t *engine,
   memset(frame, 0, sizeof(*frame));
   memset(engine->real_accum, 0, sizeof(engine->real_accum));
   memset(engine->imag_accum, 0, sizeof(engine->imag_accum));
-  for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
-    const umh_element_coordinate_t *c = &renderer->profile->coordinates[i];
-    float ex = (float)c->x_um - cx;
-    float ey = (float)c->y_um - cy;
-    float ez = (float)c->z_um - cz;
-    float distance = sqrtf(ex * ex + ey * ey + ez * ez);
-    /* l turns of phase per turn of azimuth, plus the ordinary focusing delay,
-     * which is what pulls the spiral wavefront down onto the foam.  The
-     * azimuth is taken about the commanded axis, so the whole field follows
-     * the engine position the way every other program does. */
-    float phase_q10 = (turns * atan2f(ey, ex) - phase_scale * distance) *
-                      (1024.0f / two_pi) +
-                      (float)renderer->phase_offset_q10[i];
-    float mag = magnitude * renderer->gain_scale[i];
-    int32_t q10 = (int32_t)lroundf(phase_q10);
-    engine->real_accum[i] = mag * umh_fast_cos_q10(q10);
-    engine->imag_accum[i] = mag * umh_fast_sin_q10(q10);
+  {
+    /* The same CORDIC streaming azimuth as the dark-vortex trap: 84 atan2f
+     * calls per frame disappear from this otherwise static program. */
+    const uint8_t hw = umh_cordic_phase_stream_begin() == 0 ? 1u : 0u;
+    for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
+      const umh_element_coordinate_t *c = &renderer->profile->coordinates[i];
+      float ex = (float)c->x_um - cx;
+      float ey = (float)c->y_um - cy;
+      float ez = (float)c->z_um - cz;
+      float distance = sqrtf(ex * ex + ey * ey + ez * ez);
+      /* l turns of phase per turn of azimuth, plus the ordinary focusing
+       * delay, which is what pulls the spiral wavefront down onto the foam.
+       * The CORDIC supplies the azimuth as a fractional turn so the original
+       * lroundf() arithmetic and final frame bytes are preserved. */
+      float theta_turns = hw != 0u ? umh_cordic_phase_stream_turns(ex, ey) :
+          (atan2f(ey, ex) * (1.0f / UMH_TWO_PI));
+      float phase_q10 = (turns * theta_turns * 1024.0f) -
+                        (phase_scale_q10 * distance) +
+                        (float)renderer->phase_offset_q10[i];
+      int32_t q10 = (int32_t)lroundf(phase_q10);
+      spatial_renderer_accumulate_q10(renderer, i, q10, magnitude,
+                                      engine->real_accum, engine->imag_accum);
+    }
   }
   return spatial_renderer_finalize(renderer, engine->real_accum,
                                    engine->imag_accum, frame);

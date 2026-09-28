@@ -5,32 +5,32 @@
             <Task name="IBIS" build_result="0" update_result="3" update_time="0"/>
             <Task name="TimingSimFileVlg" build_result="0" update_result="3" update_time="0"/>
             <Task name="TimingSimFileVHD" build_result="0" update_result="3" update_time="0"/>
-            <Task name="Bitgen" build_result="2" update_result="0" update_time="1790138037"/>
-            <Task name="Jedecgen" build_result="2" update_result="0" update_time="1790138038"/>
+            <Task name="Bitgen" build_result="2" update_result="0" update_time="1790572723"/>
+            <Task name="Jedecgen" build_result="2" update_result="0" update_time="1790572724"/>
         </Milestone>
-        <Milestone name="Map" build_result="2" build_time="1790138015">
-            <Task name="Map" build_result="2" update_result="0" update_time="1790138015"/>
+        <Milestone name="Map" build_result="2" build_time="1790572704">
+            <Task name="Map" build_result="2" update_result="0" update_time="1790572704"/>
             <Task name="MapTrace" build_result="0" update_result="3" update_time="0"/>
             <Task name="MapVerilogSimFile" build_result="0" update_result="3" update_time="0"/>
             <Task name="MapVHDLSimFile" build_result="0" update_result="3" update_time="0"/>
         </Milestone>
-        <Milestone name="PAR" build_result="2" build_time="1790138034">
-            <Task name="PAR" build_result="2" update_result="0" update_time="1790138034"/>
-            <Task name="PARTrace" build_result="2" update_result="0" update_time="1790138035"/>
+        <Milestone name="PAR" build_result="2" build_time="1790572720">
+            <Task name="PAR" build_result="2" update_result="0" update_time="1790572720"/>
+            <Task name="PARTrace" build_result="2" update_result="0" update_time="1790572721"/>
             <Task name="IOTiming" build_result="0" update_result="3" update_time="0"/>
         </Milestone>
-        <Milestone name="Synthesis" build_result="2" build_time="1790138014">
-            <Task name="Lattice_Synthesis" build_result="2" update_result="0" update_time="1790138014"/>
-            <Task name="LSE_Compile" build_result="2" update_result="0" update_time="1790138014"/>
+        <Milestone name="Synthesis" build_result="2" build_time="1790572702">
+            <Task name="Lattice_Synthesis" build_result="2" update_result="0" update_time="1790572702"/>
+            <Task name="LSE_Compile" build_result="2" update_result="0" update_time="1790572702"/>
         </Milestone>
-        <Report name=".vdbs/UMH_7_UMH_7_1_map.vdb" last_build_time="1790138015" last_build_size="726355"/>
-        <Report name="UMH_7_UMH_7_1.bgn" last_build_time="1790138038" last_build_size="4529"/>
-        <Report name="UMH_7_UMH_7_1.bit" last_build_time="1790138037" last_build_size="38131"/>
-        <Report name="UMH_7_UMH_7_1.jed" last_build_time="1790138038" last_build_size="502747"/>
-        <Report name="UMH_7_UMH_7_1.lsedata" last_build_time="1790138010" last_build_size="4535934"/>
-        <Report name="UMH_7_UMH_7_1.ncd" last_build_time="1790138034" last_build_size="2535718"/>
-        <Report name="UMH_7_UMH_7_1.ngd" last_build_time="1790138014" last_build_size="2089193"/>
-        <Report name="UMH_7_UMH_7_1.twr" last_build_time="1790138035" last_build_size="111176"/>
-        <Report name="UMH_7_UMH_7_1_map.ncd" last_build_time="1790138015" last_build_size="1680200"/>
+        <Report name=".vdbs/UMH_7_UMH_7_1_map.vdb" last_build_time="1790572704" last_build_size="720884"/>
+        <Report name="UMH_7_UMH_7_1.bgn" last_build_time="1790572724" last_build_size="4529"/>
+        <Report name="UMH_7_UMH_7_1.bit" last_build_time="1790572723" last_build_size="37893"/>
+        <Report name="UMH_7_UMH_7_1.jed" last_build_time="1790572724" last_build_size="502747"/>
+        <Report name="UMH_7_UMH_7_1.lsedata" last_build_time="1790572698" last_build_size="4544866"/>
+        <Report name="UMH_7_UMH_7_1.ncd" last_build_time="1790572720" last_build_size="2530974"/>
+        <Report name="UMH_7_UMH_7_1.ngd" last_build_time="1790572702" last_build_size="2082881"/>
+        <Report name="UMH_7_UMH_7_1.twr" last_build_time="1790572721" last_build_size="108292"/>
+        <Report name="UMH_7_UMH_7_1_map.ncd" last_build_time="1790572703" last_build_size="1679472"/>
     </Strategy>
 </BuildStatus>

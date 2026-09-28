@@ -2,6 +2,7 @@
 #include "main.h"
 #include "cmsis_os.h"
 #include "system_status.h"
+#include "umh_utils.h"
 #include <string.h>
 
 uint8_t fpga_logical_to_physical[UMH_DEVICE_CHANNEL_COUNT];
@@ -17,11 +18,12 @@ static void mark_link_fault(fpga_link_t *link)
   HAL_GPIO_WritePin(TRIGGER_GPIO_Port, TRIGGER_Pin, GPIO_PIN_RESET);
 }
 
-static void put_u16(uint8_t *p, uint16_t v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
-static void put_u32(uint8_t *p, uint32_t v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24); }
-static void put_u64(uint8_t *p, uint64_t v) { put_u32(p, (uint32_t)v); put_u32(p + 4u, (uint32_t)(v >> 32)); }
-static uint16_t get_u16(const uint8_t *p) { return (uint16_t)p[0] | ((uint16_t)p[1] << 8); }
-static uint32_t get_u32(const uint8_t *p) { return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24); }
+/* Use unified serialization helpers from umh_utils.h */
+#define put_u16(p, v)  umh_write_u16_le(p, v)
+#define put_u32(p, v)  umh_write_u32_le(p, v)
+#define put_u64(p, v)  umh_write_u64_le(p, v)
+#define get_u16(p)     umh_read_u16_le(p)
+#define get_u32(p)     umh_read_u32_le(p)
 
 void fpga_link_init(fpga_link_t *link, SPI_HandleTypeDef *spi)
 {
@@ -422,17 +424,12 @@ int fpga_link_submit_allow_hold(fpga_link_t *link, const umh_output_frame_t *fra
 
 int fpga_link_poll_status(fpga_link_t *link)
 {
-  uint16_t length;
+  int result;
   if (link == NULL || link->mutex == NULL) return -1;
   if (osMutexAcquire(link->mutex, osWaitForever) != osOK) return -1;
-  length = pack_common(link, FPGA_CMD_STATUS, NULL);
-  if (exchange(link, length) != 0) { osMutexRelease(link->mutex); return -2; }
-  (void)length;
-  {
-    int result = unpack_status(link);
-    osMutexRelease(link->mutex);
-    return result;
-  }
+  result = fpga_status_locked(link);
+  osMutexRelease(link->mutex);
+  return result;
 }
 
 int fpga_link_safe_stop(fpga_link_t *link)
@@ -452,29 +449,23 @@ int fpga_link_safe_stop(fpga_link_t *link)
 
 int fpga_link_set_ws2812(fpga_link_t *link, uint8_t r, uint8_t g, uint8_t b)
 {
-  uint16_t length;
-  umh_output_frame_t frame;
+  umh_rgb_value_t rgb[UMH_DEVICE_RGB_COUNT];
+  uint8_t i;
+  int result;
   if (link == NULL || link->mutex == NULL) return -1;
+  for (i = 0u; i < UMH_DEVICE_RGB_COUNT; ++i) {
+    rgb[i].red = r;
+    rgb[i].green = g;
+    rgb[i].blue = b;
+  }
   if (osMutexAcquire(link->mutex, osWaitForever) != osOK) return -1;
-
-  memset(&frame, 0, sizeof(frame));
-  frame.update_flags = UMH_FRAME_FLAG_RGB;
-  frame.rgb[0].red = r;    frame.rgb[0].green = g;    frame.rgb[0].blue = b;  /* LED 0 */
-  frame.rgb[1].red = r;    frame.rgb[1].green = g;    frame.rgb[1].blue = b;  /* LED 1 */
-  frame.rgb[2].red = r;    frame.rgb[2].green = g;    frame.rgb[2].blue = b;  /* LED 2 */
-  frame.rgb[3].red = r;    frame.rgb[3].green = g;    frame.rgb[3].blue = b;  /* LED 3 */
-
-  length = pack_common(link, FPGA_CMD_WS2812, &frame);
-  if (length == 0u) { osMutexRelease(link->mutex); return -2; }
-  if (exchange(link, length) != 0) { osMutexRelease(link->mutex); return -3; }
-  if (unpack_status(link) != 0) { osMutexRelease(link->mutex); return -4; }
-  if (link->hold_valid != 0u) {
-    memcpy(link->hold_frame.rgb, frame.rgb, sizeof(frame.rgb));
+  result = fpga_send_rgb_locked(link, rgb);
+  if (result == 0 && link->hold_valid != 0u) {
+    memcpy(link->hold_frame.rgb, rgb, sizeof(rgb));
     link->hold_frame.update_flags |= UMH_FRAME_FLAG_RGB;
   }
-
   osMutexRelease(link->mutex);
-  return 0;
+  return result;
 }
 
 static int compact_audio_command(fpga_link_t *link, uint8_t command,

@@ -140,8 +140,6 @@ _Static_assert(sizeof(umh_spatial_point_t) == 15u, "spatial point wire size");
 
 int spatiotemporal_block_begin(umh_block_context_t *block,
                                const uint8_t *payload, uint16_t length);
-int spatiotemporal_block_append(umh_block_context_t *block,
-                                const uint8_t *payload, uint16_t length);
 int spatiotemporal_block_end(umh_block_context_t *block);
 const umh_track_wire_descriptor_t *spatiotemporal_block_track(
     const umh_block_context_t *block, uint16_t track_id);
@@ -150,6 +148,5 @@ const umh_track_wire_descriptor_t *spatiotemporal_block_track(
 uint16_t spatiotemporal_track_fixed_payload_size(
     const umh_track_wire_descriptor_t *track);
 uint32_t umh_varuint_decode(const uint8_t *data, uint16_t length, uint32_t *value);
-uint16_t umh_varuint_encode(uint32_t value, uint8_t *data, uint16_t capacity);
 
 #endif

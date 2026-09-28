@@ -1,24 +1,12 @@
 #include "flash_store.h"
+#include "crc.h"
 #include <string.h>
 
 #define FLASH_STORE_COMMIT_VALUE 0x00000000u
 
-static uint32_t crc32_update(uint32_t crc, const uint8_t *bytes, uint32_t length)
-{
-  uint32_t i;
-  uint8_t bit;
-  for (i = 0u; i < length; ++i) {
-    crc ^= bytes[i];
-    for (bit = 0u; bit < 8u; ++bit)
-      crc = (crc >> 1) ^ (0xEDB88320u & (uint32_t)-(int32_t)(crc & 1u));
-  }
-  return crc;
-}
-
 uint32_t flash_store_crc32(const void *data, uint32_t length)
 {
-  if (data == NULL) return 0u;
-  return ~crc32_update(0xFFFFFFFFu, (const uint8_t *)data, length);
+  return umh_crc32(data, length);
 }
 
 static int object_address_valid(uint32_t address, uint32_t length)
@@ -70,24 +58,45 @@ static void remove_index(flash_store_t *store, uint16_t index)
   if (index < store->count) store->records[index] = store->records[--store->count];
 }
 
+/* Shared staging/snapshot buffer.  object_data_valid may read one complete
+ * object here when it fits; rotate_metadata and compact_data reuse the same
+ * 2 KiB for their record snapshots.  These phases never overlap. */
+#define FLASH_SNAPSHOT_BYTES (FLASH_STORE_MAX_OBJECTS * sizeof(flash_store_record_t))
+static union {
+  flash_store_record_t records[FLASH_STORE_MAX_OBJECTS];
+  uint8_t bytes[FLASH_SNAPSHOT_BYTES];
+} flash_snapshot;
+
 static int object_data_valid(const flash_store_record_t *record)
 {
   static uint8_t buffer[FLASH_NOR_PAGE_SIZE];
   uint32_t address;
   uint32_t remaining;
   uint32_t chunk;
-  uint32_t crc = 0xFFFFFFFFu;
   if (record == NULL || record->length == 0u) return 0;
+  /* The host protocol caps objects at UMH_PROTOCOL_MAX_PAYLOAD (2040 B), so
+   * the normal path verifies the whole object in one hardware-CRC call. */
+  if (record->length <= sizeof(flash_snapshot.bytes)) {
+    if (flash_nor_read_dma(record->address, flash_snapshot.bytes,
+                           record->length) != FLASH_NOR_OK) return 0;
+    return flash_store_crc32(flash_snapshot.bytes, record->length) == record->crc32;
+  }
+  /* Internal/legacy objects larger than the staging buffer keep the exact
+   * incremental software CRC so the on-NOR format stays compatible. */
   address = record->address;
   remaining = record->length;
-  while (remaining != 0u) {
-    chunk = remaining > sizeof(buffer) ? sizeof(buffer) : remaining;
-    if (flash_nor_read_dma(address, buffer, chunk) != FLASH_NOR_OK) return 0;
-    crc = crc32_update(crc, buffer, chunk);
-    address += chunk;
-    remaining -= chunk;
+  chunk = 0u;
+  {
+    uint32_t crc = 0xFFFFFFFFu;
+    while (remaining != 0u) {
+      chunk = remaining > sizeof(buffer) ? sizeof(buffer) : remaining;
+      if (flash_nor_read_dma(address, buffer, chunk) != FLASH_NOR_OK) return 0;
+      crc = umh_crc32_update(crc, buffer, chunk);
+      address += chunk;
+      remaining -= chunk;
+    }
+    return umh_crc32_finish(crc) == record->crc32;
   }
-  return ~crc == record->crc32;
 }
 
 static int append_metadata(flash_store_t *store, flash_store_record_t *record)
@@ -109,22 +118,17 @@ static int append_metadata(flash_store_t *store, flash_store_record_t *record)
   return 0;
 }
 
-/* Shared snapshot buffer for both rotate_metadata and compact_data.
- * These functions never overlap (compact_data may call rotate_metadata,
- * but rotate_metadata never calls compact_data). Saves 2048 B. */
-static flash_store_record_t flash_snapshot[FLASH_STORE_MAX_OBJECTS];
-
 static int rotate_metadata(flash_store_t *store)
 {
   uint16_t count;
   uint16_t i;
   if (store == NULL) return -1;
   count = store->count;
-  memcpy(flash_snapshot, store->records, count * sizeof(flash_snapshot[0]));
+  memcpy(flash_snapshot.records, store->records, count * sizeof(flash_snapshot.records[0]));
   if (flash_nor_erase_block(FLASH_STORE_METADATA_BASE) != FLASH_NOR_OK) return -2;
   store->next_metadata_address = FLASH_STORE_METADATA_BASE;
   for (i = 0u; i < count; ++i) {
-    if (append_metadata(store, &flash_snapshot[i]) != 0) return -3;
+    if (append_metadata(store, &flash_snapshot.records[i]) != 0) return -3;
   }
   return 0;
 }
@@ -152,11 +156,11 @@ static int compact_data(flash_store_t *store)
     if (flash_nor_erase_block(source) != FLASH_NOR_OK) return -2;
   }
 
-  memcpy(flash_snapshot, store->records, store->count * sizeof(flash_snapshot[0]));
+  memcpy(flash_snapshot.records, store->records, store->count * sizeof(flash_snapshot.records[0]));
   for (i = 0u; i < store->count; ++i) {
-    source = flash_snapshot[i].address;
-    remaining = flash_snapshot[i].length;
-    flash_snapshot[i].address = target;
+    source = flash_snapshot.records[i].address;
+    remaining = flash_snapshot.records[i].length;
+    flash_snapshot.records[i].address = target;
     while (remaining != 0u) {
       chunk = remaining > sizeof(buffer) ? sizeof(buffer) : remaining;
       if (flash_nor_read_dma(source, buffer, chunk) != FLASH_NOR_OK ||
@@ -166,17 +170,17 @@ static int compact_data(flash_store_t *store)
       target += chunk;
       remaining -= chunk;
     }
-    flash_snapshot[i].generation = store->next_generation++;
+    flash_snapshot.records[i].generation = store->next_generation++;
   }
 
-  if (store->next_metadata_address + store->count * sizeof(flash_snapshot[0]) >
+  if (store->next_metadata_address + store->count * sizeof(flash_snapshot.records[0]) >
       FLASH_STORE_METADATA_BASE + FLASH_STORE_METADATA_SIZE) {
-    memcpy(store->records, flash_snapshot, store->count * sizeof(flash_snapshot[0]));
+    memcpy(store->records, flash_snapshot.records, store->count * sizeof(flash_snapshot.records[0]));
     if (rotate_metadata(store) != 0) return -4;
   } else {
     for (i = 0u; i < store->count; ++i)
-      if (append_metadata(store, &flash_snapshot[i]) != 0) return -5;
-    memcpy(store->records, flash_snapshot, store->count * sizeof(flash_snapshot[0]));
+      if (append_metadata(store, &flash_snapshot.records[i]) != 0) return -5;
+    memcpy(store->records, flash_snapshot.records, store->count * sizeof(flash_snapshot.records[0]));
   }
   store->data_bank = target_bank;
   store->next_address = target;
@@ -245,12 +249,6 @@ static const flash_store_record_t *find_record(const flash_store_t *store, uint3
   if (store == NULL) return NULL;
   for (i = 0u; i < store->count; ++i) if (store->records[i].object_id == object_id) return &store->records[i];
   return NULL;
-}
-
-int flash_store_read(const flash_store_t *store, uint32_t object_id,
-                     void *data, uint32_t capacity, uint32_t *length)
-{
-  return flash_store_read_range(store, object_id, 0u, data, capacity, length, NULL);
 }
 
 int flash_store_read_range(const flash_store_t *store, uint32_t object_id,

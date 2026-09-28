@@ -369,7 +369,6 @@ void motion_engine_request_stop(umh_motion_engine_t *engine);
 void motion_engine_abort(umh_motion_engine_t *engine, fpga_link_t *link);
 uint8_t motion_engine_owns_output(const umh_motion_engine_t *engine);
 uint8_t motion_engine_uses_rgb(const umh_motion_engine_t *engine);
-uint8_t motion_engine_is_active(const umh_motion_engine_t *engine);
 uint8_t motion_engine_trap_mode(const umh_motion_engine_t *engine);
 uint8_t motion_engine_vortex_program(const umh_motion_engine_t *engine);
 uint32_t motion_engine_service(umh_motion_engine_t *engine,

@@ -142,27 +142,41 @@ module umh_fpga_top (
       *   fCLKOP = fCLKI * CLKFB_DIV / CLKI_DIV = 8 * 8 / 1    = 64 MHz
      *   fVCO   = fCLKOP * CLKOP_DIV            = 64 * 8       = 512 MHz
      *
-     * The PLL frequency is measured correct through fpga_time, but this
-     * board's LOCK output reads low even for the original 128 MHz core.  The
-     * output engine therefore uses running/stop_event, not LOCK, to enable
-     * us_tx.  PLL LOCK remains a diagnostic status bit only.
+     * Loop filter: ICP_CURRENT / LPF_RESISTOR / FREQUENCY_PIN_* are the
+     * values Lattice scuba generates for exactly this 8 -> 64 MHz, /8
+     * feedback PLL.  Without them Map left the charge pump and loop filter
+     * at defaults ("Output Clock(P) Frequency: NA" in the .mrp) and the
+     * loop never locked: LOCK stayed low and pll_clk ran ~700 ppm slow
+     * against the STM32 HSE with large wideband phase wander, which the
+     * LC/transducer resonance converts into audible AM hiss on every
+     * channel.  LOCK is reported as diagnostic status bit 13 (0x2000);
+     * us_tx is still enabled only by running/stop_event, never by LOCK.
      * CLKOP_CPHASE = CLKOP_DIV-1 keeps CLKOP aligned with the INT_DIVA
      * feedback path, which is the only internal feedback mode Map accepts.
      * ------------------------------------------------------------------ */
-    wire pll_clk, pll_feedback;
+    wire pll_clk, pll_feedback, pll_lock;
     wire fpga_clk = pll_clk;
     EHXPLLJ #(
         .PLLRST_ENA("DISABLED"), .INTFB_WAKE("DISABLED"), .STDBY_ENABLE("DISABLED"),
         .DPHASE_SOURCE("DISABLED"), .CLKOP_FPHASE(0), .CLKOP_CPHASE(7),
         .OUTDIVIDER_MUXA2("DIVA"), .CLKOP_ENABLE("ENABLED"), .CLKOP_DIV(8),
-        .CLKFB_DIV(8), .CLKI_DIV(1), .FEEDBK_PATH("INT_DIVA")
+        .CLKFB_DIV(8), .CLKI_DIV(1), .FEEDBK_PATH("INT_DIVA"),
+        .PLL_LOCK_MODE(0)
     ) fpga_pll_i (
         .CLKI(fpga_clk_8m), .CLKFB(pll_feedback), .RST(1'b0),
         .RESETM(1'b0), .RESETC(1'b0), .RESETD(1'b0),
         .PHASESEL0(1'b0), .PHASESEL1(1'b0), .PHASEDIR(1'b0), .PHASESTEP(1'b0),
         .LOADREG(1'b0), .STDBY(1'b0), .PLLWAKESYNC(1'b0), .ENCLKOP(1'b1),
-        .CLKOP(pll_clk), .LOCK(), .CLKINTFB(pll_feedback)
-    );
+        .CLKOP(pll_clk), .LOCK(pll_lock), .CLKINTFB(pll_feedback)
+    )
+        /* synthesis FREQUENCY_PIN_CLKOP="64.000000" */
+        /* synthesis FREQUENCY_PIN_CLKI="8.000000" */
+        /* synthesis ICP_CURRENT="9" */
+        /* synthesis LPF_RESISTOR="72" */;
+
+    /* LOCK is asynchronous to pll_clk; two-flop synchroniser, status only. */
+    reg [1:0] pll_lock_sync = 2'b00;
+    always @(posedge pll_clk) pll_lock_sync <= {pll_lock_sync[0], pll_lock};
 
     /* ------------------------------------------------------------------
      * SPI1 control link.  The receiver is clocked by spi1_sck, which is the
@@ -495,6 +509,7 @@ module umh_fpga_top (
     wire [15:0] status_flags_wire = (invalid_frame_sync ? 16'h0004 : 16'h0000) |
                                     (running ? 16'h0010 : 16'h0000) |
                                     (audio_mode ? 16'h8000 : 16'h0000) |
+                                    (pll_lock_sync[1] ? 16'h2000 : 16'h0000) |
                                     16'h4000; /* AUDIO_SHORT (0x19) support */
     wire [127:0] status_word = {
         8'h01, 8'h00,

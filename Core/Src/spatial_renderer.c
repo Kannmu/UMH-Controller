@@ -1,6 +1,7 @@
 #include "spatial_renderer.h"
 #include "cordic.h"
 #include "umh_fast_math.h"
+#include "umh_utils.h"
 #include <math.h>
 #include <string.h>
 #include <float.h>
@@ -89,7 +90,6 @@ int spatial_renderer_accumulate_point(const umh_spatial_renderer_t *renderer,
       float dy;
       float dz;
       float distance;
-      float amplitude;
       int32_t phase_q10;
       if (renderer->calibration[i].enabled == 0u) continue;
       dx = (float)point->x_um - (float)renderer->profile->coordinates[i].x_um;
@@ -99,9 +99,8 @@ int spatial_renderer_accumulate_point(const umh_spatial_renderer_t *renderer,
       phase_q10 = (int32_t)(source_phase_q10 +
                             (float)renderer->phase_offset_q10[i] -
                             distance * phase_scale_q10);
-      amplitude = source_level * renderer->gain_scale[i];
-      real_accum[i] += amplitude * umh_fast_cos_q10(phase_q10);
-      imag_accum[i] += amplitude * umh_fast_sin_q10(phase_q10);
+      spatial_renderer_accumulate_q10(renderer, i, phase_q10, source_level,
+                                      real_accum, imag_accum);
     }
   }
   return 0;
@@ -114,7 +113,6 @@ int spatial_renderer_finalize(const umh_spatial_renderer_t *renderer,
   uint16_t i;
   uint8_t phase_codes[UMH_DEVICE_CHANNEL_COUNT];
   uint8_t have_codes;
-  const float two_pi = 6.28318530717958647692f;
   if (renderer == NULL || real_accum == NULL || imag_accum == NULL || frame == NULL) return -1;
   /* One CORDIC configuration serves all 84 channels instead of one HAL
    * configure/calculate round trip per channel.  The calibration path already
@@ -130,7 +128,7 @@ int spatial_renderer_finalize(const umh_spatial_renderer_t *renderer,
       frame->channels[i].phase = phase_codes[i];
     } else {
       float angle = atan2f(imag_accum[i], real_accum[i]);
-      int32_t phase = (int32_t)(angle * (float)renderer->phase_resolution / two_pi);
+      int32_t phase = (int32_t)(angle * (float)renderer->phase_resolution / UMH_TWO_PI);
       phase %= (int32_t)renderer->phase_resolution;
       if (phase < 0) phase += (int32_t)renderer->phase_resolution;
       frame->channels[i].phase = (uint8_t)phase;

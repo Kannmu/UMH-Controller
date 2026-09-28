@@ -209,7 +209,6 @@ void hologram_engine_request_stop(umh_hologram_engine_t *engine);
 void hologram_engine_abort(umh_hologram_engine_t *engine, fpga_link_t *link);
 
 uint8_t hologram_engine_owns_output(const umh_hologram_engine_t *engine);
-uint8_t hologram_engine_is_active(const umh_hologram_engine_t *engine);
 
 /* Called from the render task only.  `wait_us` receives the delay the caller
  * should sleep before servicing again. */

@@ -46,8 +46,6 @@ typedef struct {
 
 void flash_store_init(flash_store_t *store);
 int flash_store_mount(flash_store_t *store);
-int flash_store_read(const flash_store_t *store, uint32_t object_id,
-                     void *data, uint32_t capacity, uint32_t *length);
 int flash_store_read_range(const flash_store_t *store, uint32_t object_id,
                            uint32_t offset, void *data, uint32_t capacity,
                            uint32_t *length, uint32_t *total_length);

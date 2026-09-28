@@ -28,6 +28,7 @@
 #include "spi.h"
 #include "i2c.h"
 #include "i2c_bus.h"
+#include "umh_utils.h"
 #include <string.h>
 #include <math.h>
 
@@ -68,6 +69,25 @@ static uint16_t calibration_raw_gate_start;
 static uint8_t calibration_raw_gate_width;
 static uint16_t calibration_raw_burst_us;
 static uint16_t calibration_raw_patterns;
+/* CAL_PROBE bench request (see us_calibration_probe()).  Filled by the
+ * protocol task, consumed by the calibration task. */
+typedef struct __attribute__((packed)) {
+  uint8_t gate_count;
+  uint8_t gate_width;
+  uint16_t gate_start;
+  uint16_t gate_step;
+  uint16_t burst_us;
+  uint16_t settle_us;
+  uint8_t repeats;
+  uint8_t flags;
+  uint8_t reserved[4];
+  uint8_t phase[UMH_DEVICE_CHANNEL_COUNT];
+  uint8_t level[UMH_DEVICE_CHANNEL_COUNT];
+} umh_cal_probe_request_t;
+_Static_assert(sizeof(umh_cal_probe_request_t) == 184u, "cal probe request size");
+static umh_cal_probe_request_t calibration_probe_request;
+static uint32_t calibration_probe_tid;
+static volatile uint8_t calibration_probe_mode;
 
 /* --------------------------------------------------------------------------
  * Bench mailbox.
@@ -96,14 +116,13 @@ volatile uint8_t  umh_bench_level[UMH_DEVICE_CHANNEL_COUNT];
 volatile float    umh_bench_frame_i[UMH_DEVICE_MIC_COUNT];
 volatile float    umh_bench_frame_q[UMH_DEVICE_MIC_COUNT];
 
-typedef struct {
-  umh_protocol_frame_t frame;
-} storage_request_t;
-
 static osMessageQueueId_t storage_queue;
 static StaticQueue_t storage_queue_cb;
-static uint32_t storage_queue_memory[(sizeof(storage_request_t) * 2u + sizeof(uint32_t) - 1u) / sizeof(uint32_t)];
-static storage_request_t storage_request_buffer;
+/* Queue items are complete protocol frames.  The message queue copies them
+ * directly from the parser frame owned by the protocol task, so no second
+ * 2 KiB stack copy is needed on the command path. */
+static uint32_t storage_queue_memory[(sizeof(umh_protocol_frame_t) * 2u + sizeof(uint32_t) - 1u) / sizeof(uint32_t)];
+static umh_protocol_frame_t storage_request_buffer;
 /* Consolidate three 2048 B storage buffers into one union to save 4096 B.
  * storage_response and storage_data are used by different FLASH message types
  * (LIST uses response, READ uses both with data as scratch, WRITE reads from
@@ -140,9 +159,25 @@ typedef struct __attribute__((packed)) {
   float echo_ratio;
   float mic_ratio;
   float verify_gain_db;
+  /* v2 extension (axial table-echo calibration), appended after the legacy
+   * 135-byte prefix so older hosts can still parse the first part. */
+  float correction_rms_deg;
+  float amp_p10;
+  float amp_p90;
+  uint16_t pairs_used;
+  uint8_t channels_covered;
+  uint8_t dead_count;
+  uint8_t verify_wins;
+  uint8_t verify_sets;
+  uint8_t committed;          /* 1 = written to EEPROM and applied */
+  uint8_t method;             /* 2 = axial table echo */
+  uint8_t amplitude[UMH_DEVICE_CHANNEL_COUNT];
+  uint8_t coverage[UMH_DEVICE_CHANNEL_COUNT];
 } umh_cal_result_wire_t;
 
-_Static_assert(sizeof(umh_cal_result_wire_t) == 135u, "cal result wire size");
+_Static_assert(sizeof(umh_cal_result_wire_t) == 135u + 20u + 2u * UMH_DEVICE_CHANNEL_COUNT,
+               "cal result wire size");
+static uint8_t calibration_committed;
 
 typedef struct __attribute__((packed)) {
   uint8_t valid;
@@ -246,11 +281,8 @@ static int gui_demo(void *context);
 static int gui_levitation_toggle(void *context);
 static int gui_defoam_set(void *context);
 
-static uint32_t read_u32(const uint8_t *p)
-{
-  return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
-         ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
-}
+/* Use unified serialization helper from umh_utils.h */
+#define read_u32(p) umh_read_u32_le(p)
 
 static void apply_calibration_from_eeprom(void)
 {
@@ -311,6 +343,7 @@ static void calibration_progress(uint8_t state, uint8_t progress, void *context)
 {
   (void)context;
   device_gui_calibration_state(&device_gui, state, progress);
+  calibration_result.progress = progress;   /* live progress for CAL_RESULT polling */
   system_status_get()->cal_state = state;
   system_status_get()->cal_last_ms = HAL_GetTick();
 }
@@ -368,6 +401,50 @@ static void calibration_raw_session(void)
   }
   (void)fpga_link_safe_stop(&fpga_link);
   demo_building = 0u;
+}
+
+/* One CAL_PROBE request.  The FPGA output is taken over exactly like the
+ * other calibration sessions, but without the OLED calibration screen or
+ * the 1 s pre-roll, so a host can sweep all channels quickly. */
+static void calibration_probe_session(void)
+{
+  int rc;
+  uint32_t saved_cr1;
+  uint32_t scratch_bytes = 0u;
+  uint16_t saturated = 0u;
+  uint16_t length;
+  uint8_t *encoded;
+  uint16_t encoded_length;
+  float *out = us_calibration_scratch(&scratch_bytes);
+  const umh_cal_probe_request_t *rq = &calibration_probe_request;
+  if (audio_engine_owns_output(&audio_engine) != 0u) audio_engine_abort(&audio_engine);
+  if (motion_engine_owns_output(&motion_engine) != 0u) motion_engine_abort(&motion_engine, &fpga_link);
+  playback_plan_stop(&playback_plan);
+  (void)fpga_link_safe_stop(&fpga_link);
+  block_parser_cancel(&block_parser);
+  frame_ring_init(&frame_ring);
+  block_stream_active = 0u;
+  demo_building = 1u;
+  saved_cr1 = fpga_link_calibration_link_begin(&fpga_link);
+  rc = us_calibration_probe(&fpga_link, rq->phase, rq->level, rq->gate_count,
+                            rq->gate_start, rq->gate_step, rq->gate_width,
+                            rq->burst_us, rq->settle_us, rq->repeats, rq->flags,
+                            out, &saturated);
+  fpga_link_calibration_link_end(&fpga_link, saved_cr1);
+  (void)fpga_link_safe_stop(&fpga_link);
+  demo_building = 0u;
+  length = (rc == 0) ? (uint16_t)((uint32_t)rq->gate_count * 8u * sizeof(float)) : 0u;
+  if ((uint32_t)length > scratch_bytes || length > UMH_PROTOCOL_MAX_PAYLOAD) length = 0u;
+  encoded = umh_usb_tx_acquire();
+  if (encoded == NULL) return;
+  /* stream_sequence = saturated blocks << 16 | (uint16)rc. */
+  encoded_length = umh_protocol_encode(UMH_MSG_CAL_PROBE,
+                                       (uint8_t)(UMH_FLAG_RESPONSE | (rc != 0 ? UMH_FLAG_ERROR : 0u)),
+                                       calibration_probe_tid,
+                                       ((uint32_t)saturated << 16) | ((uint32_t)rc & 0xFFFFu),
+                                       (const uint8_t *)out, length, encoded, UMH_USB_TX_SLOT_SIZE);
+  if (encoded_length != 0u) (void)umh_usb_tx_commit(encoded, encoded_length);
+  umh_usb_tx_service();
 }
 
 static void calibration_selftest_session(void)
@@ -428,10 +505,6 @@ static void calibration_session(void)
   int rc;
   uint16_t i;
   const umh_device_profile_t *profile = device_profile_get();
-  const eeprom_profile_record_t *old_record = eeprom_profile_current(&eeprom_profile);
-  uint8_t old_valid = (old_record != NULL && old_record->cal_meta_valid != 0u &&
-                       old_record->cal_level != 0u) ? 1u : 0u;
-  uint8_t commit_new;
   uint32_t saved_cr1;
   if (audio_engine_owns_output(&audio_engine) != 0u) audio_engine_abort(&audio_engine);
   if (motion_engine_owns_output(&motion_engine) != 0u) motion_engine_abort(&motion_engine, &fpga_link);
@@ -442,6 +515,7 @@ static void calibration_session(void)
   frame_ring_init(&frame_ring);
   block_stream_active = 0u;
   demo_building = 1u;
+  calibration_committed = 0u;
   calibration_progress(DEVICE_GUI_CAL_WAIT, 0u, NULL);
   osDelay(1000u);
   saved_cr1 = fpga_link_calibration_link_begin(&fpga_link);
@@ -449,26 +523,17 @@ static void calibration_session(void)
                           &calibration_result);
   fpga_link_calibration_link_end(&fpga_link, saved_cr1);
   if (rc == 0) {
-    /* A valid stored calibration is never overwritten automatically.  The
-     * current near-field solver has only been validated against the on-board
-     * microphones; external objects and the real focus target still have to
-     * accept a candidate before it is worth risking a known-good phase map.
-     * An empty/default record is still populated so a blank device can be
-     * commissioned without a debugger. */
-    commit_new = (old_valid == 0u) ? 1u : 0u;
-    if (commit_new == 0u) {
-      system_status_get()->cal_state = DEVICE_GUI_CAL_OK;
-      system_status_get()->cal_last_ms = HAL_GetTick();
-    } else {
+    /* us_calibration_run() only returns 0 after the candidate beat (or
+     * matched) zero correction in a real production-renderer focus test on
+     * the table echo, so it replaces the stored phase map.  Gain and RGB are
+     * kept; channels without a measurable echo are disabled. */
     eeprom_profile_record_t record = eeprom_profile.record;
     record.version = EEPROM_PROFILE_VERSION;
+    memset(record.enabled, 0, sizeof(record.enabled));
     for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
       record.phase[i] = (uint16_t)((uint16_t)calibration_result.phase_byte[i] << 8);
-      record.enabled[i / 8u] |= (uint8_t)(1u << (i % 8u));
-    }
-    if (UMH_DEVICE_CHANNEL_COUNT % 8u != 0u) {
-      uint8_t mask = (uint8_t)((1u << (UMH_DEVICE_CHANNEL_COUNT % 8u)) - 1u);
-      record.enabled[UMH_DEVICE_CHANNEL_BITMAP_BYTES - 1u] &= mask;
+      if (calibration_result.coverage[i] != 0xFFu)
+        record.enabled[i / 8u] |= (uint8_t)(1u << (i % 8u));
     }
     record.cal_meta_valid = 1u;
     {
@@ -478,7 +543,7 @@ static void calibration_session(void)
     }
     {
       float gx10 = calibration_result.verify_gain_db * 10.0f;
-      float cx10 = calibration_result.mic_consistency_deg * 10.0f;
+      float cx10 = calibration_result.correction_rms_deg * 10.0f;
       if (gx10 > 127.0f) gx10 = 127.0f;
       if (gx10 < -128.0f) gx10 = -128.0f;
       if (cx10 > 127.0f) cx10 = 127.0f;
@@ -491,16 +556,22 @@ static void calibration_session(void)
     record.cal_time_ms = (uint32_t)(system_time_us() / 1000u);
     memset(record.cal_reserved, 0, sizeof(record.cal_reserved));
     {
-      uint16_t patterns = calibration_result.patterns_used;
-      uint16_t gate_start = calibration_result.used_gate_start;
-      int16_t trend10 = (int16_t)lroundf(calibration_result.band_trend_deg * 10.0f);
-      memcpy(&record.cal_reserved[0], &patterns, sizeof(patterns));
-      memcpy(&record.cal_reserved[2], &gate_start, sizeof(gate_start));
-      record.cal_reserved[4] = calibration_result.used_gate_width;
+      /* [0..1] cone pairs, [2..4] steady near-field gate for SELFTEST
+       * (legacy 500 us / 400 us), [5] level, [6] method 2 = table echo,
+       * [7] verify wins, [8..9] table distance 0.1 mm, [10] dead channels,
+       * [11] echo-plan gate start. */
+      uint16_t pairs = calibration_result.pairs_used;
+      uint16_t self_gate = 20u;
+      uint16_t table10 = (uint16_t)lroundf(calibration_result.table_mm * 10.0f);
+      memcpy(&record.cal_reserved[0], &pairs, sizeof(pairs));
+      memcpy(&record.cal_reserved[2], &self_gate, sizeof(self_gate));
+      record.cal_reserved[4] = 16u;
       record.cal_reserved[5] = calibration_result.level_used;
       record.cal_reserved[6] = calibration_result.geom_hypothesis;
       record.cal_reserved[7] = calibration_result.sign_hypothesis;
-      memcpy(&record.cal_reserved[8], &trend10, sizeof(trend10));
+      memcpy(&record.cal_reserved[8], &table10, sizeof(table10));
+      record.cal_reserved[10] = calibration_result.dead_count;
+      record.cal_reserved[11] = (uint8_t)calibration_result.used_gate_start;
       record.reserved[0] = calibration_result.used_gate_count;
       record.reserved[1] = 0u;
       record.reserved[2] = 0u;
@@ -508,18 +579,19 @@ static void calibration_session(void)
     if (eeprom_profile_commit(&eeprom_profile, &record) != 0) {
       calibration_fail(UMH_FAULT_EEPROM_IO, 3u);
     } else {
+      calibration_committed = 1u;
       apply_calibration_from_eeprom();
       system_status_get()->cal_rms_deg_x10 = record.cal_rms_deg_x10;
       system_status_get()->cal_tilt_x_x10 = record.cal_tilt_x_x10;
       system_status_get()->cal_tilt_y_x10 = record.cal_tilt_y_x10;
       system_status_get()->cal_good_mics = calibration_result.good_mics;
+      system_status_get()->cal_state = DEVICE_GUI_CAL_OK;
       system_status_get()->cal_last_ms = HAL_GetTick();
-    }
     }
   } else {
     umh_fault_code_t code = (umh_fault_code_t)calibration_result.fault;
     if (code == UMH_FAULT_NONE) code = UMH_FAULT_CAL_SOLVER;
-    calibration_fail(code, (uint32_t)rc);
+    calibration_fail(code, (uint32_t)(-rc));
   }
   (void)fpga_link_safe_stop(&fpga_link);
   demo_building = 0u;
@@ -632,7 +704,10 @@ static void calibration_task(void *argument)
       if (notified == 0) continue;
     }
     if (notified == 0) continue;
-    if (calibration_selftest_mode != 0u) {
+    if (calibration_probe_mode != 0u) {
+      calibration_probe_session();
+      calibration_probe_mode = 0u;
+    } else if (calibration_selftest_mode != 0u) {
       calibration_selftest_mode = 0u;
       calibration_selftest_session();
     } else if (calibration_raw_mode != 0u) {
@@ -844,17 +919,14 @@ static void send_response(const umh_protocol_frame_t *request, uint8_t type,
 
 static int queue_storage_request(const umh_protocol_frame_t *frame)
 {
-  /* Pass frame pointer directly to storage task; the frame is copied by
-   * osMessageQueuePut into storage_queue_memory. Eliminates 2066 B stack copy. */
-  storage_request_t request;
+  /* osMessageQueuePut performs the copy into storage_queue_memory directly
+   * from the parser frame, avoiding a temporary >2 KiB stack copy. */
   if (storage_queue == NULL || frame == NULL) return -1;
-  request.frame = *frame;
-  return osMessageQueuePut(storage_queue, &request, 0u, 0u) == osOK ? 0 : -1;
+  return osMessageQueuePut(storage_queue, frame, 0u, 0u) == osOK ? 0 : -1;
 }
 
-static void storage_process(const storage_request_t *request)
+static void storage_process(const umh_protocol_frame_t *frame)
 {
-  const umh_protocol_frame_t *frame = &request->frame;
   uint32_t id;
   uint32_t length;
   uint16_t count;
@@ -863,7 +935,8 @@ static void storage_process(const storage_request_t *request)
     if (frame->payload_size != 0u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
     count = flash_store_list(&flash_store, storage_records, FLASH_STORE_MAX_OBJECTS);
     if ((uint32_t)count * sizeof(storage_records[0]) > sizeof(storage_response)) { send_result(frame, UMH_STATUS_NO_MEMORY, NULL, 0u); return; }
-    memcpy(storage_response, storage_records, (uint32_t)count * sizeof(storage_records[0]));
+    /* Use memmove instead of memcpy to avoid restrict aliasing warning with union members */
+    memmove(storage_response, storage_records, (uint32_t)count * sizeof(storage_records[0]));
     send_response(frame, UMH_MSG_FLASH_LIST, storage_response, (uint16_t)(count * sizeof(storage_records[0])));
     return;
   }
@@ -1167,17 +1240,30 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
         wire.used_gate_count = calibration_result.used_gate_count;
         wire.used_gate_width = calibration_result.used_gate_width;
         wire.used_gate_start = calibration_result.used_gate_start;
+        wire.reserved = system_status_get()->cal_state;        /* device_gui_cal_state_t */
         wire.block_count = calibration_result.patterns_used;
-        wire.rms_before_deg = calibration_result.fit_rms_deg;
+        wire.rms_before_deg = calibration_result.rms_before_deg;
         wire.rms_after_deg = calibration_result.rms_after_deg;
         wire.mic_consistency_deg = calibration_result.mic_consistency_deg;
-        wire.residual = calibration_result.residual;
-        wire.distance_m = (float)calibration_result.patterns_used;
-        wire.tilt_x_deg = (float)calibration_result.level_used;
-        wire.tilt_y_deg = calibration_result.coupling_db;
-        wire.echo_ratio = calibration_result.band_trend_deg;
-        wire.mic_ratio = calibration_result.drift_deg;
+        wire.residual = calibration_result.drift_deg;          /* saturated blocks */
+        wire.distance_m = calibration_result.table_mm * 0.001f;
+        wire.tilt_x_deg = calibration_result.tilt_x_deg;
+        wire.tilt_y_deg = calibration_result.tilt_y_deg;
+        wire.echo_ratio = calibration_result.echo_mag;
+        wire.mic_ratio = calibration_result.coupling_db;       /* p90/p10 amplitude, dB */
         wire.verify_gain_db = calibration_result.verify_gain_db;
+        wire.correction_rms_deg = calibration_result.correction_rms_deg;
+        wire.amp_p10 = calibration_result.amp_p10;
+        wire.amp_p90 = calibration_result.amp_p90;
+        wire.pairs_used = calibration_result.pairs_used;
+        wire.channels_covered = calibration_result.channels_covered;
+        wire.dead_count = calibration_result.dead_count;
+        wire.verify_wins = calibration_result.sign_hypothesis;
+        wire.verify_sets = (uint8_t)calibration_result.reserved1;
+        wire.committed = calibration_committed;
+        wire.method = calibration_result.geom_hypothesis;
+        memcpy(wire.amplitude, calibration_result.amplitude, UMH_DEVICE_CHANNEL_COUNT);
+        memcpy(wire.coverage, calibration_result.coverage, UMH_DEVICE_CHANNEL_COUNT);
         send_response(frame, UMH_MSG_CAL_RESULT, &wire, (uint16_t)sizeof(wire));
         return;
       }
@@ -1233,6 +1319,9 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
                device_gui_calibration_busy(&device_gui) != 0u) status = UMH_STATUS_BUSY;
       else {
         device_gui_calibration_begin(&device_gui);
+        calibration_result.progress = 0u;
+        calibration_committed = 0u;
+        system_status_get()->cal_state = DEVICE_GUI_CAL_WAIT;
         (void)xTaskNotifyGive((TaskHandle_t)calibration_task_handle);
         status = UMH_STATUS_OK;
       }
@@ -1250,6 +1339,30 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
         status = UMH_STATUS_OK;
       }
       break;
+    case UMH_MSG_CAL_PROBE:
+      /* Asynchronous: no ACK.  The calibration task replies with a
+       * CAL_PROBE frame carrying the same transaction id. */
+      if (frame->payload_size != sizeof(umh_cal_probe_request_t)) {
+        send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return;
+      }
+      if (audio_owns != 0u || motion_owns != 0u || hologram_owns != 0u ||
+          calibration_task_handle == NULL || calibration_probe_mode != 0u ||
+          calibration_raw_mode != 0u || calibration_selftest_mode != 0u ||
+          device_gui_calibration_busy(&device_gui) != 0u) {
+        send_result(frame, UMH_STATUS_BUSY, NULL, 0u); return;
+      }
+      memcpy(&calibration_probe_request, frame->payload, sizeof(calibration_probe_request));
+      if (calibration_probe_request.gate_count == 0u ||
+          calibration_probe_request.gate_count > FPGA_MIC_MAX_GATES ||
+          calibration_probe_request.gate_width == 0u ||
+          calibration_probe_request.gate_step < calibration_probe_request.gate_width ||
+          calibration_probe_request.burst_us == 0u) {
+        send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return;
+      }
+      calibration_probe_tid = frame->header.transaction_id;
+      calibration_probe_mode = 1u;
+      (void)xTaskNotifyGive((TaskHandle_t)calibration_task_handle);
+      return;
     case UMH_MSG_CAL_SELFTEST_RESULT:
       if (frame->payload_size != 0u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
       {
@@ -1494,8 +1607,7 @@ static void update_motion_mode_flags(void)
     }
   }
   if ((current & mask) == wanted) return;
-  system_status_clear(mask & ~wanted);
-  system_status_set(wanted);
+  system_status_modify(mask & ~wanted, wanted);
 }
 
 static void render_task(void *argument)
@@ -1820,7 +1932,7 @@ static void application_init(void)
       .name = "storage", .cb_mem = &storage_queue_cb, .cb_size = sizeof(storage_queue_cb),
       .mq_mem = storage_queue_memory, .mq_size = sizeof(storage_queue_memory)
     };
-    storage_queue = osMessageQueueNew(2u, sizeof(storage_request_t), &storage_queue_attributes);
+    storage_queue = osMessageQueueNew(2u, sizeof(umh_protocol_frame_t), &storage_queue_attributes);
   }
   umh_protocol_parser_init(&protocol_parser, protocol_frame_received, NULL);
   render_timer_init();

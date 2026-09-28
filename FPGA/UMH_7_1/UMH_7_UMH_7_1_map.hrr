@@ -3,10 +3,10 @@ Report for cell umh_fpga_top
    Instance path: umh_fpga_top
                      Cell usage:
                                   cell	      count    Res Usage(%)
-                                  SLIC	    1033.00        100.0
-                                  LUT4	    1496.00        100.0
+                                  SLIC	    1035.00        100.0
+                                  LUT4	    1479.00        100.0
                                  IOBUF	         96        100.0
-                                PFUREG	       1844        100.0
+                                PFUREG	       1847        100.0
                                 RIPPLE	        247        100.0
                                    EBR	          7        100.0
 SUB MODULES

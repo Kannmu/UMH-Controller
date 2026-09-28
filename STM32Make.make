@@ -96,11 +96,9 @@ Core/Src/i2c.c \
 Core/Src/i2c_bus.c \
 Core/Src/input_events.c \
 Core/Src/main.c \
-Core/Src/mic_capture.c \
 Core/Src/motion_engine.c \
 Core/Src/oled_ssd1315.c \
 Core/Src/playback_plan.c \
-Core/Src/rgb_output.c \
 Core/Src/spatial_renderer.c \
 Core/Src/spatiotemporal_block.c \
 Core/Src/spi.c \

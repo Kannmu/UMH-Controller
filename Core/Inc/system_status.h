@@ -114,7 +114,7 @@ uint64_t system_time_us(void);
 umh_system_status_t *system_status_get(void);
 void system_status_set(uint32_t flags);
 void system_status_clear(uint32_t flags);
-void system_status_error(uint32_t count);
+void system_status_modify(uint32_t clear_mask, uint32_t set_mask);
 void system_status_fault(umh_fault_code_t code, uint32_t argument,
                          umh_fault_severity_t severity);
 

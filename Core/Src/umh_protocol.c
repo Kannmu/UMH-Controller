@@ -1,30 +1,12 @@
 #include "umh_protocol.h"
+#include "umh_utils.h"
 #include <string.h>
 
-static uint16_t read_u16_le(const uint8_t *p)
-{
-  return (uint16_t)p[0] | ((uint16_t)p[1] << 8);
-}
-
-static void write_u16_le(uint8_t *p, uint16_t v)
-{
-  p[0] = (uint8_t)v;
-  p[1] = (uint8_t)(v >> 8);
-}
-
-static uint32_t read_u32_le(const uint8_t *p)
-{
-  return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
-         ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
-}
-
-static void write_u32_le(uint8_t *p, uint32_t v)
-{
-  p[0] = (uint8_t)v;
-  p[1] = (uint8_t)(v >> 8);
-  p[2] = (uint8_t)(v >> 16);
-  p[3] = (uint8_t)(v >> 24);
-}
+/* Use unified serialization helpers from umh_utils.h */
+#define read_u16_le(p)   umh_read_u16_le(p)
+#define write_u16_le(p, v) umh_write_u16_le(p, v)
+#define read_u32_le(p)   umh_read_u32_le(p)
+#define write_u32_le(p, v) umh_write_u32_le(p, v)
 
 void umh_rx_ring_init(umh_rx_ring_t *ring)
 {

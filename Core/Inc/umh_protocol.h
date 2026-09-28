@@ -62,6 +62,7 @@ typedef enum {
   UMH_MSG_CAL_RAW             = 0x83, /* bench/debug: stream raw per-pattern I/Q */
   UMH_MSG_CAL_SELFTEST        = 0x84, /* run independent built-in phase self-test */
   UMH_MSG_CAL_SELFTEST_RESULT = 0x85, /* query last self-test result */
+  UMH_MSG_CAL_PROBE           = 0x86, /* bench: multi-gate I/Q time profile */
   /* Device-side hologram keyframe executor (Core/Inc/hologram_engine.h).
    * UPLOAD stores whole 84-channel holograms in RAM, CONFIG sets the cadence and
    * interpolation time, START/STOP own the FPGA output exactly like motion and

@@ -49,14 +49,12 @@ Core/Src/playback_plan.c \
 Core/Src/spatial_renderer.c \
 Core/Src/fpga_link.c \
 Core/Src/audio_engine.c \
-Core/Src/mic_capture.c \
 Core/Src/us_calibration.c \
 Core/Src/flash_nor.c \
 Core/Src/flash_store.c \
 Core/Src/eeprom_profile.c \
 Core/Src/i2c_bus.c \
 Core/Src/oled_ssd1315.c \
-Core/Src/rgb_output.c \
 Core/Src/input_events.c \
 Core/Src/device_gui.c \
 Core/Src/demo_engine.c \

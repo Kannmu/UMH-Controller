@@ -134,8 +134,3 @@ uint8_t frame_ring_loop_valid(const umh_frame_ring_t *ring)
 {
   return ring != NULL ? ring->loop_valid : 0u;
 }
-
-uint64_t frame_ring_loop_duration(const umh_frame_ring_t *ring)
-{
-  return ring != NULL ? ring->loop_duration : 0u;
-}

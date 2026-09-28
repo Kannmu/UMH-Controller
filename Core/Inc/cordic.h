@@ -39,23 +39,19 @@ extern CORDIC_HandleTypeDef hcordic;
 /* USER CODE END Private defines */
 
 void MX_CORDIC_Init(void);
-int umh_cordic_phase8(float real, float imag, uint8_t *phase);
 int umh_cordic_phase8_batch(const float *real, const float *imag,
                              uint8_t *phase_codes, uint32_t count);
 
-/* Batch hardware trigonometry / square-root helpers used by the ultrasound
- * calibration solvers.  All of them return 0 on success and a negative value
- * when the CORDIC unit is unavailable or reports an error; callers must keep
- * a scalar math fallback.  They process arbitrary counts by internally
- * chunking the work through a small static Q1.31 staging buffer. */
+/* Batch hardware trigonometry helpers used by the ultrasound calibration
+ * solver.  They return 0 on success and a negative value when the CORDIC
+ * unit is unavailable, so callers keep a scalar libm fallback.  Arbitrary
+ * counts are internally chunked through a small static Q1.31 staging
+ * buffer. */
 int umh_cordic_sincos_batch(const float *angles, float *sin_out, float *cos_out,
                             uint32_t count);
 int umh_cordic_phase_batch(const float *real, const float *imag, float *phase_rad,
                            uint32_t count);
-int umh_cordic_sqrt_batch(const float *values, float *roots, uint32_t count);
-int umh_cordic_sincos(float angle, float *sin_out, float *cos_out);
 int umh_cordic_phase(float real, float imag, float *phase_rad);
-int umh_cordic_sqrt(float value, float *root);
 
 /* Streaming atan2 for per-channel render loops.  begin() runs the phase
  * self-test once and leaves the unit in PHASE mode; it returns non-zero when
@@ -65,7 +61,7 @@ int umh_cordic_sqrt(float value, float *root);
  * Nothing else may use the CORDIC between begin() and the last call. */
 int umh_cordic_phase_stream_begin(void);
 
-static inline int32_t umh_cordic_phase_stream_q10(float x_um, float y_um)
+static inline int32_t umh_cordic_phase_stream_q31(float x_um, float y_um)
 {
   /* um * 8192 = um / 2^18 in Q1.31, so +-262 mm spans the full input range. */
   float xs = x_um * 8192.0f;
@@ -78,8 +74,22 @@ static inline int32_t umh_cordic_phase_stream_q10(float x_um, float y_um)
   CORDIC->WDATA = (uint32_t)(int32_t)ys;
   while ((CORDIC->CSR & CORDIC_CSR_RRDY) == 0u) {
   }
-  /* Result is angle/pi in Q1.31; one 1/1024 turn is 2^22 of it. */
-  return (int32_t)CORDIC->RDATA >> 22;
+  return (int32_t)CORDIC->RDATA;
+}
+
+/* Phase result is angle/pi in signed Q1.31; one 1/1024 turn is 2^22. */
+static inline int32_t umh_cordic_phase_stream_q10(float x_um, float y_um)
+{
+  return umh_cordic_phase_stream_q31(x_um, y_um) >> 22;
+}
+
+/* Phase as a signed fractional turn (-0.5 .. +0.5).  Keeps the CORDIC
+ * round-trip without quantising to the 10-bit lookup-table grid first, which
+ * lets the vortex emitter preserve its original lroundf() arithmetic. */
+static inline float umh_cordic_phase_stream_turns(float x_um, float y_um)
+{
+  return (float)umh_cordic_phase_stream_q31(x_um, y_um) *
+         (1.0f / 4294967296.0f);
 }
 
 /* USER CODE BEGIN Prototypes */

@@ -51,6 +51,19 @@ typedef struct {
   float coupling_db;          /* microphone coupling spread */
   float rms_before_deg;       /* static phase spread before correction */
   float rms_after_deg;        /* quantized residual after correction */
+  /* Axial table-echo calibration (us_calibration_run). */
+  float table_mm;             /* detected emitter-plane -> reflector distance */
+  float tilt_x_deg;           /* reflector tilt from the gauged plane term */
+  float tilt_y_deg;
+  float echo_mag;             /* median single-channel echo magnitude (counts) */
+  float amp_p10;              /* relative channel amplitude percentiles */
+  float amp_p90;
+  float correction_rms_deg;   /* RMS of the applied (shrunk) correction */
+  uint16_t pairs_used;        /* (mic, channel) pairs inside the 17 deg cone */
+  uint8_t channels_covered;   /* channels seen by >= 1 cone pair */
+  uint8_t dead_count;         /* channels without a measurable echo */
+  uint8_t amplitude[UMH_DEVICE_CHANNEL_COUNT]; /* relative amplitude, 128 = median */
+  uint8_t coverage[UMH_DEVICE_CHANNEL_COUNT];  /* cone pairs per channel, 0xFF = dead */
 } umh_calibration_result_t;
 
 typedef void (*us_cal_progress_cb_t)(uint8_t state, uint8_t progress, void *context);
@@ -80,9 +93,21 @@ typedef int (*us_cal_raw_tx_cb_t)(uint32_t first_pattern_index,
                                   const uint8_t *data, uint16_t length,
                                   void *context);
 
+/* Production calibration: axial table-echo static phase + channel health.
+ * The array must face a flat surface (table) 5..25 cm away; only the central
+ * ~10 cm patch below the array has to be free.  Returns 0 only when the
+ * candidate passed every quality gate and a real focus test against zero
+ * correction.  Dead channels are reported through coverage[] = 0xFF. */
 int us_calibration_run(fpga_link_t *link, const umh_device_profile_t *profile,
                        us_cal_progress_cb_t progress, void *context,
                        umh_calibration_result_t *result);
+
+/* Diagnostic only: in-plane near-field direct-path fit.  Bench data showed
+ * that the near-field phase does not predict the axial emission phase
+ * (75 deg RMS apart), so its result is never written to EEPROM. */
+int us_calibration_nearfield_run(fpga_link_t *link, const umh_device_profile_t *profile,
+                                 us_cal_progress_cb_t progress, void *context,
+                                 umh_calibration_result_t *result);
 
 int us_calibration_capture_raw(fpga_link_t *link, uint8_t level,
                                uint16_t gate_start, uint8_t gate_width,
@@ -113,6 +138,23 @@ int us_calibration_measure_pattern(fpga_link_t *link,
                                    float out_i[UMH_DEVICE_MIC_COUNT],
                                    float out_q[UMH_DEVICE_MIC_COUNT]);
 
+
+/* Bench time-profile probe (UMH_MSG_CAL_PROBE).  Drives phase/level for
+ * burst_us, samples gate_count gates of gate_width samples starting at
+ * gate_start with gate_step spacing (40 kHz samples, referenced to the FPGA
+ * pattern swap), stops, waits settle_us, and repeats.  With
+ * US_CAL_PROBE_DIFF each repeat also drives the pattern with every active
+ * phase +128 and returns 0.5*(y0 - y180).  out receives gate_count*8 floats
+ * [gate][mic][I,Q].  Returns 0 or a negative error. */
+#define US_CAL_PROBE_DIFF 0x01u
+int us_calibration_probe(fpga_link_t *link, const uint8_t *phase, const uint8_t *level,
+                         uint8_t gate_count, uint16_t gate_start, uint16_t gate_step,
+                         uint8_t gate_width, uint32_t burst_us, uint32_t settle_us,
+                         uint8_t repeats, uint8_t flags, float *out,
+                         uint16_t *saturated_blocks);
+/* Shared solver scratch (>= 2048 bytes).  Only valid while no calibration
+ * session is running; used as the CAL_PROBE response buffer. */
+float *us_calibration_scratch(uint32_t *bytes);
 
 /* Raw diagnostic dump sections.  See Docs/UMH_v7_Protocol.md. */
 uint32_t us_calibration_dump_size(uint8_t section);

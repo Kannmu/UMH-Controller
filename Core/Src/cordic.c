@@ -19,6 +19,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "cordic.h"
+#include "umh_utils.h"
 #include <math.h>
 #include <stdint.h>
 #include <string.h>
@@ -136,23 +137,19 @@ void HAL_CORDIC_MspDeInit(CORDIC_HandleTypeDef* cordicHandle)
  *     radians.  The old firmware assumed Q3.29, which made atan2 four/pi
  *     too large and forced every calibration fallback to libm.
  *   - sine/cosine use an angle normalised by pi and expressed in Q1.31,
- *     the result is Q1.31;
- *   - square root takes a Q1.31 value and returns a Q1.31 result.
+ *     the result is Q1.31.
  * A one-time self-test protects the calibration solver: if a future silicon
  * revision or a wrong configuration is detected, the helpers report failure
  * and us_calibration.c automatically falls back to the scalar libm path.
  * -------------------------------------------------------------------------- */
 #define UMH_CORDIC_CHUNK 96u
-#define UMH_CORDIC_PI 3.14159265358979323846f
-#define UMH_CORDIC_TWO_PI 6.28318530717958647692f
 #define UMH_CORDIC_Q31_SCALE 2147483648.0f
-#define UMH_CORDIC_PHASE_SCALE (2147483648.0f / UMH_CORDIC_PI)
+#define UMH_CORDIC_PHASE_SCALE (2147483648.0f / UMH_PI)
 
 static int32_t umh_cordic_in[UMH_CORDIC_CHUNK * 2u];
 static int32_t umh_cordic_out[UMH_CORDIC_CHUNK];
 static int8_t umh_cordic_trig_state;
 static int8_t umh_cordic_phase_state;
-static int8_t umh_cordic_sqrt_state;
 volatile uint32_t umh_cordic_cfg_errs;
 volatile uint32_t umh_cordic_calc_errs;
 volatile uint32_t umh_cordic_selftest_errs;
@@ -187,10 +184,10 @@ static int umh_cordic_calculate(const int32_t *in, int32_t *out, uint32_t count)
 
 static float umh_cordic_wrap_pi(float value)
 {
-  if (value > UMH_CORDIC_PI || value < -UMH_CORDIC_PI) {
-    float k = value * (1.0f / UMH_CORDIC_TWO_PI);
+  if (value > UMH_PI || value < -UMH_PI) {
+    float k = value * (1.0f / UMH_TWO_PI);
     int32_t n = (k >= 0.0f) ? (int32_t)(k + 0.5f) : (int32_t)(k - 0.5f);
-    value -= (float)n * UMH_CORDIC_TWO_PI;
+    value -= (float)n * UMH_TWO_PI;
   }
   return value;
 }
@@ -199,7 +196,7 @@ static int32_t umh_cordic_angle_q31(float angle)
 {
   float scaled;
   angle = umh_cordic_wrap_pi(angle);
-  scaled = angle * (UMH_CORDIC_Q31_SCALE / UMH_CORDIC_PI);
+  scaled = angle * (UMH_CORDIC_Q31_SCALE / UMH_PI);
   if (scaled >= 2147483647.0f) return 2147483647;
   if (scaled <= -2147483648.0f) return (int32_t)0x80000000;
   return (int32_t)scaled;
@@ -250,47 +247,12 @@ static int umh_cordic_phase_raw(const float *real, const float *imag, float *pha
   return 0;
 }
 
-static int umh_cordic_sqrt_raw(const float *values, float *roots, uint32_t count)
-{
-  uint32_t i, j;
-  if (count == 0u) return 0;
-  if (umh_cordic_config(CORDIC_FUNCTION_SQUAREROOT, CORDIC_NBWRITE_1, CORDIC_NBREAD_1) != HAL_OK) return -1;
-  for (i = 0u; i < count; i += UMH_CORDIC_CHUNK) {
-    uint32_t n = count - i;
-    uint8_t shifts[UMH_CORDIC_CHUNK];
-    if (n > UMH_CORDIC_CHUNK) n = UMH_CORDIC_CHUNK;
-    for (j = 0u; j < n; ++j) {
-      float value = values[i + j];
-      uint8_t shift = 0u;
-      if (value <= 0.0f) {
-        shifts[j] = 0xFFu;
-        umh_cordic_in[j] = 0;
-        continue;
-      }
-      while (value >= 1.0f && shift < 15u) { value *= 0.25f; ++shift; }
-      {
-        float scaled = value * UMH_CORDIC_Q31_SCALE;
-        if (scaled > 2147483647.0f) scaled = 2147483647.0f;
-        umh_cordic_in[j] = (int32_t)scaled;
-      }
-      shifts[j] = shift;
-    }
-    if (umh_cordic_calculate(umh_cordic_in, umh_cordic_out, n) != 0) return -2;
-    for (j = 0u; j < n; ++j) {
-      if (shifts[j] == 0xFFu) { roots[i + j] = 0.0f; continue; }
-      roots[i + j] = (float)umh_cordic_out[j] * (1.0f / UMH_CORDIC_Q31_SCALE)
-                     * (float)(1u << shifts[j]);
-    }
-  }
-  return 0;
-}
-
 static int8_t umh_cordic_selftest_trig(void)
 {
   float angles[2];
   float sn[2], cs[2];
-  angles[0] = UMH_CORDIC_PI * 0.5f;
-  angles[1] = UMH_CORDIC_PI * 0.25f;
+  angles[0] = UMH_PI * 0.5f;
+  angles[1] = UMH_PI * 0.25f;
   if (umh_cordic_trig_raw(CORDIC_FUNCTION_SINE, angles, sn, 2u) != 0) return -1;
   if (umh_cordic_trig_raw(CORDIC_FUNCTION_COSINE, angles, cs, 2u) != 0) return -1;
   if (fabsf(sn[0] - 1.0f) > 2.0e-2f || fabsf(cs[0]) > 2.0e-2f) { ++umh_cordic_selftest_errs; return -1; }
@@ -305,17 +267,7 @@ static int8_t umh_cordic_selftest_phase(void)
   re[1] = 0.0f; im[1] = 1.0f;
   if (umh_cordic_phase_raw(re, im, ph, 2u) != 0) return -1;
   if (fabsf(ph[0]) > 2.0e-2f) { ++umh_cordic_selftest_errs; return -1; }
-  if (fabsf(ph[1] - UMH_CORDIC_PI * 0.5f) > 2.0e-2f) { ++umh_cordic_selftest_errs; return -1; }
-  return 1;
-}
-
-static int8_t umh_cordic_selftest_sqrt(void)
-{
-  float in[2], out[2];
-  in[0] = 0.25f; in[1] = 4.0f;
-  if (umh_cordic_sqrt_raw(in, out, 2u) != 0) return -1;
-  if (fabsf(out[0] - 0.5f) > 2.0e-2f) { ++umh_cordic_selftest_errs; return -1; }
-  if (fabsf(out[1] - 2.0f) > 2.0e-2f) { ++umh_cordic_selftest_errs; return -1; }
+  if (fabsf(ph[1] - UMH_PI * 0.5f) > 2.0e-2f) { ++umh_cordic_selftest_errs; return -1; }
   return 1;
 }
 
@@ -337,58 +289,9 @@ int umh_cordic_phase_batch(const float *real, const float *imag, float *phase_ra
   return umh_cordic_phase_raw(real, imag, phase_rad, count) == 0 ? 0 : -3;
 }
 
-int umh_cordic_sqrt_batch(const float *values, float *roots, uint32_t count)
-{
-  if (values == NULL || roots == NULL) return -1;
-  if (umh_cordic_sqrt_state == 0) umh_cordic_sqrt_state = umh_cordic_selftest_sqrt();
-  if (umh_cordic_sqrt_state < 0) return -2;
-  return umh_cordic_sqrt_raw(values, roots, count) == 0 ? 0 : -3;
-}
-
-int umh_cordic_sincos(float angle, float *sin_out, float *cos_out)
-{
-  return umh_cordic_sincos_batch(&angle, sin_out, cos_out, 1u);
-}
-
 int umh_cordic_phase(float real, float imag, float *phase_rad)
 {
   return umh_cordic_phase_batch(&real, &imag, phase_rad, 1u);
-}
-
-int umh_cordic_sqrt(float value, float *root)
-{
-  return umh_cordic_sqrt_batch(&value, root, 1u);
-}
-
-int umh_cordic_phase8(float real, float imag, uint8_t *phase)
-{
-  CORDIC_ConfigTypeDef config;
-  int32_t input[2];
-  int32_t output;
-  float angle;
-  int32_t code;
-  if (phase == NULL || (real == 0.0f && imag == 0.0f)) return -1;
-  if (real > 1.0f) real = 1.0f;
-  if (real < -1.0f) real = -1.0f;
-  if (imag > 1.0f) imag = 1.0f;
-  if (imag < -1.0f) imag = -1.0f;
-  input[0] = (int32_t)(real * 2147483647.0f);
-  input[1] = (int32_t)(imag * 2147483647.0f);
-  config.Function = CORDIC_FUNCTION_PHASE;
-  config.Scale = CORDIC_SCALE_0;
-  config.InSize = CORDIC_INSIZE_32BITS;
-  config.OutSize = CORDIC_OUTSIZE_32BITS;
-  config.NbWrite = CORDIC_NBWRITE_2;
-  config.NbRead = CORDIC_NBREAD_1;
-  config.Precision = CORDIC_PRECISION_6CYCLES;
-  if (HAL_CORDIC_Configure(&hcordic, &config) != HAL_OK ||
-      HAL_CORDIC_Calculate(&hcordic, input, &output, 1u, 2u) != HAL_OK) return -1;
-  /* Phase result is angle/pi in signed Q1.31 on this STM32G4. */
-  angle = (float)output * (UMH_CORDIC_PI / 2147483648.0f);
-  if (angle < 0.0f) angle += 6.28318530717958647692f;
-  code = (int32_t)(angle * (256.0f / 6.28318530717958647692f) + 0.5f);
-  *phase = (uint8_t)(code & 0xFF);
-  return 0;
 }
 
 int umh_cordic_phase_stream_begin(void)

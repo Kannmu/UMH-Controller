@@ -477,15 +477,6 @@ void audio_engine_abort(umh_audio_engine_t *engine)
   audio_unlock(engine);
 }
 
-uint8_t audio_engine_is_active(const umh_audio_engine_t *engine)
-{
-  umh_audio_state_t state;
-  if (engine == NULL) return 0u;
-  state = engine->state;
-  return (state == UMH_AUDIO_PRIMING || state == UMH_AUDIO_RUNNING ||
-          state == UMH_AUDIO_STOPPING) ? 1u : 0u;
-}
-
 uint8_t audio_engine_owns_output(const umh_audio_engine_t *engine)
 {
   if (engine == NULL) return 0u;

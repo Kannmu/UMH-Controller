@@ -78,7 +78,6 @@ extern const uint8_t umh_device_logical_to_physical[UMH_DEVICE_CHANNEL_COUNT];
 
 void device_profile_init(umh_device_profile_t *profile);
 const umh_device_profile_t *device_profile_get(void);
-void device_profile_set_serial(const char *serial);
 void device_profile_set_calibration_generation(umh_device_profile_t *profile,
                                                uint16_t version,
                                                uint32_t generation);

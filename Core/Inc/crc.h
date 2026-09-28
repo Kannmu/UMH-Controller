@@ -42,6 +42,14 @@ void MX_CRC_Init(void);
 
 /* USER CODE BEGIN Prototypes */
 
+/* Standard CRC-32/ISO-HDLC.  The contiguous helper uses the STM32 CRC
+ * peripheral with a one-time self-check and falls back to bit-exact software.
+ * The update/finish pair exposes the software core for incremental streams
+ * that cannot fit in one buffer. */
+uint32_t umh_crc32(const void *data, uint32_t length);
+uint32_t umh_crc32_update(uint32_t state, const void *data, uint32_t length);
+uint32_t umh_crc32_finish(uint32_t state);
+
 /* USER CODE END Prototypes */
 
 #ifdef __cplusplus

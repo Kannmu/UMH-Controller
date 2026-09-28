@@ -71,19 +71,6 @@ void playback_plan_tick(umh_playback_plan_t *plan, uint64_t device_time,
   }
 }
 
-uint64_t playback_plan_map_time(const umh_playback_plan_t *plan, uint64_t output_time)
-{
-  uint64_t elapsed;
-  uint64_t scaled;
-  if (plan == NULL || plan->wire.rate_denominator == 0u) return 0u;
-  if (output_time < plan->origin_output_time) return plan->origin_source_time;
-  elapsed = output_time - plan->origin_output_time;
-  if (elapsed > UINT64_MAX / plan->wire.rate_numerator) return UINT64_MAX;
-  scaled = (elapsed * plan->wire.rate_numerator) / plan->wire.rate_denominator;
-  if (plan->origin_source_time > UINT64_MAX - scaled) return UINT64_MAX;
-  return plan->origin_source_time + scaled;
-}
-
 uint8_t playback_plan_frame_due(umh_playback_plan_t *plan, uint64_t frame_source_time,
                                 uint64_t device_time)
 {
@@ -128,18 +115,6 @@ void playback_plan_frame_submitted(umh_playback_plan_t *plan)
   if (plan != NULL) ++plan->current_frame;
 }
 
-void playback_plan_notify_trigger(umh_playback_plan_t *plan)
-{
-  if (plan != NULL) {
-    plan->trigger_seen = 1u;
-    if (plan->configured != 0u && plan->prebuffered != 0u &&
-        plan->wire.start_mode == UMH_PLAN_START_TRIGGER) {
-      plan->running = 1u;
-      plan->origin_valid = 0u;
-    }
-  }
-}
-
 int playback_plan_prepare_loop(umh_playback_plan_t *plan,
                                umh_frame_ring_t *frames,
                                uint64_t device_time)
@@ -155,12 +130,4 @@ int playback_plan_prepare_loop(umh_playback_plan_t *plan,
   plan->output_time = device_time;
   plan->underrun_active = 0u;
   return 1;
-}
-
-uint8_t playback_plan_is_terminal(const umh_playback_plan_t *plan)
-{
-  if (plan == NULL) return 1u;
-  if (plan->wire.repeat_mode == UMH_PLAN_LOOP_RAM &&
-      (plan->wire.loop_count == 0u || plan->loop_iteration < plan->wire.loop_count)) return 0u;
-  return plan->wire.repeat_mode == UMH_PLAN_LOOP_STREAM ? 0u : 1u;
 }
