@@ -31,6 +31,7 @@
 #include "system_status.h"
 #include "cordic.h"
 #include "spatial_renderer.h"
+#include "umh_fast_math.h"
 #include "umh_utils.h"
 #include <math.h>
 #include <string.h>
@@ -349,7 +350,7 @@ static float cal_direct_path_mm(uint8_t mic, uint8_t channel)
   float py = (float)cal_profile->coordinates[channel].y_um * 0.001f;
   float dx = px - cal_mic_x_mm[mic];
   float dy = py - cal_mic_y_mm[mic];
-  return sqrtf(dx * dx + dy * dy + CAL_SRC_Z_MM * CAL_SRC_Z_MM);
+  return umh_sqrtf(dx * dx + dy * dy + CAL_SRC_Z_MM * CAL_SRC_Z_MM);
 }
 
 
@@ -555,7 +556,7 @@ static int cal_early_measure_h(fpga_link_t *link, us_cal_progress_cb_t progress,
       float max_mag = 0.0f;
       uint16_t first_peak = CAL_EARLY_SCAN_MIN, argmax = CAL_EARLY_SCAN_MIN;
       for (s = CAL_EARLY_SCAN_MIN; s <= CAL_EARLY_SCAN_END; ++s) {
-        mag[s] = sqrtf(prof_re[s][m] * prof_re[s][m] +
+        mag[s] = umh_sqrtf(prof_re[s][m] * prof_re[s][m] +
                        prof_im[s][m] * prof_im[s][m]);
         if (mag[s] > max_mag) { max_mag = mag[s]; argmax = s; }
       }
@@ -598,7 +599,7 @@ static __attribute__((always_inline)) inline void cal_normalize_phasor(float *re
 {
   float mag2 = (*re) * (*re) + (*im) * (*im);
   if (mag2 > 1.0e-30f) {
-    float inv = 1.0f / sqrtf(mag2);
+    float inv = 1.0f / umh_sqrtf(mag2);
     *re *= inv;
     *im *= inv;
   } else {
@@ -697,7 +698,7 @@ static float cal_early_fit_sign(uint8_t sign, float a_out[CAL_CHANNELS],
       mi = cal_a_re[i] * cal_rho_im[m] + cal_a_im[i] * cal_rho_re[m];
       wr = dr * mr + di * mi;
       wi = di * mr - dr * mi;
-      mag = sqrtf(dr * dr + di * di);
+      mag = umh_sqrtf(dr * dr + di * di);
       err = cal_wrap_pi(cal_atan2_rad(wr, wi));
       weighted_err += mag * err * err;
       weight_sum += mag;
@@ -714,7 +715,7 @@ static float cal_early_fit_sign(uint8_t sign, float a_out[CAL_CHANNELS],
   *valid_pairs_out = valid_pairs;
   for (i = 0u; i < CAL_CHANNELS; ++i)
     a_out[i] = cal_atan2_rad(cal_a_re[i], cal_a_im[i]);
-  return cal_deg(sqrtf(weighted_err / weight_sum));
+  return cal_deg(umh_sqrtf(weighted_err / weight_sum));
 }
 
 static int cal_early_run(fpga_link_t *link, const umh_device_profile_t *profile,
@@ -759,7 +760,7 @@ static int cal_early_run(fpga_link_t *link, const umh_device_profile_t *profile,
     for (i = 0u; i < CAL_CHANNELS; ++i) {
       float zr = cal_z_re[m][i];
       float zi = cal_z_im[m][i];
-      cal_pair_mark(m, (uint8_t)i, sqrtf(zr * zr + zi * zi) < CAL_EARLY_MIN_MAG ? 0u : 1u);
+      cal_pair_mark(m, (uint8_t)i, umh_sqrtf(zr * zr + zi * zi) < CAL_EARLY_MIN_MAG ? 0u : 1u);
     }
   }
 
@@ -1063,13 +1064,13 @@ static float cal_hdist_mm(uint8_t mic, uint8_t channel)
 {
   float dx = (float)cal_profile->coordinates[channel].x_um * 0.001f - cal_mic_x_mm[mic];
   float dy = (float)cal_profile->coordinates[channel].y_um * 0.001f - cal_mic_y_mm[mic];
-  return sqrtf(dx * dx + dy * dy);
+  return umh_sqrtf(dx * dx + dy * dy);
 }
 
 static float cal_echo_path_mm(float h, float v_mm)
 {
   float z = 2.0f * v_mm + CAL_SRC_Z_MM;
-  return sqrtf(h * h + z * z);
+  return umh_sqrtf(h * h + z * z);
 }
 
 /* In-place ascending sort of a short float list; returns the median. */
@@ -1102,7 +1103,7 @@ static float cal_echo_onset(const float *prof, uint8_t mic, float *peak)
     }
     dr = prof[(uint32_t)g * 8u + mic * 2u] - br * (1.0f / 3.0f);
     di = prof[(uint32_t)g * 8u + mic * 2u + 1u] - bi * (1.0f / 3.0f);
-    dev[g] = sqrtf(dr * dr + di * di);
+    dev[g] = umh_sqrtf(dr * dr + di * di);
     if (dev[g] > mx) mx = dev[g];
   }
   *peak = mx;
@@ -1143,7 +1144,7 @@ static int cal_echo_table(fpga_link_t *link, float c_mm_us, float *v_out,
   for (i = 0u; i < CAL_CHANNELS && used < CAL_ECHO_A_CHANNELS; ++i) {
     float px = (float)cal_profile->coordinates[i].x_um * 0.001f;
     float py = (float)cal_profile->coordinates[i].y_um * 0.001f;
-    float r = sqrtf(px * px + py * py);
+    float r = umh_sqrtf(px * px + py * py);
     if (r < 25.0f || r > 35.0f) continue;
     ++used;
     if (cal_echo_single(link, i, CAL_ECHO_LEVEL, CAL_ECHO_A_GATES, CAL_ECHO_A_START,
@@ -1157,7 +1158,7 @@ static int cal_echo_table(fpga_link_t *link, float c_mm_us, float *v_out,
       t = ((float)CAL_ECHO_A_START + g) * 25.0f;
       re = (t - CAL_ECHO_ONSET_LAT_US) * c_mm_us;
       if (re <= h) continue;
-      v_list[nv++] = 0.5f * (sqrtf(re * re - h * h) - CAL_SRC_Z_MM);
+      v_list[nv++] = 0.5f * (umh_sqrtf(re * re - h * h) - CAL_SRC_Z_MM);
     }
     cal_report(progress, context, US_CAL_MEASURE, (uint8_t)(2u + used));
   }
@@ -1214,8 +1215,8 @@ static void cal_echo_reduce(const cal_echo_plan_t *plan, const float *gates,
     br /= nb; bi /= nb; er /= ne; ei /= ne;
     d_re[m] = er - br;
     d_im[m] = ei - bi;
-    if (b_mag != NULL) b_mag[m] = sqrtf(br * br + bi * bi);
-    if (e_mag != NULL) e_mag[m] = sqrtf(er * er + ei * ei);
+    if (b_mag != NULL) b_mag[m] = umh_sqrtf(br * br + bi * bi);
+    if (e_mag != NULL) e_mag[m] = umh_sqrtf(er * er + ei * ei);
   }
 }
 
@@ -1277,7 +1278,7 @@ static int cal_echo_focus(fpga_link_t *link, const cal_echo_plan_t *plan,
                            US_CAL_PROBE_DIFF, cal_echo_gates, &sat) != 0)
     return -2;
   cal_echo_reduce(plan, cal_echo_gates, d_re, d_im, NULL, NULL);
-  *mag_out = sqrtf(d_re[mic] * d_re[mic] + d_im[mic] * d_im[mic]);
+  *mag_out = umh_sqrtf(d_re[mic] * d_re[mic] + d_im[mic] * d_im[mic]);
   return 0;
 }
 
@@ -1359,7 +1360,7 @@ static int cal_echo_run(fpga_link_t *link, const umh_device_profile_t *profile,
   for (i = 0u; i < CAL_CHANNELS; ++i) {
     float mx = 0.0f;
     for (m = 0u; m < CAL_MICS; ++m) {
-      float a = sqrtf(cal_z_re[m][i] * cal_z_re[m][i] + cal_z_im[m][i] * cal_z_im[m][i]);
+      float a = umh_sqrtf(cal_z_re[m][i] * cal_z_re[m][i] + cal_z_im[m][i] * cal_z_im[m][i]);
       if (a > mx) mx = a;
     }
     cal_echo_sort[i] = mx;
@@ -1520,9 +1521,9 @@ static int cal_echo_run(fpga_link_t *link, const umh_device_profile_t *profile,
       result->phase_byte[i] = (uint8_t)code;
       result->coverage[i] = (cal_echo_dead[i] != 0u) ? 0xFFu : cal_echo_n[i];
     }
-    result->rms_before_deg = cal_deg(sqrtf(before / (float)covered));
-    result->correction_rms_deg = cal_deg(sqrtf(after / (float)covered));
-    result->rms_after_deg = cal_deg(sqrtf(sd2));
+    result->rms_before_deg = cal_deg(umh_sqrtf(before / (float)covered));
+    result->correction_rms_deg = cal_deg(umh_sqrtf(after / (float)covered));
+    result->rms_after_deg = cal_deg(umh_sqrtf(sd2));
     result->fit_rms_deg = result->rms_after_deg;
     result->mic_consistency_deg = result->rms_after_deg;
   }
@@ -1532,7 +1533,7 @@ static int cal_echo_run(fpga_link_t *link, const umh_device_profile_t *profile,
     n_sort = 0u;
     for (i = 0u; i < CAL_CHANNELS; ++i) {
       if (cal_pair_valid(m, i) == 0u) continue;
-      cal_echo_sort[n_sort++] = sqrtf(cal_z_re[m][i] * cal_z_re[m][i] + cal_z_im[m][i] * cal_z_im[m][i]) *
+      cal_echo_sort[n_sort++] = umh_sqrtf(cal_z_re[m][i] * cal_z_re[m][i] + cal_z_im[m][i] * cal_z_im[m][i]) *
                                 cal_echo_path_mm(cal_hdist_mm(m, i), v_mm);
     }
     mic_med[m] = cal_sort_median(cal_echo_sort, n_sort);
@@ -1542,7 +1543,7 @@ static int cal_echo_run(fpga_link_t *link, const umh_device_profile_t *profile,
     uint16_t k = 0u;
     for (m = 0u; m < CAL_MICS; ++m) {
       if (cal_pair_valid(m, i) == 0u || mic_med[m] <= 0.0f) continue;
-      v[k++] = sqrtf(cal_z_re[m][i] * cal_z_re[m][i] + cal_z_im[m][i] * cal_z_im[m][i]) *
+      v[k++] = umh_sqrtf(cal_z_re[m][i] * cal_z_re[m][i] + cal_z_im[m][i] * cal_z_im[m][i]) *
                cal_echo_path_mm(cal_hdist_mm(m, i), v_mm) / mic_med[m];
     }
     ph[i] = (k != 0u) ? cal_sort_median(v, k) : 0.0f;
@@ -1804,7 +1805,7 @@ static int cal_self_test_eval(fpga_link_t *link,
   for (i = 0u; i < CAL_CHANNELS; ++i) {
     float mx = 0.0f;
     for (m = 0u; m < CAL_MICS; ++m) {
-      float p = sqrtf(cal_z_re[m][i] * cal_z_re[m][i] +
+      float p = umh_sqrtf(cal_z_re[m][i] * cal_z_re[m][i] +
                       cal_z_im[m][i] * cal_z_im[m][i]);
       if (p > mx) mx = p;
     }
@@ -1867,7 +1868,7 @@ static int cal_self_test_eval(fpga_link_t *link,
       cr = cosf(ph); ci = sinf(ph);
       pred_re += hr * cr - hi * ci;
       pred_im += hr * ci + hi * cr;
-      sum_h += sqrtf(hr * hr + hi * hi);
+      sum_h += umh_sqrtf(hr * hr + hi * hi);
     }
     for (i = 0u; i < CAL_CHANNELS; ++i) {
       float hr = cal_z_re[m][i], hi = cal_z_im[m][i];
@@ -1878,10 +1879,10 @@ static int cal_self_test_eval(fpga_link_t *link,
       sum_h2 += hr * hr + hi * hi;
     }
 
-    act = sqrtf(y0[m] * y0[m] + y1[m] * y1[m]);
-    ctrl = sqrtf(c0[m] * c0[m] + c1[m] * c1[m]);
-    pred_mag = sqrtf(pred_re * pred_re + pred_im * pred_im) * scale;
-    predfull_mag = sqrtf(predfull_re * predfull_re + predfull_im * predfull_im);
+    act = umh_sqrtf(y0[m] * y0[m] + y1[m] * y1[m]);
+    ctrl = umh_sqrtf(c0[m] * c0[m] + c1[m] * c1[m]);
+    pred_mag = umh_sqrtf(pred_re * pred_re + pred_im * pred_im) * scale;
+    predfull_mag = umh_sqrtf(predfull_re * predfull_re + predfull_im * predfull_im);
     cal_dbg_self_y_re[m] = y0[m]; cal_dbg_self_y_im[m] = y1[m];
     cal_dbg_self_c_re[m] = c0[m]; cal_dbg_self_c_im[m] = c1[m];
     cal_dbg_self_pred_mag[m] = pred_mag;

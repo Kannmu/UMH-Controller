@@ -45,7 +45,7 @@
  * ------------------------------------------------------------------------- */
 
 /* 84 x 16-bit staging memory. Simple dual-port with clock domain crossing.
- * The write port is in the SPI SCK domain, read port in 128 MHz domain. */
+ * The write port is in the SPI SCK domain, read port in the 64 MHz domain. */
 module umh_channel_ram18 (
     input  wire        wr_clk,
     input  wire [6:0]  wr_addr,
@@ -61,22 +61,23 @@ module umh_channel_ram18 (
 endmodule
 
 /* 512 x 84 toggle-event table. Pseudo dual-port: one read, one write.
- * Port A (read) for DDS, Port B (read/write) for frame builder. */
+ * Port A (read) for DDS, Port B (write) for frame builder.  The builder never
+ * reads its own write port back: EV_WR computes the new word from the word it
+ * just read on port A, so a second 84-bit read register would only burn 84
+ * flops of an already 63 %-full slice budget. */
 module umh_toggle_ram84 (
     input  wire        clk,
     input  wire [8:0]  addr_a,
     output reg  [83:0] rd_data_a,
     input  wire        we_b,
     input  wire [8:0]  addr_b,
-    input  wire [83:0] wr_data_b,
-    output reg  [83:0] rd_data_b
+    input  wire [83:0] wr_data_b
 );
     (* syn_ramstyle = "block_ram" *) reg [83:0] mem [0:511];
 
     always @(posedge clk) begin
         rd_data_a <= mem[addr_a];
         if (we_b) mem[addr_b] <= wr_data_b;
-        rd_data_b <= mem[addr_b];
     end
 endmodule
 
@@ -103,9 +104,9 @@ module umh_mic_iq_ram (
     end
 endmodule
 
-/* 256 x 8 audio envelope FIFO in the last free EBR.  Written from the SPI
+/* 256 x 8 common-level FIFO in the last free EBR.  Written from the SPI
  * SCK domain, read by the output domain through a registered port. */
-module umh_audio_fifo (
+module umh_level_fifo (
     input  wire       wr_clk,
     input  wire       we,
     input  wire [7:0] wr_addr,
@@ -141,15 +142,15 @@ module umh_fpga_top (
      * carry the frame sequence, and the usual 16-byte status word is read
      * back in the same transaction. */
     localparam [15:0] COMPACT_BYTES   = 16'd16;
-    localparam [7:0]  AUDIO_CMD_MODE  = 8'h17;
-    /* AUDIO_BLOCK: [0x1A, version, level0 .. levelN-1] with N <= 32, so the
+    localparam [7:0]  MOD_CMD_FIXED  = 8'h17;
+    /* MOD_FEED: [0x1A, version, level0 .. levelN-1] with N <= 32, so the
      * transaction never reaches the 36-byte header end.  The levels go into
      * a 256-entry FIFO that is popped on every second carrier wrap (exactly
      * 20 kHz of FPGA time).  Writing one level per SPI transaction tied the
      * sample instant to STM32 task timing; USB interrupts then moved single
      * samples by one 25 us carrier period and each slip was an audible
      * click.  The FIFO makes the sample clock independent of the MCU. */
-    localparam [7:0]  AUDIO_CMD_BLOCK = 8'h1A;
+    localparam [7:0]  MOD_CMD_FEED = 8'h1A;
     /* 40 kHz carrier with 256 phase slots at 64 MHz (10.24 MHz slot rate). */
     localparam [31:0] CARRIER_STEP  = 32'd2684355;
 
@@ -204,7 +205,7 @@ module umh_fpga_top (
      * that domain only and is released long after the last SCK edge, so its
      * recovery time is met; no other logic in this design is clocked by CS.
      * Only single-bit toggles cross into the output domain through two-flop
-     * synchronisers.  Multi-bit fields (sequence, update flags, RGB, audio
+     * synchronisers.  Multi-bit fields (sequence, update flags, RGB, mod
      * mode) are static from the SCK edge that raised the toggle and are read
      * directly after the settle delay; the sequence number is diagnostic
      * only, so a build that starts during a later transaction may at worst
@@ -221,16 +222,18 @@ module umh_fpga_top (
     reg  [1:0]  accepted_update_flags_spi;
     reg  [6:0]  spi_channel_index;
     reg  [1:0]  spi_channel_field;
-    reg  [3:0]  spi_rgb_index;
     reg  [7:0]  spi_compact_data;
-    reg         audio_mode_spi;
-    reg         audio_mode_toggle_spi;
-    /* AUDIO_BLOCK write pointer.  It is not reset by CS: it only moves on
+    reg         mod_level_spi;
+    reg         mod_toggle_spi;
+    /* MOD_FEED write pointer.  It is not reset by CS: it only moves on
      * SCK edges of level bytes and is static from the last SCK edge until
      * the next transaction, which is when the output domain copies it. */
-    reg  [7:0]  afifo_wr_spi;
+    reg  [7:0]  feed_wr_spi;
     reg         frame_toggle_spi, stop_toggle_spi, invalid_frame_spi, ws2812_toggle_spi;
-    reg  [95:0] rgb_values;
+    /* LED colour, in ws2812_stream's {G,R,B} word order.  The four LEDs share
+     * one DI line, so only the first RGB triple of the payload is stored; the
+     * other nine bytes stay wire-compatible but are discarded. */
+    reg  [23:0] rgb_values;
     reg  [8:0]  status_bit_index;
 
     /* Sticky diagnostics for the board bring-up report.  Status is read
@@ -243,18 +246,21 @@ module umh_fpga_top (
     wire        spi_write    = spi_payload_byte && (spi_channel_field == 2'd1);
     wire [15:0] staging_wr_data = {spi_phase_pending, spi_rx_byte};
     /* RGB follows the optional ultrasound payload.  WS2812-only commands
-     * therefore start at byte 36, while combined frames start at byte 204. */
-    wire [15:0] spi_rgb_start = HEADER_BYTES +
-                                (spi_update_flags[0] ? CHANNEL_BYTES : 16'd0);
+     * therefore start at byte 36, while combined frames start at byte 204.
+     * Only the first three RGB bytes are consumed; the parallel LEDs all show
+     * the same colour, so the remaining nine payload bytes are ignored. */
+    wire [8:0]  spi_rgb_start = HEADER_BYTES[8:0] +
+                                (spi_update_flags[0] ? CHANNEL_BYTES[8:0] : 9'd0);
+    wire [8:0]  spi_rgb_offset = spi_byte_count - spi_rgb_start;
     wire        spi_rgb_payload_byte = !fpga_cs_n && spi_update_flags[1] &&
                                        (spi_bit_count == 3'd7) &&
                                        (spi_byte_count >= spi_rgb_start) &&
-                                       (spi_byte_count < spi_rgb_start + 16'd12);
-    wire        spi_compact_cmd = (spi_command == AUDIO_CMD_MODE);
-    /* Level bytes are bytes 2.. of an AUDIO_BLOCK transaction.  spi_command
+                                       (spi_rgb_offset <= 9'd2);
+    wire        spi_compact_cmd = (spi_command == MOD_CMD_FIXED);
+    /* Level bytes are bytes 2.. of a MOD_FEED transaction.  spi_command
      * is only valid from byte 1 on, so byte 0 can never match here. */
-    wire        afifo_we = (spi_bit_count == 3'd7) &&
-                           (spi_command == AUDIO_CMD_BLOCK) &&
+    wire        feed_we = (spi_bit_count == 3'd7) &&
+                           (spi_command == MOD_CMD_FEED) &&
                            (spi_byte_count[8:1] != 8'd0);
 
     reg         ws2812_enable;
@@ -473,8 +479,7 @@ module umh_fpga_top (
     umh_toggle_ram84 event_ram (
         .clk(fpga_clk),
         .addr_a(event_rd_addr), .rd_data_a(ev_rd_data),
-        .we_b(ev_we), .addr_b(ev_build_addr), .wr_data_b(ev_wr_data),
-        .rd_data_b()
+        .we_b(ev_we), .addr_b(ev_build_addr), .wr_data_b(ev_wr_data)
     );
 
     /* ------------------------------------------------------------------
@@ -502,20 +507,22 @@ module umh_fpga_top (
     reg  [15:0] pending_sequence, accepted_sequence;
     reg  [3:0]  frame_settle;
     reg  [3:0]  ws2812_settle;
-    reg  [95:0] rgb_hold;
+    /* LED colour snapshot, {G,R,B}.  All four LEDs are parallel on one DI
+     * line, so a single triple is all the stream needs. */
+    reg  [23:0] rgb_hold;
 
-    /* Focused-AM common envelope state.  The full 84-channel phase image is
-     * loaded once through the normal FRAME command; these registers only
-     * substitute a common level byte during each event-table rebuild, so the
-     * 84 ultrasonic phases stay fixed while the audio envelope is streamed. */
-    reg         audio_mode;
-    reg  [7:0]  pending_audio_level;
+    /* Common-level mode state.  The full 84-channel phase image is loaded once
+     * through the normal FRAME command; these registers only substitute a
+     * common level byte during each event-table rebuild, so the 84 ultrasonic
+     * phases stay fixed while the common envelope is streamed. */
+    reg         mod_active;
+    reg  [7:0]  pending_mod_level;
     reg  [7:0]  build_level;
-    reg         build_audio;
-    reg         frame_req_audio;
-    reg         audio_mode_toggle_meta, audio_mode_toggle_sync, audio_mode_toggle_seen;
-    reg  [3:0]  audio_settle;
-    /* AUDIO_BLOCK FIFO, output side.  afifo_wr copies afifo_wr_spi on the
+    reg         build_mod;
+    reg         frame_req_mod;
+    reg         mod_toggle_meta, mod_toggle_sync, mod_toggle_seen;
+    reg  [3:0]  mod_settle;
+    /* MOD_FEED FIFO, output side.  feed_wr copies feed_wr_spi on the
      * synchronised CS rising edge, i.e. well after the last SCK edge of the
      * transaction, so the multi-bit pointer is static when it is sampled
      * and every RAM word below it is already written.  A level is popped at
@@ -523,20 +530,20 @@ module umh_fpga_top (
      * the next wrap, which cannot pop because swap_pending is still set
      * there.  Each envelope sample therefore lasts exactly two carrier
      * periods without a parity bit.  An empty FIFO holds the last level. */
-    reg  [7:0]  afifo_wr, afifo_rd;
-    wire [7:0]  afifo_q;
-    wire [7:0]  afifo_fill = afifo_wr - afifo_rd;
-    wire        afifo_pop = wrap_s2 && audio_mode && build_idle &&
-                            (afifo_fill != 8'd0);
-    umh_audio_fifo audio_fifo (
-        .wr_clk(spi1_sck), .we(afifo_we), .wr_addr(afifo_wr_spi), .wr_data(spi_rx_byte),
-        .rd_clk(fpga_clk), .rd_addr(afifo_rd), .rd_data(afifo_q)
+    reg  [7:0]  feed_wr, feed_rd;
+    wire [7:0]  feed_q;
+    wire [7:0]  feed_fill = feed_wr - feed_rd;
+    wire        feed_pop = wrap_s2 && mod_active && build_idle &&
+                            (feed_fill != 8'd0);
+    umh_level_fifo level_fifo (
+        .wr_clk(spi1_sck), .we(feed_we), .wr_addr(feed_wr_spi), .wr_data(spi_rx_byte),
+        .rd_clk(fpga_clk), .rd_addr(feed_rd), .rd_data(feed_q)
     );
-    /* In focused-AM mode the stored level byte is an enable marker: any
+    /* In common-level mode the stored level byte is an enable marker: any
      * non-zero value keeps the channel active at the common envelope level,
      * while zero mutes the channel exactly as spatial rendering would.
      * This preserves the EEPROM channel-enable mask without a multiplier. */
-    wire [7:0]  event_level = build_audio ?
+    wire [7:0]  event_level = build_mod ?
                               ((staging_q[7:0] != 8'd0) ? build_level : 8'd0) :
                               staging_q[7:0];
     wire stop_event = (stop_toggle_sync != stop_toggle_seen);
@@ -560,12 +567,12 @@ module umh_fpga_top (
      * deciding whether the FPGA reports a fault. */
     wire [15:0] status_flags_wire = (invalid_frame_sync ? 16'h0004 : 16'h0000) |
                                     (running ? 16'h0010 : 16'h0000) |
-                                    (audio_mode ? 16'h8000 : 16'h0000) |
+                                    (mod_active ? 16'h8000 : 16'h0000) |
                                     (pll_lock_sync[1] ? 16'h2000 : 16'h0000) |
-                                    16'h1000; /* AUDIO_BLOCK (0x1A) support */
-    /* Byte 1 reports the AUDIO_BLOCK FIFO fill level. */
+                                    16'h1000; /* MOD_FEED (0x1A) support */
+    /* Byte 1 reports the MOD_FEED FIFO fill level. */
     wire [127:0] status_word = {
-        8'h01, afifo_fill,
+        8'h01, feed_fill,
         fifo_credit_wire[7:0],  fifo_credit_wire[15:8],
         fifo_depth_wire[7:0],   fifo_depth_wire[15:8],
         status_flags_wire[7:0], status_flags_wire[15:8],
@@ -613,7 +620,6 @@ module umh_fpga_top (
             spi_extension_length <= 16'd0; spi_frame_sequence <= 16'd0;
             spi_expected_length <= HEADER_BYTES; spi_channel_index <= 7'd0;
             spi_channel_field <= 2'd0; spi_phase_pending <= 8'd0;
-            spi_rgb_index <= 4'd0;
         end else begin
             if (spi_bit_count == 3'd7) begin
                 spi_bit_count <= 3'd0;
@@ -621,7 +627,7 @@ module umh_fpga_top (
                 case (spi_byte_count)
                     16'd0:  spi_command  <= spi_rx_byte;
                     16'd1:  spi_version  <= spi_rx_byte;
-                    /* Only AUDIO_MODE consumes this byte, at frame_end. */
+                        /* Only MOD_FIXED consumes this byte, at frame_end. */
                     16'd2:  spi_compact_data <= spi_rx_byte;
                     16'd6:  spi_frame_sequence[7:0]   <= spi_rx_byte;
                     16'd7:  spi_frame_sequence[15:8]  <= spi_rx_byte;
@@ -657,25 +663,18 @@ module umh_fpga_top (
                             spi_channel_field <= (spi_channel_field == 2'd1) ? 2'd0
                                                                            : spi_channel_field + 2'd1;
                         end else if (spi_rgb_payload_byte) begin
-                            /* STM32 sends R,G,B for LED0..3.  Store the
-                             * internal layout used by ws2812_stream, where
-                             * each 24-bit word is {G,R,B}. */
-                            case (spi_rgb_index)
-                                4'd0:  rgb_values[15:8]  <= spi_rx_byte;
-                                4'd1:  rgb_values[7:0]   <= spi_rx_byte;
-                                4'd2:  rgb_values[23:16] <= spi_rx_byte;
-                                4'd3:  rgb_values[39:32] <= spi_rx_byte;
-                                4'd4:  rgb_values[31:24] <= spi_rx_byte;
-                                4'd5:  rgb_values[47:40] <= spi_rx_byte;
-                                4'd6:  rgb_values[63:56] <= spi_rx_byte;
-                                4'd7:  rgb_values[55:48] <= spi_rx_byte;
-                                4'd8:  rgb_values[71:64] <= spi_rx_byte;
-                                4'd9:  rgb_values[87:80] <= spi_rx_byte;
-                                4'd10: rgb_values[79:72] <= spi_rx_byte;
-                                4'd11: rgb_values[95:88] <= spi_rx_byte;
+                            /* STM32 sends R,G,B per LED.  All four LEDs are
+                             * parallel on one DI line, so only the first
+                             * triple is kept, stored in the {G,R,B} order
+                             * ws2812_stream shifts out.  No byte index is
+                             * needed: the byte counter itself selects the
+                             * field. */
+                            case (spi_rgb_offset)
+                                9'd0: rgb_values[15:8]  <= spi_rx_byte;  /* R */
+                                9'd1: rgb_values[7:0]   <= spi_rx_byte;  /* G */
+                                9'd2: rgb_values[23:16] <= spi_rx_byte;  /* B */
                                 default: ;
                             endcase
-                            spi_rgb_index <= spi_rgb_index + 4'd1;
                         end
                     end
                 endcase
@@ -684,9 +683,9 @@ module umh_fpga_top (
                     /* Keep the parser's last complete transaction visible in
                      * the status word, including STATUS and STOP commands. */
                     /* frame_end of a compact command is always its byte 15. */
-                    if (spi_command == AUDIO_CMD_MODE && spi_version == 8'h01) begin
-                        audio_mode_spi <= spi_compact_data[0];
-                        audio_mode_toggle_spi <= ~audio_mode_toggle_spi;
+                    if (spi_command == MOD_CMD_FIXED && spi_version == 8'h01) begin
+                        mod_level_spi <= spi_compact_data[0];
+                        mod_toggle_spi <= ~mod_toggle_spi;
                         accepted_sequence_spi <= spi_frame_sequence;
                         invalid_frame_spi <= 1'b0;
                     end else if (spi_command == 8'h10 && spi_version == 8'h01 &&
@@ -729,10 +728,10 @@ module umh_fpga_top (
         end
     end
 
-    always @(posedge spi1_sck) if (afifo_we) afifo_wr_spi <= afifo_wr_spi + 8'd1;
+    always @(posedge spi1_sck) if (feed_we) feed_wr_spi <= feed_wr_spi + 8'd1;
 
     /* ------------------------------------------------------------------
-     * 128 MHz output domain: frame commit, carrier, microphone clock.
+     * 64 MHz output domain: frame commit, carrier, microphone clock.
      * ------------------------------------------------------------------ */
     always @(posedge fpga_clk) begin
         /* DDS stage 1: fractional carry only */
@@ -803,8 +802,8 @@ module umh_fpga_top (
         ws2812_toggle_sync     <= ws2812_toggle_meta;
         invalid_frame_meta     <= invalid_frame_spi;
         invalid_frame_sync     <= invalid_frame_meta;
-        audio_mode_toggle_meta  <= audio_mode_toggle_spi;
-        audio_mode_toggle_sync  <= audio_mode_toggle_meta;
+        mod_toggle_meta  <= mod_toggle_spi;
+        mod_toggle_sync  <= mod_toggle_meta;
 
         if (frame_toggle_sync != frame_toggle_seen) begin
             frame_toggle_seen <= frame_toggle_sync;
@@ -820,9 +819,9 @@ module umh_fpga_top (
                 if (accepted_update_flags_spi[0]) frame_req <= 1'b1;
                 /* RGB/digital-only FRAMEs must not rebuild the ultrasound
                  * event table.  A pending compact level is still handled
-                 * through frame_req_audio. */
+                 * through frame_req_mod. */
 
-                if (audio_mode == 1'b0) frame_req_audio <= 1'b0;
+                if (mod_active == 1'b0) frame_req_mod <= 1'b0;
                 rgb_hold  <= rgb_values;
                 /* RGB is a persistent independent output.  Ultrasound-only
                  * frames must not erase the last LED test/demo colour. */
@@ -832,33 +831,33 @@ module umh_fpga_top (
             end
         end
 
-        /* Focused-AM envelope: every pop asks the event builder to rebuild
+        /* Modulated-aperture envelope: every pop asks the event builder to rebuild
          * the inactive bank, so the active bank keeps driving us_tx without
-         * a gap.  afifo_pop is only true while the builder is idle. */
-        if (cs_rise) afifo_wr <= afifo_wr_spi;
-        if (afifo_pop) begin
-            afifo_rd <= afifo_rd + 8'd1;
-            pending_audio_level <= afifo_q;
+         * a gap.  feed_pop is only true while the builder is idle. */
+        if (cs_rise) feed_wr <= feed_wr_spi;
+        if (feed_pop) begin
+            feed_rd <= feed_rd + 8'd1;
+            pending_mod_level <= feed_q;
             frame_req <= 1'b1;
-            frame_req_audio <= 1'b1;
+            frame_req_mod <= 1'b1;
         end
 
-        /* AUDIO_MODE hand-off.  A mode change rebuilds the inactive bank at
-         * level 0 and drops any queued envelope samples.  audio_mode_spi is
+        /* MOD_FIXED hand-off.  A mode change rebuilds the inactive bank at
+         * level 0 and drops any queued envelope samples.  mod_level_spi is
          * static from the SCK edge that raised the toggle, so after the
          * synchroniser and 8 settle cycles it is read directly, like
          * rgb_values. */
-        if (audio_mode_toggle_sync != audio_mode_toggle_seen) begin
-            audio_mode_toggle_seen <= audio_mode_toggle_sync;
-            audio_settle <= 4'd8;
-        end else if (audio_settle != 4'd0) begin
-            audio_settle <= audio_settle - 4'd1;
-            if (audio_settle == 4'd1) begin
-                audio_mode <= audio_mode_spi;
-                pending_audio_level <= 8'd0;
-                afifo_rd <= afifo_wr;
+        if (mod_toggle_sync != mod_toggle_seen) begin
+            mod_toggle_seen <= mod_toggle_sync;
+            mod_settle <= 4'd8;
+        end else if (mod_settle != 4'd0) begin
+            mod_settle <= mod_settle - 4'd1;
+            if (mod_settle == 4'd1) begin
+                mod_active <= mod_level_spi;
+                pending_mod_level <= 8'd0;
+                feed_rd <= feed_wr;
                 frame_req <= 1'b1;
-                frame_req_audio <= 1'b1;
+                frame_req_mod <= 1'b1;
             end
         end
 
@@ -866,7 +865,7 @@ module umh_fpga_top (
         if (ws2812_toggle_sync != ws2812_toggle_seen) begin
             ws2812_toggle_seen <= ws2812_toggle_sync;
             /* Allow the final SPI byte and the toggle synchronisers to settle
-             * before taking the 96-bit RGB snapshot.  Keep the stream enabled:
+                 * before taking the RGB snapshot.  Keep the stream enabled:
              * ws2812_stream reloads its shift register at every reset gap, so
              * a register update is enough and there is no reset-dependent
              * one-shot transition for the LEDs to latch. */
@@ -875,7 +874,7 @@ module umh_fpga_top (
         end else if (ws2812_settle != 4'd0) begin
             /* RGB is written in the SPI clock domain.  Keep the toggle as
              * the event marker and wait for the bus to settle before taking
-             * the snapshot in the 128 MHz domain. */
+             * the snapshot in the 64 MHz domain. */
             if (ws2812_settle != 4'd1)
                 ws2812_settle <= ws2812_settle - 4'd1;
             if (ws2812_settle == 4'd1) begin
@@ -892,16 +891,16 @@ module umh_fpga_top (
             EV_IDLE: begin
                 if (frame_req && !swap_pending) begin
                     frame_req        <= 1'b0;
-                    /* Audio mode owns the event builder even when the
+                    /* Common-level mode owns the event builder even when the
                      * request came from a normal FRAME (the aperture load).
                      * In that case the current common level is used and the
                      * staging level byte only acts as an enable marker. */
-                    build_audio      <= frame_req_audio | audio_mode;
-                    /* pending_audio_level is also the persistent common level:
+                    build_mod      <= frame_req_mod | mod_active;
+                    /* pending_mod_level is also the persistent common level:
                      * mode entry writes 0, FIFO pops update it, and an
-                     * aperture FRAME in audio mode reuses the latest value. */
-                    build_level      <= pending_audio_level;
-                    frame_req_audio  <= 1'b0;
+                     * aperture FRAME in that mode reuses the latest value. */
+                    build_level      <= pending_mod_level;
+                    frame_req_mod  <= 1'b0;
                     ev_state         <= EV_CLEAR;
                     ev_ch            <= 7'd0;
                     rmw_slot         <= 8'd0;
@@ -967,11 +966,11 @@ module umh_fpga_top (
             stop_toggle_seen <= stop_toggle_sync;
             running       <= 1'b0;
             frame_req     <= 1'b0;
-            frame_req_audio <= 1'b0;
+            frame_req_mod <= 1'b0;
             frame_settle  <= 4'd0;
-            audio_settle  <= 4'd0;
-            audio_mode    <= 1'b0;
-            pending_audio_level <= 8'd0;
+            mod_settle  <= 4'd0;
+            mod_active    <= 1'b0;
+            pending_mod_level <= 8'd0;
             swap_pending  <= 1'b0;
             ev_state      <= EV_IDLE;
         end else if (link_timeout) begin
@@ -979,11 +978,11 @@ module umh_fpga_top (
              * explicit STOP must still be recognised when the MCU reboots. */
             running       <= 1'b0;
             frame_req     <= 1'b0;
-            frame_req_audio <= 1'b0;
+            frame_req_mod <= 1'b0;
             frame_settle  <= 4'd0;
-            audio_settle  <= 4'd0;
-            audio_mode    <= 1'b0;
-            pending_audio_level <= 8'd0;
+            mod_settle  <= 4'd0;
+            mod_active    <= 1'b0;
+            pending_mod_level <= 8'd0;
             swap_pending  <= 1'b0;
             ev_state      <= EV_IDLE;
         end
@@ -1236,14 +1235,7 @@ module umh_fpga_top (
     ws2812_stream ws2812_i (
         .clk(fpga_clk),
         .enable(ws2812_enable),
-        /* LED 0 */
-        .g0(rgb_hold[7:0]),   .r0(rgb_hold[15:8]),  .b0(rgb_hold[23:16]),
-        /* LED 1 */
-        .g1(rgb_hold[31:24]), .r1(rgb_hold[39:32]), .b1(rgb_hold[47:40]),
-        /* LED 2 */
-        .g2(rgb_hold[55:48]), .r2(rgb_hold[63:56]), .b2(rgb_hold[71:64]),
-        /* LED 3 */
-        .g3(rgb_hold[79:72]), .r3(rgb_hold[87:80]), .b3(rgb_hold[95:88]),
+        .grb(rgb_hold),
         .data_out(rgb_data)
     );
     spi_mic_stream mic_stream_i (
@@ -1257,26 +1249,25 @@ module umh_fpga_top (
         spi_extension_length = 16'd0; spi_frame_sequence = 16'd0; accepted_update_flags_spi = 2'd0;
         spi_expected_length = HEADER_BYTES; spi_channel_index = 7'd0;
         spi_channel_field = 2'd0; spi_phase_pending = 8'd0;
-        spi_rgb_index = 4'd0;
-        spi_compact_data = 8'd0; audio_mode_spi = 1'b0;
-        audio_mode_toggle_spi = 1'b0; afifo_wr_spi = 8'd0;
+        spi_compact_data = 8'd0; mod_level_spi = 1'b0;
+        mod_toggle_spi = 1'b0; feed_wr_spi = 8'd0;
         frame_toggle_spi = 1'b0; stop_toggle_spi = 1'b0; invalid_frame_spi = 1'b0;
         ws2812_toggle_spi = 1'b0;
-        rgb_values = 96'd0; status_bit_index = 9'd0;
+        rgb_values = 24'd0; status_bit_index = 9'd0;
         frame_toggle_meta = 1'b0; frame_toggle_sync = 1'b0; frame_toggle_seen = 1'b0;
         stop_toggle_meta = 1'b0; stop_toggle_sync = 1'b0; stop_toggle_seen = 1'b0;
         ws2812_toggle_meta = 1'b0; ws2812_toggle_sync = 1'b0; ws2812_toggle_seen = 1'b0;
         invalid_frame_meta = 1'b0; invalid_frame_sync = 1'b0;
         pending_sequence = 16'd0; accepted_sequence = 16'd0; frame_settle = 4'd0;
-        rgb_hold = 96'd0; status_hold = 128'd0;
+        rgb_hold = 24'd0; status_hold = 128'd0;
         ws2812_settle = 4'd0;
-        audio_mode = 1'b0; pending_audio_level = 8'd0;
+        mod_active = 1'b0; pending_mod_level = 8'd0;
         build_level = 8'd0; build_level_eff = 8'd0;
-        build_audio = 1'b0; frame_req_audio = 1'b0;
-        audio_mode_toggle_meta = 1'b0;
-        audio_mode_toggle_sync = 1'b0; audio_mode_toggle_seen = 1'b0;
-        audio_settle = 4'd0;
-        afifo_wr = 8'd0; afifo_rd = 8'd0;
+        build_mod = 1'b0; frame_req_mod = 1'b0;
+        mod_toggle_meta = 1'b0;
+        mod_toggle_sync = 1'b0; mod_toggle_seen = 1'b0;
+        mod_settle = 4'd0;
+        feed_wr = 8'd0; feed_rd = 8'd0;
         cs_meta = 1'b1; cs_sync = 1'b1; cs_sync_d = 1'b1;
         phase_frac = 24'd0; phase_step_s1 = 1'b0; global_phase_s2 = 8'd0;
         phase_step_s2 = 1'b0; wrap_s2 = 1'b0; run_addr_s3 = 9'd0;
@@ -1325,3 +1316,4 @@ module umh_fpga_top (
         ws2812_enable = 1'b1;
     end
 endmodule
+
