@@ -120,22 +120,26 @@ static osMessageQueueId_t storage_queue;
 static StaticQueue_t storage_queue_cb;
 /* Queue items are complete protocol frames.  The message queue copies them
  * directly from the parser frame owned by the protocol task, so no second
- * 2 KiB stack copy is needed on the command path. */
-static uint32_t storage_queue_memory[(sizeof(umh_protocol_frame_t) * 2u + sizeof(uint32_t) - 1u) / sizeof(uint32_t)];
+ * 2 KiB stack copy is needed on the command path.
+ *
+ * Depth 1 is enough: a storage response is asynchronous, but the protocol task
+ * only accepts another storage command once its own send_result() has failed
+ * and the next SLOW_COMMAND has been armed, which the host can only satisfy
+ * after it has seen the response.  A single slot therefore holds the only
+ * request that can exist and halves this queue's RAM. */
+static uint32_t storage_queue_memory[(sizeof(umh_protocol_frame_t) + sizeof(uint32_t) - 1u) / sizeof(uint32_t)];
 static umh_protocol_frame_t storage_request_buffer;
-/* Consolidate three 2048 B storage buffers into one union to save 4096 B.
- * storage_response and storage_data are used by different FLASH message types
- * (LIST uses response, READ uses both with data as scratch, WRITE reads from
- * the incoming frame). storage_records is only used by FLASH_LIST and never
- * overlaps with READ/WRITE operations. */
+/* Consolidate the 2048 B storage buffers into one union.  response and data
+ * are used by different FLASH message types (LIST replies straight into
+ * response, READ fills data and frames it in response, WRITE reads its payload
+ * from the incoming frame), so a second array for the record list would only
+ * duplicate a buffer FLASH_LIST never needs at the same time. */
 static union {
   uint8_t response[UMH_PROTOCOL_MAX_PAYLOAD];
   uint8_t data[UMH_PROTOCOL_MAX_PAYLOAD];
-  flash_store_record_t records[FLASH_STORE_MAX_OBJECTS];
 } storage_scratch;
 #define storage_response (storage_scratch.response)
 #define storage_data (storage_scratch.data)
-#define storage_records (storage_scratch.records)
 static eeprom_profile_record_t eeprom_pending;
 static uint8_t eeprom_pending_valid;
 typedef struct __attribute__((packed)) {
@@ -949,12 +953,13 @@ static void storage_process(const umh_protocol_frame_t *frame)
   uint16_t count;
   umh_status_t status = UMH_STATUS_OK;
   if (frame->header.message_type == UMH_MSG_FLASH_LIST) {
+    /* The record list is written straight into the response buffer and framed
+     * in place: one 2 KiB buffer for both halves of the reply. */
+    uint16_t capacity = (uint16_t)(sizeof(storage_response) / sizeof(flash_store_record_t));
     if (frame->payload_size != 0u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
-    count = flash_store_list(&flash_store, storage_records, FLASH_STORE_MAX_OBJECTS);
-    if ((uint32_t)count * sizeof(storage_records[0]) > sizeof(storage_response)) { send_result(frame, UMH_STATUS_NO_MEMORY, NULL, 0u); return; }
-    /* Use memmove instead of memcpy to avoid restrict aliasing warning with union members */
-    memmove(storage_response, storage_records, (uint32_t)count * sizeof(storage_records[0]));
-    send_response(frame, UMH_MSG_FLASH_LIST, storage_response, (uint16_t)(count * sizeof(storage_records[0])));
+    count = flash_store_list(&flash_store, (flash_store_record_t *)(void *)storage_response, capacity);
+    send_response(frame, UMH_MSG_FLASH_LIST, storage_response,
+                  (uint16_t)(count * sizeof(flash_store_record_t)));
     return;
   }
   if (frame->payload_size < 4u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
@@ -1947,7 +1952,7 @@ static void application_init(void)
       .name = "storage", .cb_mem = &storage_queue_cb, .cb_size = sizeof(storage_queue_cb),
       .mq_mem = storage_queue_memory, .mq_size = sizeof(storage_queue_memory)
     };
-    storage_queue = osMessageQueueNew(2u, sizeof(umh_protocol_frame_t), &storage_queue_attributes);
+    storage_queue = osMessageQueueNew(1u, sizeof(umh_protocol_frame_t), &storage_queue_attributes);
   }
   umh_protocol_parser_init(&protocol_parser, protocol_frame_received, NULL);
   render_timer_init();
