@@ -169,32 +169,49 @@ int spatial_renderer_finalize(const umh_spatial_renderer_t *renderer,
                               umh_output_frame_t *frame)
 {
   uint16_t i;
+  uint16_t active_count;
+  const uint8_t *active_index;
   uint8_t phase_codes[UMH_DEVICE_CHANNEL_COUNT];
   uint8_t have_codes;
   if (renderer == NULL || real_accum == NULL || imag_accum == NULL || frame == NULL) return -1;
-  /* One CORDIC configuration serves all 84 channels instead of one HAL
-   * configure/calculate round trip per channel.  The calibration path already
-   * proves this unit on silicon; if it is unavailable the scalar fallback
-   * below keeps the renderer correct, just slower. */
+  active_count = renderer->active_count;
+  active_index = renderer->active_index;
+  /* One CORDIC configuration serves the whole aperture instead of one HAL
+   * configure/calculate round trip per channel.  The result is a dense array
+   * indexed by channel number, so the batch must still cover every channel -
+   * asking for fewer would return the phases of the first N channels and
+   * scatter them across the aperture.  The calibration path already proves
+   * this unit on silicon; if it is unavailable the scalar fallback below keeps
+   * the renderer correct, just slower. */
   have_codes = umh_cordic_phase8_batch(real_accum, imag_accum, phase_codes,
                                        UMH_DEVICE_CHANNEL_COUNT) == 0 ? 1u : 0u;
-  for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
-    float magnitude = umh_hypotf(real_accum[i], imag_accum[i]);
+  /* Only the calibrated channels are finished: a disabled channel is never
+   * accumulated, so its magnitude is already zero and its level is forced to
+   * zero by the mute pass at the end.  That skips a square root, a clamp and
+   * a float-to-int conversion per disabled channel, every frame. */
+  for (i = 0u; i < active_count; ++i) {
+    uint16_t c = active_index[i];
+    float magnitude = umh_hypotf(real_accum[c], imag_accum[c]);
     if (magnitude > 1.0f) magnitude = 1.0f;
     if (have_codes != 0u) {
-      frame->channels[i].phase = phase_codes[i];
+      frame->channels[c].phase = phase_codes[c];
     } else {
-      float angle = atan2f(imag_accum[i], real_accum[i]);
+      float angle = atan2f(imag_accum[c], real_accum[c]);
       int32_t phase = (int32_t)(angle * (float)renderer->phase_resolution / UMH_TWO_PI);
       phase %= (int32_t)renderer->phase_resolution;
       if (phase < 0) phase += (int32_t)renderer->phase_resolution;
-      frame->channels[i].phase = (uint8_t)phase;
+      frame->channels[c].phase = (uint8_t)phase;
     }
     /* The FPGA interprets level as the high-time in a 256-slot 40 kHz
      * carrier.  Full spatial amplitude therefore maps to a 50% duty
      * (level=128).  Using 255 here would be 99.6% DC and would leave no
      * 40 kHz component for the transducer to launch. */
-    frame->channels[i].level = (uint8_t)(magnitude * 128.0f + 0.5f);
+    frame->channels[c].level = (uint8_t)(magnitude * 128.0f + 0.5f);
+  }
+  /* Channels outside the calibrated set keep the phase the caller left in the
+   * frame and are muted, which is exactly what the previous per-channel enable
+   * test inside the loop produced. */
+  for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
     if (renderer->calibration[i].enabled == 0u) frame->channels[i].level = 0u;
   }
   frame->update_flags |= UMH_FRAME_FLAG_ULTRASOUND;

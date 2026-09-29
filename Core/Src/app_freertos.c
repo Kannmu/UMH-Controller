@@ -678,6 +678,10 @@ static void bench_service(void)
     case UMH_BENCH_CMD_APPLY_PHASE:
       for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i)
         renderer.calibration[i].phase = umh_bench_phase[i];
+      /* The renderer keeps a derived copy of the phase offsets, gains and the
+       * calibrated-channel list, so a direct write into calibration[] has to
+       * be published before the next render. */
+      spatial_renderer_refresh_calibration(&renderer, UMH_DEVICE_CHANNEL_COUNT);
       break;
     case UMH_BENCH_CMD_START_DEMO:
       device_gui.selected_demo = (uint8_t)umh_bench_arg[0];
@@ -697,8 +701,13 @@ static void bench_service(void)
         record.cal_time_ms = (uint32_t)(system_time_us() / 1000u);
         if (eeprom_profile_commit(&eeprom_profile, &record) == 0)
           apply_calibration_from_eeprom();
-        else
+        else {
+          /* The EEPROM write failed but calibration[] was already edited, so
+           * publish it instead of leaving the renderer on stale derived
+           * state. */
+          spatial_renderer_refresh_calibration(&renderer, UMH_DEVICE_CHANNEL_COUNT);
           rc = -1;
+        }
       }
       break;
     default:
