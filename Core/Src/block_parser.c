@@ -1,15 +1,25 @@
 #include "block_parser.h"
 #include <string.h>
 
+static int finalize_spatial(umh_block_parser_t *parser);
+
+/* Begin a new output frame.
+ *
+ * A record set accumulates its channel, RGB and digital state on top of the
+ * previous committed frame, and that frame is still in pending_frame here.  So
+ * instead of keeping a second full copy of it (the old current_state field),
+ * the spatial accumulation is folded into the frame first and only the fields
+ * that are per-frame rather than persistent are cleared, exactly as
+ * commit_pending left them.  That removes one 232-byte frame copy and one
+ * 232-byte BSS frame from the per-record-boundary path. */
 static void frame_start(umh_block_parser_t *parser, uint64_t deadline)
 {
-  if (parser->state_initialized != 0u) parser->pending_frame = parser->current_state;
-  else memset(&parser->pending_frame, 0, sizeof(parser->pending_frame));
-  parser->pending_frame.sequence = parser->next_frame_sequence++;
-  parser->pending_frame.deadline = deadline;
+  (void)finalize_spatial(parser);
   parser->pending_frame.update_flags = 0u;
   parser->pending_frame.reserved = 0u;
   parser->pending_frame.extension_length = 0u;
+  parser->pending_frame.sequence = parser->next_frame_sequence++;
+  parser->pending_frame.deadline = deadline;
   parser->pending_time = deadline;
   parser->pending_valid = 1u;
   parser->spatial_accum_valid = 0u;
@@ -21,7 +31,10 @@ static int finalize_spatial(umh_block_parser_t *parser)
 {
   if (parser == NULL || parser->spatial_accum_valid == 0u) return 0;
   if (spatial_renderer_finalize(parser->renderer, parser->spatial_real,
-                                parser->spatial_imag, &parser->pending_frame) != 0) return -1;
+                                parser->spatial_imag, &parser->pending_frame) != 0) {
+    parser->spatial_accum_valid = 0u;
+    return -1;
+  }
   parser->spatial_accum_valid = 0u;
   return 0;
 }
@@ -33,10 +46,12 @@ static int commit_pending(umh_block_parser_t *parser)
   if (finalize_spatial(parser) != 0) return -1;
   slot = frame_ring_acquire_write(parser->frames);
   if (slot == NULL) return -1;
+  /* The frame is committed in place and kept in pending_frame as the running
+   * state for the next record set; the ring only needs the wire copy. */
   memcpy(slot, &parser->pending_frame, sizeof(*slot));
-  parser->current_state = parser->pending_frame;
-  parser->current_state.update_flags = 0u;
-  parser->state_initialized = 1u;
+  parser->pending_frame.update_flags = 0u;
+  parser->pending_frame.extension_length = 0u;
+  parser->pending_frame.reserved = 0u;
   parser->pending_valid = 0u;
   return frame_ring_commit_write(parser->frames);
 }
@@ -392,7 +407,7 @@ int block_parser_begin(umh_block_parser_t *parser, const uint8_t *payload, uint1
   if (parser == NULL) return -1;
   block_parser_cancel(parser);
   /* rgb_source/rgb_level hold the uncalibrated logical state.  Keep them
-   * across block boundaries: current_state.rgb already contains calibration
+   * across block boundaries: pending_frame.rgb already contains calibration
    * and brightness composition and feeding it back would apply both twice. */
   block_result = spatiotemporal_block_begin(&parser->block, payload, length);
   if (block_result < 0) return block_result;

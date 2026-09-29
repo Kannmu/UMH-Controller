@@ -21,13 +21,11 @@ typedef struct {
   uint8_t record_active;
   uint64_t pending_time;
   umh_output_frame_t pending_frame;
-  umh_output_frame_t current_state;
   float spatial_real[UMH_DEVICE_CHANNEL_COUNT];
   float spatial_imag[UMH_DEVICE_CHANNEL_COUNT];
   umh_rgb_value_t rgb_source[UMH_DEVICE_RGB_COUNT];
   uint8_t rgb_level[UMH_DEVICE_RGB_COUNT];
   uint8_t spatial_accum_valid;
-  uint8_t state_initialized;
   uint8_t pending_valid;
   uint32_t next_frame_sequence;
   uint32_t parse_errors;

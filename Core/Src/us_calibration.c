@@ -1787,7 +1787,6 @@ static int cal_self_test_eval(fpga_link_t *link,
                               us_cal_progress_cb_t progress, void *context,
                               umh_cal_self_test_result_t *result)
 {
-  umh_spatial_renderer_t renderer;
   umh_spatial_point_t point;
   uint8_t m, i, k;
   uint16_t coverage = 0u;
@@ -1814,8 +1813,8 @@ static int cal_self_test_eval(fpga_link_t *link,
   result->channels_measured = coverage;
   scale = cal_duty_scale(level, CAL_FOCUS_DUTY);
 
-  spatial_renderer_init(&renderer, profile);
-  spatial_renderer_set_calibration(&renderer, calibration, CAL_CHANNELS);
+  spatial_renderer_init(&cal_echo_renderer, profile);
+  spatial_renderer_set_calibration(&cal_echo_renderer, calibration, CAL_CHANNELS);
 
   for (m = 0u; m < CAL_MICS; ++m) {
     umh_output_frame_t full;
@@ -1835,7 +1834,7 @@ static int cal_self_test_eval(fpga_link_t *link,
     point.level = 255u;
     point.phase = 0u;
     point.source_id = 0u;
-    if (spatial_renderer_point(&renderer, &point, &full) != 0) return -2;
+    if (spatial_renderer_point(&cal_echo_renderer, &point, &full) != 0) return -2;
 
     /* Actual production focus phases, but only the linear-regime subset is
      * enabled.  This keeps the four microphones out of compression. */

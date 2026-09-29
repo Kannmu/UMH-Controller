@@ -17,10 +17,13 @@
 #define UMH_FAST_TRIG_SIZE 1024u
 #define UMH_FAST_TRIG_MASK (UMH_FAST_TRIG_SIZE - 1u)
 
-/* Non-const so the linker places it in .data: the C runtime copies it to RAM
- * at boot.  The renderer reads it 168..1344 times per frame and random flash
- * data accesses were measurably more expensive than the 2 KiB of RAM. */
-extern int16_t umh_fast_sin_table[UMH_FAST_TRIG_SIZE];
+/* const, so the linker places it in .rodata (flash).  It used to live in .data
+ * because random flash reads were believed to be slower than the 2 KiB of RAM;
+ * on this part they are not, and RAM (112 KiB) is now much tighter than flash
+ * (256 KiB): keeping it in flash additionally removes the 2 KiB .data image and
+ * its boot-time copy.  The renderer reads it 168..1344 times per frame, always
+ * as a single 16-bit load, which the ART accelerator serves from its cache. */
+extern const int16_t umh_fast_sin_table[UMH_FAST_TRIG_SIZE];
 
 static inline float umh_fast_sin_q10(int32_t phase_q10)
 {
