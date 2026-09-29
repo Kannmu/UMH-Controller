@@ -153,6 +153,13 @@ static int exchange_dma(fpga_link_t *link, uint16_t length)
          (DMA_ISR_TCIF1 | DMA_ISR_TCIF2) ? 0 : -3;
 }
 
+/* Transfers at or below this length use the register path.  Arming two DMA
+ * channels costs several register writes, a clear and a poll loop, which is
+ * more than the transfer itself for the 2-byte FIFO fill polls that
+ * aperture_mod_service() issues many times per millisecond.  The wire time of
+ * 17 bytes at 21.25 MHz is 8 us, so the crossover sits well above it. */
+#define FPGA_SPI_POLL_MAX_BYTES 17u
+
 static int exchange(fpga_link_t *link, uint16_t length)
 {
   static uint32_t last_report;
@@ -164,7 +171,7 @@ static int exchange(fpga_link_t *link, uint16_t length)
   spi = link->spi->Instance;
   if (spi == NULL) return -1;
   link->tx_length = length;
-  if (exchange_use_polling == 0u) {
+  if (exchange_use_polling == 0u && length > FPGA_SPI_POLL_MAX_BYTES) {
     int dma_result = exchange_dma(link, length);
     if (dma_result == 0) return 0;
     exchange_use_polling = 1u;

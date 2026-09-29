@@ -125,26 +125,61 @@ void umh_protocol_parser_init(umh_protocol_parser_t *parser,
 void umh_protocol_parser_feed(umh_protocol_parser_t *parser,
                               const uint8_t *data, uint32_t length)
 {
-  uint32_t i;
+  uint32_t i = 0u;
   if (parser == NULL || data == NULL) return;
-  for (i = 0u; i < length; ++i) {
-    if (parser->header_pos < UMH_PROTOCOL_HEADER_SIZE) {
-      parser->header_bytes[parser->header_pos++] = data[i];
-      if (parser->header_pos == UMH_PROTOCOL_HEADER_SIZE) {
-        parser_try_header(parser);
-        if (parser->header_pos != UMH_PROTOCOL_HEADER_SIZE) continue;
-        if (parser->expected_payload == 0u) {
-          parser->frame.payload_size = 0u;
-          if (parser->callback != NULL) parser->callback(&parser->frame, parser->callback_context);
-          parser_reset(parser);
-        }
+  while (i < length) {
+    /* Bulk payload fast path.  header_pos == HEADER_SIZE with a non-zero
+     * expected_payload means a header has been accepted and its payload is
+     * still being collected, so the rest of this chunk can be moved with
+     * memcpy instead of one byte plus one comparison per iteration.  Bulk
+     * transfers - block DATA, FLASH_WRITE, MOD_FEED - are almost entirely
+     * payload, and they are the only place this parser sees megabytes. */
+    if (parser->header_pos == UMH_PROTOCOL_HEADER_SIZE &&
+        parser->expected_payload != 0u) {
+      uint32_t remaining = (uint32_t)parser->expected_payload -
+                           (uint32_t)parser->payload_pos;
+      uint32_t available = length - i;
+      uint32_t copy = remaining < available ? remaining : available;
+      memcpy(&parser->frame.payload[parser->payload_pos], &data[i], copy);
+      parser->payload_pos = (uint16_t)(parser->payload_pos + copy);
+      i += copy;
+      if (parser->payload_pos == parser->expected_payload) {
+        parser->frame.payload_size = parser->expected_payload;
+        if (parser->callback != NULL)
+          parser->callback(&parser->frame, parser->callback_context);
+        parser_reset(parser);
       }
       continue;
     }
-    parser->frame.payload[parser->payload_pos++] = data[i];
-    if (parser->payload_pos == parser->expected_payload) {
-      parser->frame.payload_size = parser->expected_payload;
-      if (parser->callback != NULL) parser->callback(&parser->frame, parser->callback_context);
+
+    if (parser->header_pos < UMH_PROTOCOL_HEADER_SIZE) {
+      uint32_t available = (uint32_t)UMH_PROTOCOL_HEADER_SIZE -
+                           (uint32_t)parser->header_pos;
+      uint32_t room = length - i;
+      uint32_t copy = available < room ? available : room;
+      memcpy(&parser->header_bytes[parser->header_pos], &data[i], copy);
+      parser->header_pos = (uint8_t)(parser->header_pos + copy);
+      i += copy;
+      if (parser->header_pos < UMH_PROTOCOL_HEADER_SIZE) continue;
+      parser_try_header(parser);
+      if (parser->header_pos != UMH_PROTOCOL_HEADER_SIZE) continue;
+      if (parser->expected_payload == 0u) {
+        parser->frame.payload_size = 0u;
+        if (parser->callback != NULL)
+          parser->callback(&parser->frame, parser->callback_context);
+        parser_reset(parser);
+      }
+      continue;
+    }
+
+    /* header_pos == HEADER_SIZE with expected_payload == 0.  parser_reset()
+     * leaves header_pos at 0 and a zero-length payload is completed and reset
+     * inside the header branch, so a real state machine never gets here; treat
+     * it as a completed header to guarantee the loop terminates. */
+    {
+      parser->frame.payload_size = 0u;
+      if (parser->callback != NULL)
+        parser->callback(&parser->frame, parser->callback_context);
       parser_reset(parser);
     }
   }
