@@ -49,7 +49,7 @@ void fpga_link_init(fpga_link_t *link, SPI_HandleTypeDef *spi)
  * at 21.25 MHz: a single MSB sampling error turns small signed I/Q values
  * into near-full-scale numbers and makes the phase solver fail.  Calibration
  * switches the whole link to /32 for the duration of the run, then restores
- * the exact previous CR1 value so motion/audio throughput is untouched. */
+ * the exact previous CR1 value so motion/stream throughput is untouched. */
 uint32_t fpga_link_calibration_link_begin(fpga_link_t *link)
 {
   uint32_t saved_cr1 = 0u;
@@ -125,7 +125,7 @@ static int exchange_dma(fpga_link_t *link, uint16_t length)
   /* RX must be armed before TX starts the clock.  With TX first, an ISR
    * landing between the two enables let the 4-byte RX FIFO overrun; OVR
    * then stalled RX DMA for the whole timeout with CS low, long enough for
-   * the FPGA link watchdog to drop AUDIO_MODE. */
+   * the FPGA link watchdog to drop MOD_FIXED. */
   cs_low();
   rx->CCR |= DMA_CCR_EN;
   tx->CCR |= DMA_CCR_EN;
@@ -267,7 +267,7 @@ static int unpack_status(fpga_link_t *link)
 {
   if (link == NULL || link->tx_length < sizeof(fpga_status_wire_t)) return -1;
   link->status.protocol_version = link->rx[0];
-  link->status.audio_fill = link->rx[1];
+  link->status.mod_fill = link->rx[1];
   link->status.fifo_credit = get_u16(&link->rx[2]);
   link->status.fifo_depth = get_u16(&link->rx[4]);
   link->status.status_flags = get_u16(&link->rx[6]);
@@ -471,7 +471,7 @@ int fpga_link_set_ws2812(fpga_link_t *link, uint8_t r, uint8_t g, uint8_t b)
   return result;
 }
 
-static int compact_audio_command(fpga_link_t *link, uint8_t command,
+static int compact_mod_command(fpga_link_t *link, uint8_t command,
                                   uint8_t data, uint32_t sequence)
 {
   int result = 0;
@@ -499,7 +499,7 @@ static int wait_for_credit(fpga_link_t *link)
   return -1;
 }
 
-int fpga_link_audio_begin(fpga_link_t *link, const uint8_t *phases,
+int fpga_link_mod_begin(fpga_link_t *link, const uint8_t *phases,
                           const uint8_t *enables, uint32_t sequence)
 {
   umh_output_frame_t frame;
@@ -508,12 +508,12 @@ int fpga_link_audio_begin(fpga_link_t *link, const uint8_t *phases,
   if (link == NULL || phases == NULL || enables == NULL) return -1;
   /* Three safe steps:
    *   1. submit one silent full frame so the staging RAM and old enable
-   *      markers cannot leak into the first audio table;
-   *   2. enter audio mode at common level 0 (the FPGA still holds phases
+   *      markers cannot leak into the first common-level table;
+   *   2. enter common-level mode at level 0 (the FPGA still holds phases
    *      from step 1 and rebuilds a silent table);
-   *   3. submit the real aperture phases plus enable markers while audio
+   *   3. submit the real aperture phases plus enable markers while
    *      mode is active, so the rebuild still runs at common level 0.
-   * Audio levels then travel in short AUDIO_BLOCK transactions. */
+   * Envelope levels then travel in short MOD_FEED transactions. */
   (void)fpga_link_safe_stop(link);
   if (wait_for_credit(link) != 0) return -1;
   memset(&frame, 0, sizeof(frame));
@@ -526,17 +526,17 @@ int fpga_link_audio_begin(fpga_link_t *link, const uint8_t *phases,
   result = fpga_link_submit(link, &frame);
   if (result != 0) return result;
 
-  result = fpga_link_audio_mode(link, 1u, sequence + 1u);
+  result = fpga_link_mod_mode(link, 1u, sequence + 1u);
   if (result != 0) {
     (void)fpga_link_safe_stop(link);
     return result;
   }
-  /* Entering audio mode starts one silent rebuild.  Wait until that builder
+  /* Entering common-level mode starts one silent rebuild.  Wait until that builder
    * has released FIFO credit again before loading the enable markers.  An
    * image without the level FIFO cannot stream, so refuse it here. */
-  if ((link->status.status_flags & FPGA_STATUS_AUDIO_BLOCK) == 0u ||
+  if ((link->status.status_flags & FPGA_STATUS_MOD_FEED) == 0u ||
       wait_for_credit(link) != 0) {
-    (void)fpga_link_audio_mode(link, 0u, sequence + 3u);
+    (void)fpga_link_mod_mode(link, 0u, sequence + 3u);
     (void)fpga_link_safe_stop(link);
     return -1;
   }
@@ -551,45 +551,45 @@ int fpga_link_audio_begin(fpga_link_t *link, const uint8_t *phases,
   }
   result = fpga_link_submit(link, &frame);
   if (result != 0) {
-    (void)fpga_link_audio_mode(link, 0u, sequence + 3u);
+    (void)fpga_link_mod_mode(link, 0u, sequence + 3u);
     (void)fpga_link_safe_stop(link);
     return result;
   }
   return 0;
 }
 
-int fpga_link_audio_block(fpga_link_t *link, const uint8_t *levels, uint8_t count)
+int fpga_link_mod_feed(fpga_link_t *link, const uint8_t *levels, uint8_t count)
 {
   int result;
-  if (link == NULL || link->mutex == NULL || count > FPGA_AUDIO_BLOCK_MAX ||
+  if (link == NULL || link->mutex == NULL || count > FPGA_MOD_BLOCK_MAX ||
       (count != 0u && levels == NULL)) return -1;
   /* The FIFO covers several milliseconds, so waiting a few ticks behind a
    * lower-priority transaction is harmless; failing would drop levels. */
   if (osMutexAcquire(link->mutex, 5u) != osOK) return -3;
-  link->tx[0] = FPGA_CMD_AUDIO_BLOCK;
+  link->tx[0] = FPGA_CMD_MOD_FEED;
   link->tx[1] = FPGA_PROTOCOL_VERSION;
   if (count != 0u) memcpy(&link->tx[2], levels, count);
   if (exchange(link, (uint16_t)(2u + count)) != 0) result = -2;
   else if (link->rx[0] != FPGA_PROTOCOL_VERSION) result = -4;
-  else result = link->status.audio_fill = link->rx[1];
+  else result = link->status.mod_fill = link->rx[1];
   osMutexRelease(link->mutex);
   return result;
 }
 
-int fpga_link_audio_mode(fpga_link_t *link, uint8_t enable, uint32_t sequence)
+int fpga_link_mod_mode(fpga_link_t *link, uint8_t enable, uint32_t sequence)
 {
   uint8_t attempt;
-  int result = compact_audio_command(link, FPGA_CMD_AUDIO_MODE,
+  int result = compact_mod_command(link, FPGA_CMD_MOD_FIXED,
                                      enable != 0u ? 1u : 0u, sequence);
   if (result != 0 || enable == 0u) return result;
   /* The status word in the compact transaction is latched before CS falls,
-   * so poll until the new bitstream confirms that AUDIO_MODE=1 was adopted.
+   * so poll until the new bitstream confirms that MOD_FIXED=1 was adopted.
    * Old FPGA images silently ignore the compact command; without this check
    * the following silent FRAME could be built with the 0/255 enable marker
    * mistaken for a real level. */
   for (attempt = 0u; attempt < 20u; ++attempt) {
     if (fpga_link_poll_status(link) == 0 &&
-        (link->status.status_flags & FPGA_STATUS_AUDIO_MODE) != 0u)
+        (link->status.status_flags & FPGA_STATUS_MOD_MODE) != 0u)
       return 0;
     osDelay(1u);
   }

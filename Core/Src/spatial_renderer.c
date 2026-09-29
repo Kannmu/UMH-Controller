@@ -6,6 +6,28 @@
 #include <string.h>
 #include <float.h>
 
+/* Cache everything that is invariant for the life of the renderer: the float
+ * element geometry, the distance -> phase constant and the list of channels
+ * that are actually calibrated.  All of it used to be recomputed inside the
+ * per-point, per-channel loop. */
+static void spatial_renderer_refresh_derived(umh_spatial_renderer_t *renderer)
+{
+  uint16_t i;
+  float wavelength;
+  renderer->geometry_valid = 0u;
+  renderer->phase_scale_q10 = 0.0f;
+  if (renderer->profile == NULL) return;
+  for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
+    renderer->coord_x_um[i] = (float)renderer->profile->coordinates[i].x_um;
+    renderer->coord_y_um[i] = (float)renderer->profile->coordinates[i].y_um;
+    renderer->coord_z_um[i] = (float)renderer->profile->coordinates[i].z_um;
+  }
+  if (renderer->carrier_hz == 0u) return;
+  wavelength = (float)renderer->sound_speed_um_per_s / (float)renderer->carrier_hz;
+  renderer->phase_scale_q10 = 1024.0f / wavelength;
+  renderer->geometry_valid = 1u;
+}
+
 void spatial_renderer_init(umh_spatial_renderer_t *renderer,
                            const umh_device_profile_t *profile)
 {
@@ -20,14 +42,14 @@ void spatial_renderer_init(umh_spatial_renderer_t *renderer,
   for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
     renderer->calibration[i].gain = 255u;
     renderer->calibration[i].enabled = 1u;
-    renderer->gain_scale[i] = 1.0f;
-    renderer->phase_offset_q10[i] = 0;
   }
   for (i = 0u; i < UMH_DEVICE_RGB_COUNT; ++i) {
     renderer->rgb_gain[i][0] = 255u;
     renderer->rgb_gain[i][1] = 255u;
     renderer->rgb_gain[i][2] = 255u;
   }
+  spatial_renderer_refresh_derived(renderer);
+  spatial_renderer_refresh_calibration(renderer, UMH_DEVICE_CHANNEL_COUNT);
 }
 
 void spatial_renderer_set_calibration(umh_spatial_renderer_t *renderer,
@@ -44,13 +66,19 @@ void spatial_renderer_refresh_calibration(umh_spatial_renderer_t *renderer,
                                           uint16_t count)
 {
   uint16_t i;
+  uint16_t active = 0u;
   if (renderer == NULL) return;
   if (count > UMH_DEVICE_CHANNEL_COUNT) count = UMH_DEVICE_CHANNEL_COUNT;
   for (i = 0u; i < count; ++i) {
+    /* The phase offset is folded into the table domain here, once, so the
+     * per-channel phase expression stays a single add and a single subtract
+     * and the sine table's index mask needs no extra wrap fixup. */
+    renderer->phase_offset_q10[i] =
+        ((int32_t)renderer->calibration[i].phase * 4) & (int32_t)(UMH_FAST_TRIG_SIZE - 1u);
     renderer->gain_scale[i] = (float)renderer->calibration[i].gain * (1.0f / 255.0f);
-    /* source/calibration phases are 1/256 carrier turn, the LUT is 1/1024 */
-    renderer->phase_offset_q10[i] = (int32_t)renderer->calibration[i].phase * 4;
+    if (renderer->calibration[i].enabled != 0u) renderer->active_index[active++] = (uint8_t)i;
   }
+  renderer->active_count = active;
 }
 
 int spatial_renderer_point(umh_spatial_renderer_t *renderer,
@@ -70,38 +98,68 @@ int spatial_renderer_accumulate_point(const umh_spatial_renderer_t *renderer,
                                       const umh_spatial_point_t *point,
                                       float *real_accum, float *imag_accum)
 {
-  uint16_t i;
-  float wavelength;
+  const float *coord_x;
+  const float *coord_y;
+  const float *coord_z;
+  const float *gain_scale;
+  const int32_t *phase_offset_q10;
+  const uint8_t *active_index;
+  uint16_t active_count;
   float phase_scale_q10;
+  float point_x;
+  float point_y;
+  float point_z;
+  int32_t phase_rem;
   float source_level;
+  uint16_t k;
   if (renderer == NULL || renderer->profile == NULL || point == NULL ||
       real_accum == NULL || imag_accum == NULL || renderer->carrier_hz == 0u) return -1;
   if ((renderer->profile->capability_flags & UMH_PROFILE_CAP_GEOMETRY_VALID) == 0u) return -2;
   if (point->level == 0u) return 0;
-  wavelength = (float)renderer->sound_speed_um_per_s / (float)renderer->carrier_hz;
+  if (renderer->geometry_valid == 0u) return -3;
   /* One carrier turn spans 1024 table entries, and source/calibration phase
-   * bytes are 1/256 turn, so byte phases scale by four. */
-  phase_scale_q10 = 1024.0f / wavelength;
-  source_level = (float)point->level / 255.0f;
-  {
-    float source_phase_q10 = (float)point->phase * 4.0f;
-    for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
-      float dx;
-      float dy;
-      float dz;
-      float distance;
-      int32_t phase_q10;
-      if (renderer->calibration[i].enabled == 0u) continue;
-      dx = (float)point->x_um - (float)renderer->profile->coordinates[i].x_um;
-      dy = (float)point->y_um - (float)renderer->profile->coordinates[i].y_um;
-      dz = (float)point->z_um - (float)renderer->profile->coordinates[i].z_um;
-      distance = sqrtf(dx * dx + dy * dy + dz * dz);
-      phase_q10 = (int32_t)(source_phase_q10 +
-                            (float)renderer->phase_offset_q10[i] -
-                            distance * phase_scale_q10);
-      spatial_renderer_accumulate_q10(renderer, i, phase_q10, source_level,
-                                      real_accum, imag_accum);
-    }
+   * bytes are 1/256 turn, so byte phases scale by four.  Both the source and
+   * the calibration offset are kept modulo the table size, and the table
+   * lookup masks its index anyway, so the whole per-channel phase expression
+   * is one add, one multiply and one subtract in 32-bit arithmetic. */
+  source_level = (float)point->level * (1.0f / 255.0f);
+  phase_rem = ((int32_t)point->phase * 4) & (int32_t)(UMH_FAST_TRIG_SIZE - 1u);
+  point_x = (float)point->x_um;
+  point_y = (float)point->y_um;
+  point_z = (float)point->z_um;
+  coord_x = renderer->coord_x_um;
+  coord_y = renderer->coord_y_um;
+  coord_z = renderer->coord_z_um;
+  gain_scale = renderer->gain_scale;
+  phase_offset_q10 = renderer->phase_offset_q10;
+  active_index = renderer->active_index;
+  active_count = renderer->active_count;
+  phase_scale_q10 = renderer->phase_scale_q10;
+  /* Only calibrated channels are visited, so the loop carries no enable test
+   * and its trip count follows the real aperture.  Per channel it costs three
+   * subtracts, three FMAs for the squared distance, VSQRT, one multiply plus
+   * the FPU convert for the phase, and two table-lookup FMAs. */
+  for (k = 0u; k < active_count; ++k) {
+    uint16_t i = active_index[k];
+    float dx;
+    float dy;
+    float dz;
+    float distance;
+    float mag;
+    int32_t phase_q10;
+    dx = point_x - coord_x[i];
+    dy = point_y - coord_y[i];
+    dz = point_z - coord_z[i];
+    distance = umh_sqrtf(fmaf(dx, dx, fmaf(dy, dy, dz * dz)));
+    /* distance * phase_scale_q10 is the historical distance -> phase product.
+     * One single-precision multiply plus the FPU convert is cheaper here than
+     * a 64-bit fixed-point multiply, and its rounding is still far inside one
+     * 1/1024-turn table index over the whole working volume. */
+    phase_q10 = phase_rem + phase_offset_q10[i] -
+                (int32_t)(distance * phase_scale_q10);
+    mag = source_level * gain_scale[i];
+    real_accum[i] = fmaf(mag, umh_fast_cos_q10(phase_q10), real_accum[i]);
+    imag_accum[i] = fmaf(mag, umh_fast_sin_q10(phase_q10), imag_accum[i]);
   }
   return 0;
 }
@@ -121,8 +179,7 @@ int spatial_renderer_finalize(const umh_spatial_renderer_t *renderer,
   have_codes = umh_cordic_phase8_batch(real_accum, imag_accum, phase_codes,
                                        UMH_DEVICE_CHANNEL_COUNT) == 0 ? 1u : 0u;
   for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
-    float magnitude = sqrtf(real_accum[i] * real_accum[i] +
-                            imag_accum[i] * imag_accum[i]);
+    float magnitude = umh_hypotf(real_accum[i], imag_accum[i]);
     if (magnitude > 1.0f) magnitude = 1.0f;
     if (have_codes != 0u) {
       frame->channels[i].phase = phase_codes[i];

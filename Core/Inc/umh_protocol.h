@@ -37,7 +37,8 @@ typedef enum {
   UMH_MSG_SET_DEMO           = 0x61,
   /* Real-time focus motion generator.  UPLOAD stores a compact path in RAM,
    * CONFIG chooses live/path mode and physical limits, TARGET streams a live
-   * point, START/STOP own the FPGA output exactly like focused-AM audio. */
+   * point, START/STOP own the FPGA output exactly like the modulated-aperture
+   * stream does. */
   UMH_MSG_MOTION_UPLOAD      = 0x62,
   UMH_MSG_MOTION_CONFIG      = 0x63,
   UMH_MSG_MOTION_START       = 0x64,
@@ -46,14 +47,15 @@ typedef enum {
   UMH_MSG_MOTION_STATUS      = 0x67,
   /* Path-rate ease for a running PATH program (4 bytes, see motion_engine.h). */
   UMH_MSG_MOTION_RATE        = 0x68,
-  /* Focused-AM audio extension.  DATA frames deliberately do not require an
-   * ACK: the STM32 consumes envelope bytes from the USB header sequence and
-   * keeps the streaming path independent of the command/response loop. */
-  UMH_MSG_AUDIO_CONFIGURE    = 0x90,
-  UMH_MSG_AUDIO_START        = 0x91,
-  UMH_MSG_AUDIO_DATA         = 0x92,
-  UMH_MSG_AUDIO_STOP         = 0x93,
-  UMH_MSG_AUDIO_STATUS       = 0x94,
+  /* Modulated-aperture stream (see Core/Inc/aperture_mod.h).  FEED frames
+   * deliberately do not require an ACK: the STM32 consumes envelope bytes from
+   * the USB header sequence and keeps the streaming path independent of the
+   * command/response loop. */
+  UMH_MSG_MOD_CONFIGURE      = 0x90,
+  UMH_MSG_MOD_START          = 0x91,
+  UMH_MSG_MOD_FEED           = 0x92,
+  UMH_MSG_MOD_STOP           = 0x93,
+  UMH_MSG_MOD_STATUS         = 0x94,
   UMH_MSG_ACK                 = 0x70,
   UMH_MSG_NACK                = 0x71,
   UMH_MSG_CAL_DUMP            = 0x80,
@@ -66,7 +68,7 @@ typedef enum {
   /* Device-side hologram keyframe executor (Core/Inc/hologram_engine.h).
    * UPLOAD stores whole 84-channel holograms in RAM, CONFIG sets the cadence and
    * interpolation time, START/STOP own the FPGA output exactly like motion and
-   * focused-AM audio do.  The host keeps computing the holograms; the device
+   * aperture stream do.  The host keeps computing the holograms; the device
    * only interpolates between them so a long morph cannot be broken by USB. */
   UMH_MSG_HOLOGRAM_UPLOAD     = 0xA0,
   UMH_MSG_HOLOGRAM_CONFIG     = 0xA1,

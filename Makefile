@@ -48,7 +48,7 @@ Core/Src/frame_ring.c \
 Core/Src/playback_plan.c \
 Core/Src/spatial_renderer.c \
 Core/Src/fpga_link.c \
-Core/Src/audio_engine.c \
+Core/Src/aperture_mod.c \
 Core/Src/us_calibration.c \
 Core/Src/flash_nor.c \
 Core/Src/flash_store.c \

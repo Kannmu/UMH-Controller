@@ -16,19 +16,20 @@
 #define FPGA_STATUS_INVALID_FRAME (1u << 2)
 #define FPGA_STATUS_OUTPUT_FAULT  (1u << 3)
 #define FPGA_STATUS_RUNNING       (1u << 4)
-/* Diagnostic bit 15: focused-AM common-level mode is active.  STM32 uses it
- * to prove that a new FPGA bitstream understands AUDIO_MODE, so old logic
- * can never be mistaken for a successful audio configuration. */
-#define FPGA_STATUS_AUDIO_MODE    (1u << 15)
-/* Bit 12: this FPGA image has the AUDIO_BLOCK (0x1A) level FIFO. */
-#define FPGA_STATUS_AUDIO_BLOCK   (1u << 12)
-/* AUDIO_BLOCK: [0]=0x1A [1]=version [2..]=levels.  The reply's byte 1 is the
- * FIFO fill before the transaction.  More than 32 levels would reach header
- * byte 35 and flag the frame invalid; the FIFO holds 256 levels, consumed at
- * one per two carrier periods (20 kHz). */
-#define FPGA_AUDIO_BLOCK_MAX      32u
-#define FPGA_AUDIO_FIFO_DEPTH     256u
-#define FPGA_AUDIO_OUTPUT_RATE_HZ 20000u
+/* Diagnostic bit 15: common-level mode is active (one fixed 84-channel phase
+ * image, all channels driven at a single streamed amplitude).  STM32 uses it to
+ * prove that a new FPGA bitstream understands MOD_FIXED (0x17), so old logic
+ * can never be mistaken for a successful modulated-aperture configuration. */
+#define FPGA_STATUS_MOD_MODE      (1u << 15)
+/* Bit 12: this FPGA image has the MOD_FEED (0x1A) common-level FIFO. */
+#define FPGA_STATUS_MOD_FEED      (1u << 12)
+/* MOD_FEED: [0]=0x1A [1]=version [2..]=levels.  The reply's byte 1 is the FIFO
+ * fill before the transaction.  More than 32 levels would reach header byte 35
+ * and flag the frame invalid; the FIFO holds 256 levels, consumed at one per
+ * two carrier periods (20 kHz). */
+#define FPGA_MOD_BLOCK_MAX      32u
+#define FPGA_MOD_FIFO_DEPTH     256u
+#define FPGA_MOD_OUTPUT_RATE_HZ 20000u
 
 /* Microphone calibration commands.  MIC_CONFIG carries six extension bytes:
  *   [0] gate_count (1..64), [1..2] gate0 start, [3..4] start-to-start step,
@@ -54,11 +55,12 @@ typedef enum {
   FPGA_CMD_WS2812 = 0x13u,
   FPGA_CMD_MIC_CONFIG = 0x14u,
   FPGA_CMD_MIC_READ = 0x15u,
-  /* Compact 16-byte AUDIO_MODE enables/disables the common-envelope
-   * rebuild path, which keeps the 84 phases loaded by a normal FRAME.
-   * AUDIO_BLOCK then streams common levels into the FPGA FIFO. */
-  FPGA_CMD_AUDIO_MODE = 0x17u,
-  FPGA_CMD_AUDIO_BLOCK = 0x1Au
+  /* Compact 16-byte MOD_FIXED enables/disables the common-level rebuild path,
+   * which keeps the 84 phases loaded by a normal FRAME.  MOD_FEED then streams
+   * common amplitude levels into the FPGA FIFO.  The opcodes keep the values
+   * already deployed in the field. */
+  FPGA_CMD_MOD_FIXED = 0x17u,
+  FPGA_CMD_MOD_FEED = 0x1Au
 } fpga_command_t;
 
 typedef struct {
@@ -72,7 +74,7 @@ typedef struct {
 
 typedef struct __attribute__((packed)) {
   uint8_t protocol_version;
-  uint8_t audio_fill;           /* AUDIO_BLOCK FIFO fill before the transaction */
+  uint8_t mod_fill;             /* MOD_FEED FIFO fill before the transaction */
   uint16_t fifo_credit;
   uint16_t fifo_depth;
   uint16_t status_flags;
@@ -113,15 +115,15 @@ int fpga_link_safe_stop(fpga_link_t *link);
 int fpga_link_set_ws2812(fpga_link_t *link, uint8_t r, uint8_t g, uint8_t b);
 int fpga_link_mic_config(fpga_link_t *link, uint8_t gate_count, uint16_t start,
                          uint16_t step, uint8_t width);
-/* Focused-AM setup.  The 84 phase bytes are loaded through one ordinary
- * FRAME, then AUDIO_MODE switches the FPGA event builder to the common-level
- * substitution path.  Audio data itself uses fpga_link_audio_block(). */
-int fpga_link_audio_begin(fpga_link_t *link, const uint8_t *phases,
-                          const uint8_t *enables, uint32_t sequence);
-/* Appends count (<= FPGA_AUDIO_BLOCK_MAX) levels to the FPGA FIFO; count 0
- * is a 2-byte fill poll.  Returns the fill before the transfer, or < 0. */
-int fpga_link_audio_block(fpga_link_t *link, const uint8_t *levels, uint8_t count);
-int fpga_link_audio_mode(fpga_link_t *link, uint8_t enable, uint32_t sequence);
+/* Modulated-aperture setup.  The 84 phase bytes are loaded through one ordinary
+ * FRAME, then MOD_FIXED switches the FPGA event builder to the common-level
+ * substitution path.  The amplitude stream itself uses fpga_link_mod_feed(). */
+int fpga_link_mod_begin(fpga_link_t *link, const uint8_t *phases,
+                        const uint8_t *enables, uint32_t sequence);
+/* Appends count (<= FPGA_MOD_BLOCK_MAX) envelope levels to the FPGA FIFO;
+ * count 0 is a 2-byte fill poll.  Returns the fill before the transfer, or < 0. */
+int fpga_link_mod_feed(fpga_link_t *link, const uint8_t *levels, uint8_t count);
+int fpga_link_mod_mode(fpga_link_t *link, uint8_t enable, uint32_t sequence);
 int fpga_link_mic_read(fpga_link_t *link, uint8_t gate, fpga_mic_gate_wire_t *result);
 const fpga_status_wire_t *fpga_link_status(const fpga_link_t *link);
 void fpga_link_spi_txrx_complete(fpga_link_t *link);

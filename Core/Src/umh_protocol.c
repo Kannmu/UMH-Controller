@@ -23,17 +23,31 @@ uint32_t umh_rx_ring_available(const umh_rx_ring_t *ring)
   return w - r;
 }
 
+/* The ring size is a power of two, so indexing wraps with a mask.  The byte
+ * loops run once per received and once per dispatched USB byte: a runtime
+ * modulo there compiles to __aeabi_uidivmod (a library call) per byte, which
+ * at 8 KiB of bulk transfer per frame is worth more than the copy itself. */
+#define UMH_RX_RING_MASK (UMH_PROTOCOL_RX_RING_SIZE - 1u)
+
+_Static_assert((UMH_PROTOCOL_RX_RING_SIZE & UMH_RX_RING_MASK) == 0u,
+               "RX ring size must be a power of two");
+
 uint32_t umh_rx_ring_write(umh_rx_ring_t *ring, const uint8_t *data, uint32_t length)
 {
   uint32_t available;
   uint32_t accepted;
-  uint32_t i;
+  uint32_t index;
+  uint32_t first;
   if (ring == NULL || data == NULL || length == 0u) return 0u;
   available = UMH_PROTOCOL_RX_RING_SIZE - umh_rx_ring_available(ring);
   accepted = (length < available) ? length : available;
-  for (i = 0u; i < accepted; ++i) {
-    ring->bytes[(ring->write_index + i) % UMH_PROTOCOL_RX_RING_SIZE] = data[i];
-  }
+  /* Both ranges are contiguous, so the ring payload is filled by at most two
+   * memcpy calls instead of a byte-at-a-time loop. */
+  index = ring->write_index & UMH_RX_RING_MASK;
+  first = UMH_PROTOCOL_RX_RING_SIZE - index;
+  if (first > accepted) first = accepted;
+  memcpy(&ring->bytes[index], data, first);
+  if (accepted > first) memcpy(&ring->bytes[0], data + first, accepted - first);
   ring->write_index += accepted;
   ring->dropped_bytes += length - accepted;
   return accepted;
@@ -43,13 +57,16 @@ uint32_t umh_rx_ring_read(umh_rx_ring_t *ring, uint8_t *data, uint32_t length)
 {
   uint32_t available;
   uint32_t count;
-  uint32_t i;
+  uint32_t index;
+  uint32_t first;
   if (ring == NULL || data == NULL || length == 0u) return 0u;
   available = umh_rx_ring_available(ring);
   count = (length < available) ? length : available;
-  for (i = 0u; i < count; ++i) {
-    data[i] = ring->bytes[(ring->read_index + i) % UMH_PROTOCOL_RX_RING_SIZE];
-  }
+  index = ring->read_index & UMH_RX_RING_MASK;
+  first = UMH_PROTOCOL_RX_RING_SIZE - index;
+  if (first > count) first = count;
+  memcpy(data, &ring->bytes[index], first);
+  if (count > first) memcpy(data + first, &ring->bytes[0], count - first);
   ring->read_index += count;
   return count;
 }

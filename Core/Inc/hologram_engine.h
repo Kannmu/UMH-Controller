@@ -54,10 +54,10 @@
  * watchdog is 25 ms, so a fully static hologram is refreshed well inside that. */
 #define UMH_HOLOGRAM_REFRESH_MS      100u
 #define UMH_HOLOGRAM_STOP_FADE_MS    20u
+/* Message group.  The v7 groups 0x62..0x67 (motion) and 0x90..0x94
+ * (modulated aperture) are untouched; this is a new capability behind a new
+ * capability bit, so an old host keeps working unchanged. */
 
-/* Message group.  The v7 groups 0x62..0x67 (motion) and 0x90..0x94 (focused
- * AM audio) are untouched; this is a new capability behind a new capability
- * bit, so an old host keeps working unchanged. */
 #define UMH_MSG_HOLOGRAM_UPLOAD      0xA0u
 #define UMH_MSG_HOLOGRAM_CONFIG      0xA1u
 #define UMH_MSG_HOLOGRAM_START       0xA2u

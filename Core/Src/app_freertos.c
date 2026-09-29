@@ -23,7 +23,7 @@
 #include "us_calibration.h"
 #include "demo_engine.h"
 #include "motion_engine.h"
-#include "audio_engine.h"
+#include "aperture_mod.h"
 #include "hologram_engine.h"
 #include "spi.h"
 #include "i2c.h"
@@ -50,7 +50,7 @@ static umh_spatial_renderer_t renderer;
 static umh_frame_ring_t frame_ring;
 static umh_block_parser_t block_parser;
 static umh_playback_plan_t playback_plan;
-static umh_audio_engine_t audio_engine;
+static umh_aperture_mod_t aperture_mod;
 static umh_motion_engine_t motion_engine;
 static umh_hologram_engine_t hologram_engine;
 static fpga_link_t fpga_link;
@@ -233,10 +233,27 @@ static const osThreadAttr_t input_task_attributes = {
   .stack_mem = input_task_stack, .stack_size = sizeof(input_task_stack),
   .priority = osPriorityNormal
 };
-/* The demo renderer uses floating point temporaries through a deep call chain.
- * Keep those temporaries out of the small UI stack so selecting a demo cannot
- * corrupt the scheduler state. */
-static StackType_t protocol_task_stack[1024], render_task_stack[1024], storage_task_stack[512], ui_task_stack[1024], health_task_stack[256];
+/* Task stacks.
+ *
+ * The compiler emits one -fstack-usage frame per function and a call-graph
+ * file, so the worst-case chain of every task entry point is known exactly.
+ * Each grant below is that chain plus headroom for the 8-word Cortex-M4
+ * exception frame, the ISRs that can pre-empt the task and FreeRTOS
+ * bookkeeping.  Leaving every stack at a round kilobyte wasted several KiB of
+ * the 112 KiB RAM budget without any measurement behind it.
+ *
+ *   task       worst chain   grant   margin
+ *   render          1176 B   4096    x3.5   (frame-critical, kept generous)
+ *   protocol        1236 B   3072    x2.5
+ *   storage          376 B   1024    x2.7
+ *   ui               n/a      4096    kept: GUI callbacks arrive through
+ *                                          device_gui function pointers, which
+ *                                          static analysis cannot follow
+ *   input            132 B    512    x3.9
+ *   health           124 B    512    x4.1
+ *   cal             3708 B   6144    x1.7   (deepest chain in the image)
+ */
+static StackType_t protocol_task_stack[768], render_task_stack[1024], storage_task_stack[256], ui_task_stack[1024], health_task_stack[128];
 static const osThreadAttr_t protocol_task_attributes = {
   .name = "protocol", .cb_mem = &protocol_task_cb, .cb_size = sizeof(protocol_task_cb),
   .stack_mem = protocol_task_stack, .stack_size = sizeof(protocol_task_stack),
@@ -319,7 +336,7 @@ static int gui_calibration(void *context)
 {
   (void)context;
   if (calibration_task_handle == NULL) return -1;
-  if (audio_engine_owns_output(&audio_engine) != 0u) audio_engine_abort(&audio_engine);
+  if (aperture_mod_owns_output(&aperture_mod) != 0u) aperture_mod_abort(&aperture_mod);
   if (motion_engine_owns_output(&motion_engine) != 0u) motion_engine_abort(&motion_engine, &fpga_link);
   device_gui_calibration_begin(&device_gui);
   (void)xTaskNotifyGive((TaskHandle_t)calibration_task_handle);
@@ -330,7 +347,7 @@ static int gui_selftest(void *context)
 {
   (void)context;
   if (calibration_task_handle == NULL) return -1;
-  if (audio_engine_owns_output(&audio_engine) != 0u) audio_engine_abort(&audio_engine);
+  if (aperture_mod_owns_output(&aperture_mod) != 0u) aperture_mod_abort(&aperture_mod);
   if (motion_engine_owns_output(&motion_engine) != 0u) motion_engine_abort(&motion_engine, &fpga_link);
   device_gui_calibration_begin(&device_gui);
   calibration_selftest_mode = 1u;
@@ -374,7 +391,7 @@ static void calibration_raw_session(void)
 {
   int rc;
   uint32_t saved_cr1;
-  if (audio_engine_owns_output(&audio_engine) != 0u) audio_engine_abort(&audio_engine);
+  if (aperture_mod_owns_output(&aperture_mod) != 0u) aperture_mod_abort(&aperture_mod);
   if (motion_engine_owns_output(&motion_engine) != 0u) motion_engine_abort(&motion_engine, &fpga_link);
   device_gui_calibration_begin(&device_gui);
   playback_plan_stop(&playback_plan);
@@ -417,7 +434,7 @@ static void calibration_probe_session(void)
   uint16_t encoded_length;
   float *out = us_calibration_scratch(&scratch_bytes);
   const umh_cal_probe_request_t *rq = &calibration_probe_request;
-  if (audio_engine_owns_output(&audio_engine) != 0u) audio_engine_abort(&audio_engine);
+  if (aperture_mod_owns_output(&aperture_mod) != 0u) aperture_mod_abort(&aperture_mod);
   if (motion_engine_owns_output(&motion_engine) != 0u) motion_engine_abort(&motion_engine, &fpga_link);
   playback_plan_stop(&playback_plan);
   (void)fpga_link_safe_stop(&fpga_link);
@@ -462,7 +479,7 @@ static void calibration_selftest_session(void)
     memcpy(&gate_start, &record->cal_reserved[2], sizeof(gate_start));
     gate_width = record->cal_reserved[4];
   }
-  if (audio_engine_owns_output(&audio_engine) != 0u) audio_engine_abort(&audio_engine);
+  if (aperture_mod_owns_output(&aperture_mod) != 0u) aperture_mod_abort(&aperture_mod);
   if (motion_engine_owns_output(&motion_engine) != 0u) motion_engine_abort(&motion_engine, &fpga_link);
   device_gui_calibration_begin(&device_gui);
   playback_plan_stop(&playback_plan);
@@ -506,7 +523,7 @@ static void calibration_session(void)
   uint16_t i;
   const umh_device_profile_t *profile = device_profile_get();
   uint32_t saved_cr1;
-  if (audio_engine_owns_output(&audio_engine) != 0u) audio_engine_abort(&audio_engine);
+  if (aperture_mod_owns_output(&aperture_mod) != 0u) aperture_mod_abort(&aperture_mod);
   if (motion_engine_owns_output(&motion_engine) != 0u) motion_engine_abort(&motion_engine, &fpga_link);
   device_gui_calibration_begin(&device_gui);
   playback_plan_stop(&playback_plan);
@@ -605,7 +622,7 @@ static void bench_service(void)
   int rc = 0;
   uint16_t i;
   if (cmd == UMH_BENCH_CMD_NONE) return;
-  if (audio_engine_owns_output(&audio_engine) != 0u) audio_engine_abort(&audio_engine);
+  if (aperture_mod_owns_output(&aperture_mod) != 0u) aperture_mod_abort(&aperture_mod);
   if (motion_engine_owns_output(&motion_engine) != 0u) motion_engine_abort(&motion_engine, &fpga_link);
   umh_bench_cmd = UMH_BENCH_CMD_NONE;
   umh_bench_status = 1u;
@@ -742,7 +759,7 @@ static int gui_levitation_toggle(void *context)
     return 0;
   }
   if (device_gui_calibration_busy(&device_gui) != 0u || demo_building != 0u) return -1;
-  audio_engine_abort(&audio_engine);
+  aperture_mod_abort(&aperture_mod);
   if (motion_engine_owns_output(&motion_engine) != 0u)
     motion_engine_abort(&motion_engine, &fpga_link);
   playback_plan_stop(&playback_plan);
@@ -773,7 +790,7 @@ static int gui_defoam_set(void *context)
   if (requested == DEVICE_GUI_DEFOAM_STOP) {
     /* Stop button: cut every modulation source at once, whichever task or
      * host started it, and leave the array silent. */
-    audio_engine_abort(&audio_engine);
+    aperture_mod_abort(&aperture_mod);
     motion_engine_abort(&motion_engine, &fpga_link);
     playback_plan_stop(&playback_plan);
     block_parser_cancel(&block_parser);
@@ -797,7 +814,7 @@ static int gui_defoam_set(void *context)
 
   /* Mutual exclusion: a running block plan, demo, tactile AM or host motion
    * program would otherwise keep driving the same 84 channels. */
-  audio_engine_abort(&audio_engine);
+  aperture_mod_abort(&aperture_mod);
   if (motion_engine_owns_output(&motion_engine) != 0u)
     motion_engine_abort(&motion_engine, &fpga_link);
   playback_plan_stop(&playback_plan);
@@ -822,7 +839,7 @@ static int gui_demo(void *context)
   descriptor = demo_engine_descriptor(device_gui.selected_demo);
   if (descriptor == NULL) return -1;
   demo_building = 1u;
-  if (audio_engine_owns_output(&audio_engine) != 0u) audio_engine_abort(&audio_engine);
+  if (aperture_mod_owns_output(&aperture_mod) != 0u) aperture_mod_abort(&aperture_mod);
   if (motion_engine_owns_output(&motion_engine) != 0u) motion_engine_abort(&motion_engine, &fpga_link);
   playback_plan_stop(&playback_plan);
   (void)fpga_link_safe_stop(&fpga_link);
@@ -978,12 +995,12 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
   umh_status_t status = UMH_STATUS_OK;
   uint8_t status_payload[8];
   uint32_t value;
-  uint8_t audio_owns;
+  uint8_t mod_owns;
   uint8_t motion_owns;
   uint8_t hologram_owns;
   (void)context;
   if (frame == NULL) return;
-  audio_owns = audio_engine_owns_output(&audio_engine);
+  mod_owns = aperture_mod_owns_output(&aperture_mod);
   motion_owns = motion_engine_owns_output(&motion_engine);
   hologram_owns = hologram_engine_owns_output(&hologram_engine);
   switch (frame->header.message_type) {
@@ -1000,7 +1017,7 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       send_response(frame, UMH_MSG_STATUS, status_payload, sizeof(status_payload));
       return;
     case UMH_MSG_BLOCK_BEGIN:
-      if (audio_owns != 0u || motion_owns != 0u || hologram_owns != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (mod_owns != 0u || motion_owns != 0u || hologram_owns != 0u) { status = UMH_STATUS_BUSY; break; }
       if (playback_plan.running != 0u || block_stream_active != 0u ||
           frame_ring_count(&frame_ring) != 0u ||
           block_parser_begin(&block_parser, frame->payload, frame->payload_size) != 0) {
@@ -1046,13 +1063,13 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       block_stream_active = 0u;
       break;
     case UMH_MSG_SET_PLAN:
-      if (audio_owns != 0u || motion_owns != 0u || hologram_owns != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (mod_owns != 0u || motion_owns != 0u || hologram_owns != 0u) { status = UMH_STATUS_BUSY; break; }
       if (playback_plan.running != 0u ||
           frame->payload_size != sizeof(umh_playback_plan_wire_t) ||
           playback_plan_set(&playback_plan, (const umh_playback_plan_wire_t *)frame->payload) != 0) status = UMH_STATUS_INVALID_STATE;
       break;
     case UMH_MSG_SET_DEMO:
-      if (audio_owns != 0u || motion_owns != 0u || hologram_owns != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (mod_owns != 0u || motion_owns != 0u || hologram_owns != 0u) { status = UMH_STATUS_BUSY; break; }
       if (frame->payload_size != 1u || frame->payload[0] >= demo_engine_count()) {
         status = UMH_STATUS_BAD_LENGTH;
       } else {
@@ -1071,23 +1088,23 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       }
       break;
     case UMH_MSG_MOTION_UPLOAD:
-      if (audio_owns != 0u || (system_status_get()->flags & UMH_SYSTEM_VORTEX_MODE_MASK) != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (mod_owns != 0u || (system_status_get()->flags & UMH_SYSTEM_VORTEX_MODE_MASK) != 0u) { status = UMH_STATUS_BUSY; break; }
       if (motion_engine_upload(&motion_engine, frame->payload, frame->payload_size) != 0)
         status = UMH_STATUS_BAD_LENGTH;
       break;
     case UMH_MSG_MOTION_CONFIG:
-      if (audio_owns != 0u || (system_status_get()->flags & UMH_SYSTEM_VORTEX_MODE_MASK) != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (mod_owns != 0u || (system_status_get()->flags & UMH_SYSTEM_VORTEX_MODE_MASK) != 0u) { status = UMH_STATUS_BUSY; break; }
       if (motion_engine_configure(&motion_engine, frame->payload, frame->payload_size) != 0)
         status = UMH_STATUS_BAD_LENGTH;
       break;
     case UMH_MSG_MOTION_RATE:
-      if (audio_owns != 0u || (system_status_get()->flags & UMH_SYSTEM_VORTEX_MODE_MASK) != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (mod_owns != 0u || (system_status_get()->flags & UMH_SYSTEM_VORTEX_MODE_MASK) != 0u) { status = UMH_STATUS_BUSY; break; }
       if (motion_engine_rate(&motion_engine, frame->payload, frame->payload_size) != 0)
         status = UMH_STATUS_BAD_LENGTH;
       break;
     case UMH_MSG_MOTION_START:
       if (frame->payload_size != 0u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
-      if (audio_owns != 0u || device_gui_calibration_busy(&device_gui) != 0u ||
+      if (mod_owns != 0u || device_gui_calibration_busy(&device_gui) != 0u ||
           demo_building != 0u) { status = UMH_STATUS_BUSY; break; }
       motion_engine_abort(&motion_engine, NULL);
       playback_plan_stop(&playback_plan);
@@ -1098,7 +1115,7 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       else { if (motion_engine_uses_rgb(&motion_engine) == 0u) (void)fpga_link_set_ws2812(&fpga_link, 0u, 0u, 0u); if (motion_engine_start(&motion_engine) != 0) status = UMH_STATUS_INVALID_STATE; }
       break;
     case UMH_MSG_MOTION_TARGET:
-      if (audio_owns != 0u || (system_status_get()->flags & UMH_SYSTEM_VORTEX_MODE_MASK) != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (mod_owns != 0u || (system_status_get()->flags & UMH_SYSTEM_VORTEX_MODE_MASK) != 0u) { status = UMH_STATUS_BUSY; break; }
       if (motion_engine_target(&motion_engine, frame->payload, frame->payload_size) != 0)
         status = UMH_STATUS_BAD_LENGTH;
       break;
@@ -1117,7 +1134,7 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       }
     case UMH_MSG_START_PLAN:
       if (frame->payload_size != 0u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
-      if (audio_owns != 0u || motion_owns != 0u || hologram_owns != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (mod_owns != 0u || motion_owns != 0u || hologram_owns != 0u) { status = UMH_STATUS_BUSY; break; }
       if (playback_plan.configured == 0u ||
           (block_parser.block.active == 0u && frame_ring_count(&frame_ring) == 0u) ||
           playback_plan.wire.block_id != block_parser.block.header.block_id ||
@@ -1137,7 +1154,7 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       break;
     case UMH_MSG_STOP_PLAN:
       if (frame->payload_size != 0u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
-      if (audio_owns != 0u) audio_engine_abort(&audio_engine);
+      if (mod_owns != 0u) aperture_mod_abort(&aperture_mod);
       if (motion_owns != 0u) motion_engine_request_stop(&motion_engine);
       if (hologram_owns != 0u) hologram_engine_request_stop(&hologram_engine);
       playback_plan_stop(&playback_plan);
@@ -1148,7 +1165,7 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       break;
     case UMH_MSG_CLEAR_PLAN:
       if (frame->payload_size != 0u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
-      if (audio_owns != 0u) audio_engine_abort(&audio_engine);
+      if (mod_owns != 0u) aperture_mod_abort(&aperture_mod);
       if (motion_owns != 0u) motion_engine_abort(&motion_engine, &fpga_link);
       if (hologram_owns != 0u) hologram_engine_abort(&hologram_engine, &fpga_link);
       playback_plan_stop(&playback_plan);
@@ -1159,20 +1176,20 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       frame_ring_init(&frame_ring);
       break;
     case UMH_MSG_HOLOGRAM_UPLOAD:
-      if (audio_owns != 0u || motion_owns != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (mod_owns != 0u || motion_owns != 0u) { status = UMH_STATUS_BUSY; break; }
       if (hologram_engine_upload(&hologram_engine, frame->payload,
                                  frame->payload_size) != 0)
         status = UMH_STATUS_BAD_LENGTH;
       break;
     case UMH_MSG_HOLOGRAM_CONFIG:
-      if (audio_owns != 0u || motion_owns != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (mod_owns != 0u || motion_owns != 0u) { status = UMH_STATUS_BUSY; break; }
       if (hologram_engine_configure(&hologram_engine, frame->payload,
                                     frame->payload_size) != 0)
         status = UMH_STATUS_BAD_LENGTH;
       break;
     case UMH_MSG_HOLOGRAM_START:
       if (frame->payload_size != 0u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
-      if (audio_owns != 0u || motion_owns != 0u || device_gui_calibration_busy(&device_gui) != 0u ||
+      if (mod_owns != 0u || motion_owns != 0u || device_gui_calibration_busy(&device_gui) != 0u ||
           demo_building != 0u) { status = UMH_STATUS_BUSY; break; }
       /* Same hand-over protocol as MOTION_START: give up the block path, put the
        * FPGA in a safe state, then own the output. */
@@ -1284,7 +1301,7 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       }
     case UMH_MSG_CAL_RAW:
       if (frame->payload_size != 8u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
-      if (audio_owns != 0u || motion_owns != 0u || hologram_owns != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (mod_owns != 0u || motion_owns != 0u || hologram_owns != 0u) { status = UMH_STATUS_BUSY; break; }
       if (calibration_raw_mode != 0u || device_gui_calibration_busy(&device_gui) != 0u) {
         status = UMH_STATUS_BUSY;
       } else if (frame->payload[0] == 0u || frame->payload[3] == 0u ||
@@ -1313,7 +1330,7 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       break;
     case UMH_MSG_CAL_START:
       if (frame->payload_size != 0u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
-      if (audio_owns != 0u || motion_owns != 0u || hologram_owns != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (mod_owns != 0u || motion_owns != 0u || hologram_owns != 0u) { status = UMH_STATUS_BUSY; break; }
       if (calibration_task_handle == NULL) status = UMH_STATUS_INVALID_STATE;
       else if (calibration_raw_mode != 0u ||
                device_gui_calibration_busy(&device_gui) != 0u) status = UMH_STATUS_BUSY;
@@ -1328,7 +1345,7 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       break;
     case UMH_MSG_CAL_SELFTEST:
       if (frame->payload_size != 0u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
-      if (audio_owns != 0u || motion_owns != 0u || hologram_owns != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (mod_owns != 0u || motion_owns != 0u || hologram_owns != 0u) { status = UMH_STATUS_BUSY; break; }
       if (calibration_task_handle == NULL) status = UMH_STATUS_INVALID_STATE;
       else if (calibration_raw_mode != 0u || calibration_selftest_mode != 0u ||
                device_gui_calibration_busy(&device_gui) != 0u) status = UMH_STATUS_BUSY;
@@ -1345,7 +1362,7 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       if (frame->payload_size != sizeof(umh_cal_probe_request_t)) {
         send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return;
       }
-      if (audio_owns != 0u || motion_owns != 0u || hologram_owns != 0u ||
+      if (mod_owns != 0u || motion_owns != 0u || hologram_owns != 0u ||
           calibration_task_handle == NULL || calibration_probe_mode != 0u ||
           calibration_raw_mode != 0u || calibration_selftest_mode != 0u ||
           device_gui_calibration_busy(&device_gui) != 0u) {
@@ -1413,10 +1430,10 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       if (queue_storage_request(frame) == 0) return;
       status = UMH_STATUS_BUSY;
       break;
-    case UMH_MSG_AUDIO_CONFIGURE:
-      if (frame->payload_size < sizeof(umh_audio_config_wire_t) ||
-          frame->payload_size > (uint16_t)(sizeof(umh_audio_config_wire_t) + 1u +
-                                           UMH_AUDIO_MAX_EXTRA_POINTS * sizeof(umh_audio_point_wire_t))) {
+    case UMH_MSG_MOD_CONFIGURE:
+      if (frame->payload_size < sizeof(umh_mod_config_wire_t) ||
+          frame->payload_size > (uint16_t)(sizeof(umh_mod_config_wire_t) + 1u +
+                                           UMH_MOD_MAX_EXTRA_POINTS * sizeof(umh_mod_point_wire_t))) {
         status = UMH_STATUS_BAD_LENGTH;
         break;
       }
@@ -1430,33 +1447,33 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
         status = UMH_STATUS_BUSY;
         break;
       }
-      if (audio_engine_owns_output(&audio_engine) != 0u)
-        audio_engine_abort(&audio_engine);
-      (void)fpga_link_set_ws2812(&fpga_link, 0u, 0u, 0u); if (audio_engine_configure(&audio_engine, &renderer, &fpga_link,
+      if (aperture_mod_owns_output(&aperture_mod) != 0u)
+        aperture_mod_abort(&aperture_mod);
+      (void)fpga_link_set_ws2812(&fpga_link, 0u, 0u, 0u); if (aperture_mod_configure(&aperture_mod, &renderer, &fpga_link,
                                  frame->payload, frame->payload_size) != 0)
         status = UMH_STATUS_INVALID_STATE;
       break;
-    case UMH_MSG_AUDIO_START:
+    case UMH_MSG_MOD_START:
       if (frame->payload_size != 0u) { status = UMH_STATUS_BAD_LENGTH; break; }
-      if (audio_engine_start(&audio_engine) != 0) status = UMH_STATUS_INVALID_STATE;
+      if (aperture_mod_start(&aperture_mod) != 0) status = UMH_STATUS_INVALID_STATE;
       break;
-    case UMH_MSG_AUDIO_DATA:
+    case UMH_MSG_MOD_FEED:
       if (frame->payload_size == 0u) return;
-      (void)audio_engine_feed(&audio_engine, frame->payload, frame->payload_size,
+      (void)aperture_mod_feed(&aperture_mod, frame->payload, frame->payload_size,
                               frame->header.stream_sequence);
       return;
-    case UMH_MSG_AUDIO_STOP:
+    case UMH_MSG_MOD_STOP:
       if (frame->payload_size != 0u) { status = UMH_STATUS_BAD_LENGTH; break; }
-      audio_engine_request_stop(&audio_engine);
+      aperture_mod_request_stop(&aperture_mod);
       system_status_clear(UMH_SYSTEM_UNDERRUN);
       break;
-    case UMH_MSG_AUDIO_STATUS:
+    case UMH_MSG_MOD_STATUS:
       if (frame->payload_size != 0u) { status = UMH_STATUS_BAD_LENGTH; break; }
       {
-        umh_audio_status_wire_t audio_status;
-        audio_engine_get_status(&audio_engine, &audio_status);
-        send_response(frame, UMH_MSG_AUDIO_STATUS, &audio_status,
-                      (uint16_t)sizeof(audio_status));
+        umh_mod_status_wire_t mod_status;
+        aperture_mod_get_status(&aperture_mod, &mod_status);
+        send_response(frame, UMH_MSG_MOD_STATUS, &mod_status,
+                      (uint16_t)sizeof(mod_status));
         return;
       }
     default:
@@ -1567,7 +1584,7 @@ static void render_wait_until_us(uint64_t target_us)
     }
     /* A 1 us request would program ARR = 0, which blocks the STM32 basic
      * timer: no update event, so the task only woke on the 2 ms notify
-     * timeout.  At 20 kHz audio that stalled the envelope for 1-2 ms and then
+ * timeout.  At 20 kHz that stalled the envelope stream for 1-2 ms and then
      * replayed the backlog in a burst (measured p99 lag 1.8 ms), heard as
      * noise and smeared/slowed sound.  Spin out spans too short to be worth
      * a context switch instead. */
@@ -1634,17 +1651,17 @@ static void render_task(void *argument)
       osDelay(1u);
       continue;
     }
-    if (audio_engine_owns_output(&audio_engine) != 0u) {
+    if (aperture_mod_owns_output(&aperture_mod) != 0u) {
       /* The FPGA level FIFO paces the 20 kHz output from its own clock; one
        * service per millisecond keeps it topped up, so task or USB jitter
        * never reaches the envelope.  System flags only change on edges. */
-      uint32_t audio_flags;
-      audio_engine_service(&audio_engine);
-      audio_flags = (audio_engine.state == UMH_AUDIO_RUNNING ? UMH_SYSTEM_PLAYING : 0u) |
-                    ((audio_engine.underrun_count != 0u &&
-                      audio_engine.state != UMH_AUDIO_OFF) ? UMH_SYSTEM_UNDERRUN : 0u);
-      if ((system_status_get()->flags & (UMH_SYSTEM_PLAYING | UMH_SYSTEM_UNDERRUN)) != audio_flags)
-        system_status_modify(UMH_SYSTEM_PLAYING | UMH_SYSTEM_UNDERRUN, audio_flags);
+      uint32_t mod_flags;
+      aperture_mod_service(&aperture_mod);
+      mod_flags = (aperture_mod.state == UMH_MOD_RUNNING ? UMH_SYSTEM_PLAYING : 0u) |
+                    ((aperture_mod.underrun_count != 0u &&
+                      aperture_mod.state != UMH_MOD_OFF) ? UMH_SYSTEM_UNDERRUN : 0u);
+      if ((system_status_get()->flags & (UMH_SYSTEM_PLAYING | UMH_SYSTEM_UNDERRUN)) != mod_flags)
+        system_status_modify(UMH_SYSTEM_PLAYING | UMH_SYSTEM_UNDERRUN, mod_flags);
       now_us = system_time_us();
       system_status_get()->device_time = (uint32_t)now_us;
       system_status_get()->frame_count = 0u;
@@ -1880,7 +1897,7 @@ static void application_init(void)
   frame_ring_init(&frame_ring);
   spatial_renderer_init(&renderer, &device_profile);
   block_parser_init(&block_parser, &renderer, &frame_ring);
-  audio_engine_init(&audio_engine);
+  aperture_mod_init(&aperture_mod);
   motion_engine_init(&motion_engine);
   hologram_engine_init(&hologram_engine);
   playback_plan_clear(&playback_plan);

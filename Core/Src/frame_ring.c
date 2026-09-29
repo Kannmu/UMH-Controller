@@ -3,6 +3,19 @@
 #include "task.h"
 #include <string.h>
 
+/* Index advances are the hot part of this module (one per submitted frame plus
+ * one per released frame).  A runtime modulo of a 16-bit value pulls in
+ * __aeabi_uidivmod, a library call; the slot count is 24, which is not a power
+ * of two, so instead of masking, the increment is tested against the limit and
+ * only the (once per 24 frames) wrap pays for the subtraction. */
+#define FRAME_RING_SLOT_LIMIT ((uint16_t)UMH_DEVICE_FRAME_RING_SLOTS)
+
+static inline uint16_t frame_ring_next_index(uint16_t index)
+{
+  uint16_t next = (uint16_t)(index + 1u);
+  return next >= FRAME_RING_SLOT_LIMIT ? (uint16_t)(next - FRAME_RING_SLOT_LIMIT) : next;
+}
+
 void frame_ring_init(umh_frame_ring_t *ring)
 {
   if (ring == NULL) return;
@@ -12,32 +25,19 @@ void frame_ring_init(umh_frame_ring_t *ring)
 umh_output_frame_t *frame_ring_acquire_write(umh_frame_ring_t *ring)
 {
   if (ring == NULL) return NULL;
-  taskENTER_CRITICAL();
-  if (ring->count >= UMH_DEVICE_FRAME_RING_SLOTS) {
-    taskEXIT_CRITICAL();
-    return NULL;
-  }
-  taskEXIT_CRITICAL();
+  if (ring->count >= UMH_DEVICE_FRAME_RING_SLOTS) return NULL;
   return &ring->slots[ring->write_index];
 }
 
 int frame_ring_commit_write(umh_frame_ring_t *ring)
 {
-  int result = 0;
   if (ring == NULL || ring->count >= UMH_DEVICE_FRAME_RING_SLOTS) {
     if (ring != NULL) ++ring->dropped;
     return -1;
   }
-  taskENTER_CRITICAL();
-  if (ring->count >= UMH_DEVICE_FRAME_RING_SLOTS) {
-    ++ring->dropped;
-    result = -1;
-  } else {
-    ring->write_index = (uint16_t)((ring->write_index + 1u) % UMH_DEVICE_FRAME_RING_SLOTS);
-    ++ring->count;
-  }
-  taskEXIT_CRITICAL();
-  return result;
+  ring->write_index = frame_ring_next_index(ring->write_index);
+  ++ring->count;
+  return 0;
 }
 
 umh_output_frame_t *frame_ring_peek_read(umh_frame_ring_t *ring)
@@ -50,14 +50,8 @@ umh_output_frame_t *frame_ring_peek_read(umh_frame_ring_t *ring)
 int frame_ring_release_read(umh_frame_ring_t *ring)
 {
   if (ring == NULL || ring->count == 0u) return -1;
-  taskENTER_CRITICAL();
-  if (ring->count == 0u) {
-    taskEXIT_CRITICAL();
-    return -1;
-  }
-  ring->read_index = (uint16_t)((ring->read_index + 1u) % UMH_DEVICE_FRAME_RING_SLOTS);
+  ring->read_index = frame_ring_next_index(ring->read_index);
   --ring->count;
-  taskEXIT_CRITICAL();
   return 0;
 }
 
@@ -105,6 +99,7 @@ int frame_ring_snapshot(umh_frame_ring_t *ring, uint64_t duration)
 int frame_ring_restore_loop(umh_frame_ring_t *ring, uint32_t iteration)
 {
   uint16_t i;
+  uint16_t index;
   uint32_t step;
   uint64_t shift;
   if (ring == NULL || ring->loop_valid == 0u || ring->loop_count == 0u) return -1;
@@ -113,17 +108,20 @@ int frame_ring_restore_loop(umh_frame_ring_t *ring, uint32_t iteration)
   if (ring->loop_duration != 0u && step > UINT64_MAX / ring->loop_duration) return -3;
   shift = (uint64_t)step * ring->loop_duration;
   taskENTER_CRITICAL();
+  /* The index walks with the same wrapping increment the producers use instead
+   * of recomputing a runtime modulo for every frame in the loop. */
+  index = ring->loop_start_index;
   for (i = 0u; i < ring->loop_count; ++i) {
-    uint16_t index = (uint16_t)((ring->loop_start_index + i) % UMH_DEVICE_FRAME_RING_SLOTS);
     if (ring->slots[index].deadline > UINT64_MAX - shift) {
       taskEXIT_CRITICAL();
       return -4;
     }
     ring->slots[index].deadline += shift;
     ring->slots[index].sequence += (uint32_t)(step * (uint32_t)ring->loop_count);
+    index = frame_ring_next_index(index);
   }
   ring->read_index = ring->loop_start_index;
-  ring->write_index = (uint16_t)((ring->loop_start_index + ring->loop_count) % UMH_DEVICE_FRAME_RING_SLOTS);
+  ring->write_index = index;
   ring->count = ring->loop_count;
   ring->loop_iteration_last = iteration;
   taskEXIT_CRITICAL();

@@ -2,6 +2,7 @@
 #define UMH_FAST_MATH_H
 
 #include <stdint.h>
+#include <math.h>
 
 /* Fixed-point quarter-turn sine table shared by the real-time renderers.
  *
@@ -31,6 +32,36 @@ static inline float umh_fast_cos_q10(int32_t phase_q10)
 {
   return (float)umh_fast_sin_table[((uint32_t)phase_q10 + (UMH_FAST_TRIG_SIZE / 4u)) &
                                    UMH_FAST_TRIG_MASK] * (1.0f / 32768.0f);
+}
+
+/* Hardware single-precision square root.
+ *
+ * newlib's sqrtf() is an out-of-line call even with -fno-math-errno: it saves
+ * a register pair, calls __ieee754_sqrtf (which is one VSQRT), then re-tests
+ * the input for NaN and for the negative-domain errno case and branches to
+ * __errno().  On Cortex-M4 the VSQRT itself is 14 cycles and the wrapper costs
+ * roughly as much again, which the renderers pay 84..1344 times per frame.
+ * VSQRT.F32 does not raise anything a bare-metal build acts on, so calling it
+ * directly is exactly the same numeric result with none of the call overhead.
+ *
+ * The inputs here are sums of squares of finite single-precision values, so a
+ * negative operand is impossible; a NaN input (from an inf coordinate) still
+ * propagates as a NaN instead of touching errno. */
+static inline float umh_sqrtf(float x)
+{
+#if defined(__arm__) && defined(__VFP_FP__)
+  float result;
+  __asm__ ("vsqrt.f32 %0, %1" : "=t" (result) : "t" (x));
+  return result;
+#else
+  return sqrtf(x);
+#endif
+}
+
+/* |(re, im)| in one VSQRT plus the two FMAs that build the sum of squares. */
+static inline float umh_hypotf(float re, float im)
+{
+  return umh_sqrtf(fmaf(re, re, im * im));
 }
 
 #endif
