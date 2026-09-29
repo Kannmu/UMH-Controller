@@ -82,13 +82,25 @@ void fpga_link_calibration_link_end(fpga_link_t *link, uint32_t saved_cr1)
  * the same wire transaction (CS low for the whole frame, full duplex). */
 static uint8_t exchange_use_polling;
 
+/* 2 ms bounds every SPI frame: the longest legal frame (256 B at the /32
+ * calibration clock) takes 0.39 ms, and the FPGA link watchdog fires after
+ * ~30 ms without a CS edge. */
+#define FPGA_SPI_TIMEOUT_CYCLES (SystemCoreClock / 500u)
+
+/* Drop RX bytes an aborted frame left in the FIFO and clear OVR (DR reads
+ * followed by an SR read), so every frame starts byte-aligned. */
+static void spi_flush_rx(SPI_TypeDef *spi)
+{
+  while ((spi->SR & SPI_SR_FRLVL) != 0u) (void)*(__IO uint8_t *)&spi->DR;
+}
+
 static int exchange_dma(fpga_link_t *link, uint16_t length)
 {
   SPI_TypeDef *spi = link->spi->Instance;
   DMA_Channel_TypeDef *tx = DMA1_Channel1;
   DMA_Channel_TypeDef *rx = DMA1_Channel2;
   uint32_t start_cycles;
-  uint32_t timeout_cycles;
+  uint32_t expired;
   uint32_t isr;
   if (spi == NULL || tx == NULL || rx == NULL) return -1;
   /* The HAL initialised both DMA channels for SPI1 TX/RX byte streams.  The
@@ -98,8 +110,7 @@ static int exchange_dma(fpga_link_t *link, uint16_t length)
    * (DMAMUX request, direction, increments, size) are already programmed. */
   spi->CR1 |= SPI_CR1_SPE;
   spi->CR2 |= SPI_CR2_TXDMAEN | SPI_CR2_RXDMAEN;
-  (void)spi->SR;
-  (void)*(__IO uint8_t *)&spi->DR;
+  spi_flush_rx(spi);
 
   tx->CCR &= ~DMA_CCR_EN;
   rx->CCR &= ~DMA_CCR_EN;
@@ -111,42 +122,35 @@ static int exchange_dma(fpga_link_t *link, uint16_t length)
   rx->CMAR = (uint32_t)link->rx;
   rx->CNDTR = length;
 
+  /* RX must be armed before TX starts the clock.  With TX first, an ISR
+   * landing between the two enables let the 4-byte RX FIFO overrun; OVR
+   * then stalled RX DMA for the whole timeout with CS low, long enough for
+   * the FPGA link watchdog to drop AUDIO_MODE. */
   cs_low();
-  tx->CCR |= DMA_CCR_EN;
   rx->CCR |= DMA_CCR_EN;
+  tx->CCR |= DMA_CCR_EN;
 
+  /* Sample the deadline before the flags so a preempted wait can never
+   * report a finished transfer as a timeout. */
   start_cycles = DWT->CYCCNT;
-  timeout_cycles = SystemCoreClock / 25u; /* 40 ms, same order as the old path */
-  if (timeout_cycles == 0u) timeout_cycles = 8000000u;
-  for (;;) {
+  do {
+    expired = (DWT->CYCCNT - start_cycles) > FPGA_SPI_TIMEOUT_CYCLES;
     isr = DMA1->ISR;
-    if ((isr & (DMA_ISR_TEIF1 | DMA_ISR_TEIF2)) != 0u) {
-      break;
-    }
-    if ((isr & (DMA_ISR_TCIF1 | DMA_ISR_TCIF2)) == (DMA_ISR_TCIF1 | DMA_ISR_TCIF2)) {
-      break;
-    }
-    if ((DWT->CYCCNT - start_cycles) > timeout_cycles) {
-      isr = 0u;
-      break;
-    }
-  }
+  } while ((isr & (DMA_ISR_TEIF1 | DMA_ISR_TEIF2)) == 0u &&
+           (isr & (DMA_ISR_TCIF1 | DMA_ISR_TCIF2)) != (DMA_ISR_TCIF1 | DMA_ISR_TCIF2) &&
+           expired == 0u);
   tx->CCR &= ~DMA_CCR_EN;
   rx->CCR &= ~DMA_CCR_EN;
   DMA1->IFCR = DMA_IFCR_CGIF1 | DMA_IFCR_CGIF2;
-  {
-    uint32_t guard_cycles = SystemCoreClock / 1000u; /* 1 ms */
-    uint32_t guard_start = DWT->CYCCNT;
-    while ((spi->SR & SPI_SR_BSY) != 0u) {
-      if ((DWT->CYCCNT - guard_start) > guard_cycles) return -3;
-    }
+  start_cycles = DWT->CYCCNT;
+  while ((spi->SR & SPI_SR_BSY) != 0u &&
+         (DWT->CYCCNT - start_cycles) <= FPGA_SPI_TIMEOUT_CYCLES) {
   }
+  /* CS returns high on every path so the FPGA always sees the frame end;
+   * a failed DMA frame is retried once by the register path in exchange(). */
   cs_high();
-  if ((isr & (DMA_ISR_TCIF1 | DMA_ISR_TCIF2)) != (DMA_ISR_TCIF1 | DMA_ISR_TCIF2)) {
-    mark_link_fault(link);
-    return -3;
-  }
-  return 0;
+  return (isr & (DMA_ISR_TEIF1 | DMA_ISR_TEIF2 | DMA_ISR_TCIF1 | DMA_ISR_TCIF2)) ==
+         (DMA_ISR_TCIF1 | DMA_ISR_TCIF2) ? 0 : -3;
 }
 
 static int exchange(fpga_link_t *link, uint16_t length)
@@ -176,12 +180,10 @@ static int exchange(fpga_link_t *link, uint16_t length)
    * which made a 204-byte frame take ~200 us on this 170 MHz part instead of
    * the 77 us required by the 21.25 MHz wire rate.  At 4800 frames/s that
    * difference was the entire ULM timing budget. */
-  (void)spi->SR;
-  (void)*(__IO uint8_t *)&spi->DR;
+  spi_flush_rx(spi);
   cs_low();
   start_cycles = DWT->CYCCNT;
-  timeout_cycles = SystemCoreClock / 50u; /* 20 ms */
-  if (timeout_cycles == 0u) timeout_cycles = 4000000u;
+  timeout_cycles = FPGA_SPI_TIMEOUT_CYCLES;
   for (i = 0u; i < length; ++i) {
     while ((spi->SR & SPI_SR_TXE) == 0u) {
       if ((DWT->CYCCNT - start_cycles) > timeout_cycles) goto exchange_timeout;
@@ -265,6 +267,7 @@ static int unpack_status(fpga_link_t *link)
 {
   if (link == NULL || link->tx_length < sizeof(fpga_status_wire_t)) return -1;
   link->status.protocol_version = link->rx[0];
+  link->status.audio_fill = link->rx[1];
   link->status.fifo_credit = get_u16(&link->rx[2]);
   link->status.fifo_depth = get_u16(&link->rx[4]);
   link->status.status_flags = get_u16(&link->rx[6]);
@@ -510,7 +513,7 @@ int fpga_link_audio_begin(fpga_link_t *link, const uint8_t *phases,
    *      from step 1 and rebuilds a silent table);
    *   3. submit the real aperture phases plus enable markers while audio
    *      mode is active, so the rebuild still runs at common level 0.
-   * Audio level commands then only exchange 16 bytes each. */
+   * Audio levels then travel in short AUDIO_BLOCK transactions. */
   (void)fpga_link_safe_stop(link);
   if (wait_for_credit(link) != 0) return -1;
   memset(&frame, 0, sizeof(frame));
@@ -528,11 +531,11 @@ int fpga_link_audio_begin(fpga_link_t *link, const uint8_t *phases,
     (void)fpga_link_safe_stop(link);
     return result;
   }
-  link->audio_short_supported =
-      (link->status.status_flags & FPGA_STATUS_AUDIO_SHORT) != 0u ? 1u : 0u;
   /* Entering audio mode starts one silent rebuild.  Wait until that builder
-   * has released FIFO credit again before loading the enable markers. */
-  if (wait_for_credit(link) != 0) {
+   * has released FIFO credit again before loading the enable markers.  An
+   * image without the level FIFO cannot stream, so refuse it here. */
+  if ((link->status.status_flags & FPGA_STATUS_AUDIO_BLOCK) == 0u ||
+      wait_for_credit(link) != 0) {
     (void)fpga_link_audio_mode(link, 0u, sequence + 3u);
     (void)fpga_link_safe_stop(link);
     return -1;
@@ -555,24 +558,22 @@ int fpga_link_audio_begin(fpga_link_t *link, const uint8_t *phases,
   return 0;
 }
 
-int fpga_link_audio_level(fpga_link_t *link, uint8_t level, uint32_t sequence)
+int fpga_link_audio_block(fpga_link_t *link, const uint8_t *levels, uint8_t count)
 {
-  return compact_audio_command(link, FPGA_CMD_AUDIO_LEVEL, level, sequence);
-}
-
-int fpga_link_audio_level_fast(fpga_link_t *link, uint8_t level)
-{
-  if (link == NULL || link->spi == NULL || link->mutex == NULL) return -1;
-  if (osMutexAcquire(link->mutex, 2u) != osOK) return -3;
-  link->tx[0] = FPGA_CMD_AUDIO_LEVEL_SHORT;
+  int result;
+  if (link == NULL || link->mutex == NULL || count > FPGA_AUDIO_BLOCK_MAX ||
+      (count != 0u && levels == NULL)) return -1;
+  /* The FIFO covers several milliseconds, so waiting a few ticks behind a
+   * lower-priority transaction is harmless; failing would drop levels. */
+  if (osMutexAcquire(link->mutex, 5u) != osOK) return -3;
+  link->tx[0] = FPGA_CMD_AUDIO_BLOCK;
   link->tx[1] = FPGA_PROTOCOL_VERSION;
-  link->tx[2] = level;
-  if (exchange(link, 3u) != 0) {
-    osMutexRelease(link->mutex);
-    return -2;
-  }
+  if (count != 0u) memcpy(&link->tx[2], levels, count);
+  if (exchange(link, (uint16_t)(2u + count)) != 0) result = -2;
+  else if (link->rx[0] != FPGA_PROTOCOL_VERSION) result = -4;
+  else result = link->status.audio_fill = link->rx[1];
   osMutexRelease(link->mutex);
-  return 0;
+  return result;
 }
 
 int fpga_link_audio_mode(fpga_link_t *link, uint8_t enable, uint32_t sequence)

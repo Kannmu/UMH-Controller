@@ -11,7 +11,7 @@ module EHXPLLJ #(
     parameter CLKOP_FPHASE=0, parameter CLKOP_CPHASE=0,
     parameter OUTDIVIDER_MUXA2="DIVA", parameter CLKOP_ENABLE="ENABLED",
     parameter CLKOP_DIV=1, parameter CLKFB_DIV=1, parameter CLKI_DIV=1,
-    parameter FEEDBK_PATH="INT_DIVA"
+    parameter FEEDBK_PATH="INT_DIVA", parameter PLL_LOCK_MODE=0
 ) (
     input CLKI, input CLKFB, input RST, input RESETM, input RESETC, input RESETD,
     input PHASESEL0, input PHASESEL1, input PHASEDIR, input PHASESTEP,
@@ -131,7 +131,6 @@ module tb_mic_cal;
         #200;
         /* Skip the 30 ms boot/warm ramp for simulation; the real sequencer is
          * exercised by its own counter test. */
-        dut.mic_boot_count = 32'd640_000;
         dut.mic_warm        = 1'b0;
         dut.mic_ultrasonic  = 1'b1;
         dut.mic_phase       = 4'd0;

@@ -3,7 +3,7 @@ module EHXPLLJ #(parameter PLLRST_ENA="DISABLED", parameter INTFB_WAKE="DISABLED
  parameter STDBY_ENABLE="DISABLED", parameter DPHASE_SOURCE="DISABLED",
  parameter CLKOP_FPHASE=0, parameter CLKOP_CPHASE=0, parameter OUTDIVIDER_MUXA2="DIVA",
  parameter CLKOP_ENABLE="ENABLED", parameter CLKOP_DIV=1, parameter CLKFB_DIV=1,
- parameter CLKI_DIV=1, parameter FEEDBK_PATH="INT_DIVA") (
+ parameter CLKI_DIV=1, parameter FEEDBK_PATH="INT_DIVA", parameter PLL_LOCK_MODE=0) (
  input CLKI, input CLKFB, input RST, input RESETM, input RESETC, input RESETD,
  input PHASESEL0, input PHASESEL1, input PHASEDIR, input PHASESTEP, input LOADREG,
  input STDBY, input PLLWAKESYNC, input ENCLKOP, output CLKOP, output LOCK, output CLKINTFB);

@@ -105,7 +105,9 @@ initial begin
         $display("FAIL: accepted sequence was %02x%02x", reply[13], reply[12]);
         failures = failures + 1;
     end
-    if (dut.running !== 1'b1 || dut.init_shadow[0] !== 1'b1) begin
+    /* Channel 0 (phase 0x40, level 0xFF) wraps, so slot 0 of the active
+     * bank must hold its absolute high state. */
+    if (dut.running !== 1'b1 || dut.event_ram.mem[{dut.active_bank, 8'd0}][0] !== 1'b1) begin
         $display("FAIL: frame did not commit at a carrier boundary");
         failures = failures + 1;
     end

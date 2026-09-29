@@ -2,6 +2,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "system_status.h"
+#include <stddef.h>
 #include <string.h>
 
 
@@ -34,35 +35,27 @@ static void ring_reset_locked(umh_audio_engine_t *engine)
   engine->ring_tail = 0u;
 }
 
-static uint8_t ring_peek_locked(const umh_audio_engine_t *engine)
+static uint8_t ring_pop_locked(umh_audio_engine_t *engine)
 {
-  return engine->envelope_ring[engine->ring_tail & UMH_AUDIO_RING_MASK];
+  return engine->envelope_ring[engine->ring_tail++ & UMH_AUDIO_RING_MASK];
 }
 
-static int prime_interpolator(umh_audio_engine_t *engine)
+static void prime_interpolator(umh_audio_engine_t *engine)
 {
-  if (ring_count_locked(engine) == 0u) return -1;
-  engine->current_sample = ring_peek_locked(engine);
-  engine->ring_tail++;
-  engine->next_sample = ring_count_locked(engine) > 0u ? ring_peek_locked(engine)
-                                                      : engine->current_sample;
+  /* Callers guarantee at least one queued sample (prebuffer >= 1).  next is
+   * always already popped, so a refill after a hold never skips a sample. */
+  engine->current_sample = ring_pop_locked(engine);
+  engine->next_sample = ring_count_locked(engine) != 0u ? ring_pop_locked(engine)
+                                                        : engine->current_sample;
   engine->frac_q16 = 0u;
-  engine->primed = 1u;
-  return 0;
 }
 
-static int fetch_interpolated(const umh_audio_engine_t *engine, uint8_t *level)
+static uint8_t fetch_interpolated(const umh_audio_engine_t *engine)
 {
-  int32_t delta;
-  int32_t value;
-  if (engine == NULL || level == NULL || engine->primed == 0u) return -1;
-  delta = (int32_t)engine->next_sample - (int32_t)engine->current_sample;
-  value = (int32_t)engine->current_sample +
-          ((delta * (int32_t)engine->frac_q16) >> 16);
-  if (value < 0) value = 0;
-  if (value > 255) value = 255;
-  *level = (uint8_t)value;
-  return 0;
+  /* frac < 2^16 keeps the result between the two samples, so no clamp. */
+  int32_t delta = (int32_t)engine->next_sample - (int32_t)engine->current_sample;
+  return (uint8_t)((int32_t)engine->current_sample +
+                   ((delta * (int32_t)engine->frac_q16) >> 16));
 }
 
 static void commit_interpolated(umh_audio_engine_t *engine)
@@ -70,25 +63,22 @@ static void commit_interpolated(umh_audio_engine_t *engine)
   engine->frac_q16 += engine->step_q16;
   while (engine->frac_q16 >= 65536u) {
     engine->frac_q16 -= 65536u;
+    engine->current_sample = engine->next_sample;
     if (ring_count_locked(engine) == 0u) {
-      /* Hold the last differential pair; the next service call turns this
-       * into an explicit underrun instead of randomly wrapping the level. */
-      engine->current_sample = engine->next_sample;
+      /* Hold the last sample (next == current); render_level() turns a
+       * lasting gap into a faded underrun. */
       engine->frac_q16 = 0u;
       break;
     }
-    engine->ring_tail++;
-    engine->current_sample = engine->next_sample;
-    engine->next_sample = ring_count_locked(engine) > 0u ? ring_peek_locked(engine)
-                                                         : engine->current_sample;
+    engine->next_sample = ring_pop_locked(engine);
   }
 }
 
 static void update_clock_correction(umh_audio_engine_t *engine)
 {
-  /* One-pole low-pass of the fill error (Q12, tau 2^11 ticks) removes the
-   * 256-sample packet sawtooth, so the playback rate only follows the real
-   * host/device clock difference instead of wobbling with every packet. */
+  /* One-pole low-pass of the fill error (Q12, tau 2^11 output samples)
+   * removes the 256-sample packet sawtooth, so the playback rate only
+   * follows the real host/device clock difference. */
   int32_t error_q12 = ((int32_t)ring_count_locked(engine) -
                        (int32_t)engine->prebuffer_samples) * 4096;
   int32_t correction;
@@ -100,150 +90,64 @@ static void update_clock_correction(umh_audio_engine_t *engine)
   if (correction < -(int32_t)UMH_AUDIO_MAX_CORRECTION_PPM)
     correction = -(int32_t)UMH_AUDIO_MAX_CORRECTION_PPM;
   engine->clock_correction_ppm = correction;
-  /* 65536 / 1e6 ~= 4295 / 2^16; |ppm| <= 3000 keeps the product in 32 bits
-   * and avoids a 64-bit software division on every 50 us tick. */
-  engine->step_q16 = (uint32_t)(65536 + ((correction * 4295) >> 16));
+  /* base <= 2^16 and |ppm| <= 3000 keep the product in 32 bits. */
+  engine->step_q16 = (uint32_t)((int32_t)engine->base_step_q16 +
+                                (int32_t)engine->base_step_q16 * correction / 1000000);
 }
 
-static int submit_level(umh_audio_engine_t *engine, uint8_t level, uint64_t now_us)
+/* One FPGA output sample (lock held).  Every transition - start, underrun,
+ * refill and stop - is the same Q7 gain ramp over the held or live level. */
+static uint8_t render_level(umh_audio_engine_t *engine)
 {
-  int result;
-  if (engine->link == NULL) return -1;
-  if (engine->link->audio_short_supported != 0u)
-    result = fpga_link_audio_level_fast(engine->link, level);
-  else
-    result = fpga_link_audio_level(engine->link, level, engine->rendered_samples);
-  if (result != 0) return -1;
-  engine->last_submitted_level = level;
-  engine->last_link_us = now_us;
-  return 0;
-}
-
-static int poll_link_if_due(umh_audio_engine_t *engine, uint64_t now_us)
-{
-  if (engine->link == NULL) return -1;
-  if (now_us - engine->last_link_us < UMH_AUDIO_LINK_POLL_US) return 0;
-  (void)fpga_link_poll_status(engine->link);
-  engine->last_link_us = now_us;
-  return 0;
-}
-
-static void enter_underrun(umh_audio_engine_t *engine, uint64_t now_us)
-{
-  engine->underrun_count++;
-  engine->waiting_refill = 1u;
-  engine->primed = 0u;
-  engine->frac_q16 = 0u;
-  if (engine->last_submitted_level != 0u) {
-    (void)submit_level(engine, 0u, now_us);
-  }
-  engine->fade_level = 0u;
-  engine->next_due_q16_us = ((now_us + engine->period_q16_us / 65536u + 1u) << 16);
-}
-
-static void service_running(umh_audio_engine_t *engine, uint64_t now_us)
-{
-  uint64_t now_q16 = now_us << 16;
-  uint8_t raw_level;
-  uint8_t target;
-  uint32_t period_us;
-
-  if (engine->waiting_refill != 0u) {
-    /* A failed zero-level transaction must not leave the last carrier level
-     * running while the host refills the ring. */
-    if (engine->last_submitted_level != 0u) (void)submit_level(engine, 0u, now_us);
-    (void)poll_link_if_due(engine, now_us);
-    if (ring_count_locked(engine) >= engine->prebuffer_samples) {
-      if (prime_interpolator(engine) == 0) {
+  uint8_t live = 0u;
+  uint8_t raw;
+  if (engine->state == UMH_AUDIO_RUNNING) {
+    if (engine->waiting_refill != 0u) {
+      /* Restart at the new data only once fully faded out. */
+      if (engine->gain == 0u && ring_count_locked(engine) >= engine->prebuffer_samples) {
+        prime_interpolator(engine);
         engine->waiting_refill = 0u;
-        engine->next_due_q16_us = ((now_us + UMH_AUDIO_LEAD_US) << 16);
+        live = 1u;
       }
-    }
-    return;
-  }
-
-  if (now_q16 + ((uint64_t)1000u << 16) < engine->next_due_q16_us) return;
-
-  period_us = engine->period_q16_us >> 16;
-  if (period_us == 0u) period_us = 1u;
-  /* Only discard a backlog after a genuinely catastrophic stall (debugger
-   * halt, USB recovery, etc.).  Normal scheduling jitter is absorbed by
-   * processing the overdue ticks back-to-back, which keeps the average
-   * envelope rate locked to the 20 kHz crystal.  The old 4-period limit
-   * dropped several percent of the ticks under load and made the ring fill
-   * up even when the host stream was nominally correct. */
-  if (now_us > (engine->next_due_q16_us >> 16) + 10000u) {
-    engine->next_due_q16_us = ((now_us + UMH_AUDIO_LEAD_US) << 16);
-  }
-
-  if (ring_count_locked(engine) == 0u || fetch_interpolated(engine, &raw_level) != 0) {
-    if (engine->underrun_grace == 0u) {
+    } else if (ring_count_locked(engine) != 0u) {
+      engine->underrun_grace = 0u;
+      update_clock_correction(engine);
+      live = 1u;
+    } else if (engine->underrun_grace == 0u) {
       engine->underrun_grace = UMH_AUDIO_UNDERRUN_HOLD_TICKS;
-    } else if (engine->underrun_grace != 0u) {
-      engine->underrun_grace--;
+      live = 1u;
+    } else if (--engine->underrun_grace != 0u) {
+      live = 1u;
+    } else {
+      /* A real gap: fade out on the held level, then wait for the host to
+       * refill the whole prebuffer before fading back in. */
+      engine->underrun_count++;
+      engine->waiting_refill = 1u;
     }
-    if (engine->underrun_grace != 0u) {
-      /* Hold the last commanded envelope and keep the 20 kHz output clock
-       * running.  A short host/USB gap therefore does not blank the carrier
-       * or restart the prebuffer. */
-      (void)poll_link_if_due(engine, now_us);
-      ++engine->rendered_samples;
-      engine->next_due_q16_us += engine->period_q16_us;
-      return;
-    }
-    enter_underrun(engine, now_us);
-    return;
   }
-  engine->underrun_grace = 0u;
-
-  update_clock_correction(engine);
-  target = raw_level > engine->max_level ? engine->max_level : raw_level;
-  engine->fade_level = target;
-
-  if (engine->fade_level != engine->last_submitted_level) {
-    if (submit_level(engine, engine->fade_level, now_us) != 0) {
-      engine->next_due_q16_us = ((now_us + 200u) << 16);
-      return;
-    }
-  } else {
-    (void)poll_link_if_due(engine, now_us);
+  if (live != 0u) {
+    if (engine->gain < UMH_AUDIO_GAIN_ONE) engine->gain += UMH_AUDIO_GAIN_STEP;
+  } else if (engine->gain != 0u) {
+    engine->gain -= UMH_AUDIO_GAIN_STEP;
   }
-
-  commit_interpolated(engine);
-  ++engine->rendered_samples;
-  engine->next_due_q16_us += engine->period_q16_us;
+  raw = fetch_interpolated(engine);
+  if (raw > engine->max_level) raw = engine->max_level;
+  if (live != 0u) commit_interpolated(engine);
+  engine->rendered_samples++;
+  return (uint8_t)(((uint32_t)raw * engine->gain + UMH_AUDIO_GAIN_ONE / 2u) /
+                   UMH_AUDIO_GAIN_ONE);
 }
 
-static void service_stopping(umh_audio_engine_t *engine, uint64_t now_us)
+static void finish_stop_locked(umh_audio_engine_t *engine)
 {
-  if (engine->next_due_q16_us == 0u) {
-    engine->next_due_q16_us = (now_us << 16);
-  }
-  if ((now_us << 16) < engine->next_due_q16_us) return;
-
-  if (engine->fade_level != 0u) {
-    if (engine->fade_step == 0u) engine->fade_step = 1u;
-    engine->fade_level = engine->fade_level > engine->fade_step
-                       ? (uint8_t)(engine->fade_level - engine->fade_step) : 0u;
-    if (submit_level(engine, engine->fade_level, now_us) != 0) {
-      engine->next_due_q16_us = ((now_us + 200u) << 16);
-      return;
-    }
-    engine->next_due_q16_us += engine->period_q16_us;
-    if (engine->fade_level != 0u) return;
-  }
-
-  (void)submit_level(engine, 0u, now_us);
+  /* Leaving audio mode also flushes the FPGA level FIFO. */
   if (engine->link != NULL) {
     (void)fpga_link_audio_mode(engine->link, 0u, engine->rendered_samples + 1u);
     (void)fpga_link_safe_stop(engine->link);
   }
   ring_reset_locked(engine);
-  engine->primed = 0u;
   engine->waiting_refill = 0u;
-  engine->last_submitted_level = 0u;
-  engine->fade_level = 0u;
-  engine->next_due_q16_us = 0u;
+  engine->gain = 0u;
   engine->state = UMH_AUDIO_OFF;
 }
 
@@ -253,7 +157,6 @@ void audio_engine_init(umh_audio_engine_t *engine)
   if (engine == NULL) return;
   memset(engine, 0, sizeof(*engine));
   engine->state = UMH_AUDIO_OFF;
-  engine->step_q16 = 65536u;
   memset(&attributes, 0, sizeof(attributes));
   attributes.name = "umh-audio";
   attributes.cb_mem = &engine->lock_memory;
@@ -354,33 +257,13 @@ int audio_engine_configure(umh_audio_engine_t *engine,
   ring_reset_locked(engine);
   engine->renderer = renderer;
   engine->link = link;
-  engine->envelope_rate_hz = rate;
-  engine->period_q16_us = (uint32_t)(((uint64_t)1000000u << 16) / rate);
   engine->prebuffer_samples = (uint16_t)prebuffer;
   engine->max_level = (uint8_t)(((uint32_t)config->level * UMH_AUDIO_MAX_LEVEL + 127u) / 255u);
-  if (engine->max_level > UMH_AUDIO_MAX_LEVEL) engine->max_level = (uint8_t)UMH_AUDIO_MAX_LEVEL;
-  engine->flags = (uint8_t)config->flags;
-  engine->next_due_q16_us = 0u;
-  engine->last_link_us = 0u;
-  engine->frac_q16 = 0u;
-  engine->step_q16 = 65536u;
-  engine->current_sample = 0u;
-  engine->next_sample = 0u;
-  engine->primed = 0u;
-  engine->waiting_refill = 0u;
-  engine->last_submitted_level = 0u;
-  engine->fade_level = 0u;
-  engine->fade_step = 0u;
-  engine->underrun_grace = 0u;
-  engine->clock_correction_ppm = 0;
-  engine->fill_error_q12 = 0;
-  engine->underrun_count = 0u;
-  engine->overrun_count = 0u;
-  engine->packet_loss_count = 0u;
-  engine->rendered_samples = 0u;
-  engine->max_service_cycles = 0u;
-  engine->sequence_valid = 0u;
-  engine->expected_sequence = 0u;
+  engine->base_step_q16 = (rate << 16) / FPGA_AUDIO_OUTPUT_RATE_HZ;
+  /* Clear the whole per-session tail (counters, interpolator, servo, gain). */
+  memset((uint8_t *)engine + offsetof(umh_audio_engine_t, frac_q16), 0,
+         sizeof(*engine) - offsetof(umh_audio_engine_t, frac_q16));
+  engine->step_q16 = engine->base_step_q16;
   engine->state = UMH_AUDIO_CONFIGURED;
   audio_unlock(engine);
   return 0;
@@ -388,22 +271,15 @@ int audio_engine_configure(umh_audio_engine_t *engine,
 
 int audio_engine_start(umh_audio_engine_t *engine)
 {
+  int result = -2;
   if (engine == NULL || audio_lock(engine) != 0) return -1;
-  if (engine->state != UMH_AUDIO_CONFIGURED) {
-    audio_unlock(engine);
-    return -2;
+  /* configure() already cleared the per-session state. */
+  if (engine->state == UMH_AUDIO_CONFIGURED) {
+    engine->state = UMH_AUDIO_PRIMING;
+    result = 0;
   }
-  engine->state = UMH_AUDIO_PRIMING;
-  engine->next_due_q16_us = 0u;
-  engine->waiting_refill = 0u;
-  engine->primed = 0u;
-  engine->frac_q16 = 0u;
-  engine->last_submitted_level = 0u;
-  engine->fade_level = 0u;
-  engine->fade_step = 0u;
-  engine->underrun_grace = 0u;
   audio_unlock(engine);
-  return 0;
+  return result;
 }
 
 int audio_engine_feed(umh_audio_engine_t *engine, const uint8_t *levels,
@@ -444,45 +320,17 @@ int audio_engine_feed(umh_audio_engine_t *engine, const uint8_t *levels,
 
 void audio_engine_request_stop(umh_audio_engine_t *engine)
 {
-  uint32_t fade_ticks;
-  if (engine == NULL) return;
-  if (audio_lock(engine) != 0) return;
-  if (engine->state == UMH_AUDIO_OFF) {
-    audio_unlock(engine);
-    return;
-  }
-  if (engine->state == UMH_AUDIO_FAULT) {
-    engine->state = UMH_AUDIO_STOPPING;
-    engine->fade_level = 0u;
-  } else if (engine->state != UMH_AUDIO_STOPPING) {
-    fade_ticks = (engine->envelope_rate_hz * UMH_AUDIO_STOP_FADE_MS) / 1000u;
-    if (fade_ticks == 0u) fade_ticks = 1u;
-    engine->fade_step = (uint8_t)((engine->fade_level + fade_ticks - 1u) / fade_ticks);
-    if (engine->fade_step == 0u) engine->fade_step = 1u;
-    engine->state = UMH_AUDIO_STOPPING;
-  }
-  engine->next_due_q16_us = 0u;
+  if (engine == NULL || audio_lock(engine) != 0) return;
+  /* service() fades the gain out, lets the FIFO drain and then leaves audio
+   * mode; states that never played are already at gain 0. */
+  if (engine->state != UMH_AUDIO_OFF) engine->state = UMH_AUDIO_STOPPING;
   audio_unlock(engine);
 }
 
 void audio_engine_abort(umh_audio_engine_t *engine)
 {
-  if (engine == NULL) return;
-  if (audio_lock(engine) != 0) return;
-  if (engine->state != UMH_AUDIO_OFF) {
-    if (engine->link != NULL) {
-      (void)fpga_link_audio_level(engine->link, 0u, engine->rendered_samples);
-      (void)fpga_link_audio_mode(engine->link, 0u, engine->rendered_samples + 1u);
-      (void)fpga_link_safe_stop(engine->link);
-    }
-    ring_reset_locked(engine);
-    engine->primed = 0u;
-    engine->waiting_refill = 0u;
-    engine->last_submitted_level = 0u;
-    engine->fade_level = 0u;
-    engine->next_due_q16_us = 0u;
-    engine->state = UMH_AUDIO_OFF;
-  }
+  if (engine == NULL || audio_lock(engine) != 0) return;
+  if (engine->state != UMH_AUDIO_OFF) finish_stop_locked(engine);
   audio_unlock(engine);
 }
 
@@ -492,68 +340,55 @@ uint8_t audio_engine_owns_output(const umh_audio_engine_t *engine)
   return engine->state != UMH_AUDIO_OFF ? 1u : 0u;
 }
 
-uint8_t audio_engine_next_deadline(const umh_audio_engine_t *engine,
-                                   uint64_t *deadline_us)
+void audio_engine_service(umh_audio_engine_t *engine)
 {
-  uint8_t result = 0u;
-  if (engine == NULL || deadline_us == NULL) return 0u;
-  if (audio_lock((umh_audio_engine_t *)engine) != 0) return 0u;
-  if (engine->state == UMH_AUDIO_RUNNING && engine->waiting_refill == 0u) {
-    *deadline_us = engine->next_due_q16_us >> 16;
-    result = 1u;
-  } else if (engine->state == UMH_AUDIO_STOPPING && engine->next_due_q16_us != 0u) {
-    *deadline_us = engine->next_due_q16_us >> 16;
-    result = 1u;
-  }
-  audio_unlock((umh_audio_engine_t *)engine);
-  return result;
-}
-
-uint8_t audio_engine_service(umh_audio_engine_t *engine, uint64_t now_us,
-                             uint64_t *deadline_us)
-{
+  uint8_t block[FPGA_AUDIO_BLOCK_MAX];
   uint32_t start_cycles;
-  uint8_t timed = 0u;
-  if (engine == NULL) return 0u;
-  if (audio_lock(engine) != 0) return 0u;
+  uint32_t elapsed;
+  int fill;
+  if (engine == NULL || audio_lock(engine) != 0) return;
+  if (engine->state == UMH_AUDIO_OFF || engine->link == NULL) {
+    audio_unlock(engine);
+    return;
+  }
   start_cycles = DWT->CYCCNT;
-  switch (engine->state) {
-    case UMH_AUDIO_CONFIGURED:
-      (void)poll_link_if_due(engine, now_us);
-      break;
-    case UMH_AUDIO_PRIMING:
-      (void)poll_link_if_due(engine, now_us);
-      if (ring_count_locked(engine) >= engine->prebuffer_samples &&
-          prime_interpolator(engine) == 0) {
-        engine->state = UMH_AUDIO_RUNNING;
-        engine->waiting_refill = 0u;
-        engine->fill_error_q12 = 0;
-        engine->next_due_q16_us = ((now_us + UMH_AUDIO_LEAD_US) << 16);
-      }
-      break;
-    case UMH_AUDIO_RUNNING:
-      service_running(engine, now_us);
-      break;
-    case UMH_AUDIO_STOPPING:
-      service_stopping(engine, now_us);
-      break;
-    default:
-      break;
+  if (engine->state == UMH_AUDIO_PRIMING &&
+      ring_count_locked(engine) >= engine->prebuffer_samples) {
+    prime_interpolator(engine);
+    engine->state = UMH_AUDIO_RUNNING;
   }
-  {
-    uint32_t elapsed_cycles = DWT->CYCCNT - start_cycles;
-    if (elapsed_cycles > engine->max_service_cycles)
-      engine->max_service_cycles = elapsed_cycles;
+  /* Every transaction's CS edge feeds the FPGA link watchdog; the full
+   * status (PLL lock, running flag, credit) is refreshed every 16 calls. */
+  /* Full status every 16 ms.  Should the FPGA link watchdog ever drop
+   * AUDIO_MODE, its FIFO stops draining: end the stream and report it
+   * instead of freezing silently behind a full ring. */
+  if ((++engine->poll_tick & 15u) == 0u && fpga_link_poll_status(engine->link) == 0 &&
+      (engine->link->status.status_flags & FPGA_STATUS_AUDIO_MODE) == 0u &&
+      (engine->state == UMH_AUDIO_RUNNING || engine->state == UMH_AUDIO_STOPPING)) {
+    finish_stop_locked(engine);
+    system_status_fault(UMH_FAULT_FPGA_OUTPUT, 22u, UMH_FAULT_WARNING);
   }
-  /* Report the next deadline under the same lock, so the render task needs
-   * one mutex round-trip per 50 us tick instead of three. */
-  if ((engine->state == UMH_AUDIO_RUNNING && engine->waiting_refill == 0u) ||
-      (engine->state == UMH_AUDIO_STOPPING && engine->next_due_q16_us != 0u)) {
-    if (deadline_us != NULL) *deadline_us = engine->next_due_q16_us >> 16;
-    timed = 1u;
+  fill = fpga_link_audio_block(engine->link, NULL, 0u);
+  /* Top the FIFO up while playing or while a stop fade is still audible.
+   * Each reply reports the real fill before that block. */
+  while (fill >= 0 && fill < (int)UMH_AUDIO_FIFO_TARGET &&
+         (engine->state == UMH_AUDIO_RUNNING ||
+          (engine->state == UMH_AUDIO_STOPPING && engine->gain != 0u))) {
+    uint8_t count = (uint8_t)((int)UMH_AUDIO_FIFO_TARGET - fill);
+    uint8_t i;
+    if (count > FPGA_AUDIO_BLOCK_MAX) count = FPGA_AUDIO_BLOCK_MAX;
+    for (i = 0u; i < count; ++i) block[i] = render_level(engine);
+    fill = fpga_link_audio_block(engine->link, block, count);
+    if (fill >= 0) fill += count;
   }
+  /* A stop completes once faded out and drained; a dead link cannot drain,
+   * so it ends the stop at once instead of hanging in STOPPING. */
+  if (engine->state == UMH_AUDIO_STOPPING &&
+      (fill < 0 || (engine->gain == 0u && fill == 0)))
+    finish_stop_locked(engine);
+  elapsed = DWT->CYCCNT - start_cycles;
+  if (elapsed > engine->max_service_cycles) engine->max_service_cycles = elapsed;
   audio_unlock(engine);
-  return timed;
 }
 
 void audio_engine_get_status(const umh_audio_engine_t *engine,

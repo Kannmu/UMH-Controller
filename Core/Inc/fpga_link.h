@@ -8,7 +8,7 @@
 
 #define FPGA_PROTOCOL_VERSION 1u
 #define FPGA_FIFO_DEFAULT_CREDIT 64u
-#define FPGA_TX_BUFFER_SIZE 512u
+#define FPGA_TX_BUFFER_SIZE 256u  /* longest transaction: 36+168+12+32 = 248 */
 #define FPGA_ULTRASOUND_BITMAP_LAST_MASK 0x0Fu
 #define FPGA_DIGITAL_TRIGGER_BIT 0x01u
 #define FPGA_STATUS_UNDERRUN      (1u << 0)
@@ -20,9 +20,15 @@
  * to prove that a new FPGA bitstream understands AUDIO_MODE, so old logic
  * can never be mistaken for a successful audio configuration. */
 #define FPGA_STATUS_AUDIO_MODE    (1u << 15)
-/* Diagnostic bit 14: this FPGA image accepts the 3-byte AUDIO_LEVEL_SHORT
- * (0x19) hot path.  Old images can still stream through 0x16. */
-#define FPGA_STATUS_AUDIO_SHORT   (1u << 14)
+/* Bit 12: this FPGA image has the AUDIO_BLOCK (0x1A) level FIFO. */
+#define FPGA_STATUS_AUDIO_BLOCK   (1u << 12)
+/* AUDIO_BLOCK: [0]=0x1A [1]=version [2..]=levels.  The reply's byte 1 is the
+ * FIFO fill before the transaction.  More than 32 levels would reach header
+ * byte 35 and flag the frame invalid; the FIFO holds 256 levels, consumed at
+ * one per two carrier periods (20 kHz). */
+#define FPGA_AUDIO_BLOCK_MAX      32u
+#define FPGA_AUDIO_FIFO_DEPTH     256u
+#define FPGA_AUDIO_OUTPUT_RATE_HZ 20000u
 
 /* Microphone calibration commands.  MIC_CONFIG carries six extension bytes:
  *   [0] gate_count (1..64), [1..2] gate0 start, [3..4] start-to-start step,
@@ -48,13 +54,11 @@ typedef enum {
   FPGA_CMD_WS2812 = 0x13u,
   FPGA_CMD_MIC_CONFIG = 0x14u,
   FPGA_CMD_MIC_READ = 0x15u,
-  /* Compact 16-byte focused-AM transactions.  AUDIO_MODE enables/disables
-   * the common-envelope rebuild path; AUDIO_LEVEL substitutes one common
-   * level byte while keeping the 84 phases already loaded by a normal FRAME. */
-  FPGA_CMD_AUDIO_LEVEL = 0x16u,
+  /* Compact 16-byte AUDIO_MODE enables/disables the common-envelope
+   * rebuild path, which keeps the 84 phases loaded by a normal FRAME.
+   * AUDIO_BLOCK then streams common levels into the FPGA FIFO. */
   FPGA_CMD_AUDIO_MODE = 0x17u,
-  /* Three-byte hot path for the 20 kHz envelope stream. */
-  FPGA_CMD_AUDIO_LEVEL_SHORT = 0x19u
+  FPGA_CMD_AUDIO_BLOCK = 0x1Au
 } fpga_command_t;
 
 typedef struct {
@@ -68,7 +72,7 @@ typedef struct {
 
 typedef struct __attribute__((packed)) {
   uint8_t protocol_version;
-  uint8_t reserved;
+  uint8_t audio_fill;           /* AUDIO_BLOCK FIFO fill before the transaction */
   uint16_t fifo_credit;
   uint16_t fifo_depth;
   uint16_t status_flags;
@@ -88,7 +92,6 @@ typedef struct {
   uint32_t transaction_sequence;
   fpga_status_wire_t status;
   uint8_t running;
-  uint8_t audio_short_supported;
   umh_output_frame_t hold_frame;
   uint8_t hold_valid;
   uint32_t hold_last_tx_tick;
@@ -112,14 +115,12 @@ int fpga_link_mic_config(fpga_link_t *link, uint8_t gate_count, uint16_t start,
                          uint16_t step, uint8_t width);
 /* Focused-AM setup.  The 84 phase bytes are loaded through one ordinary
  * FRAME, then AUDIO_MODE switches the FPGA event builder to the common-level
- * substitution path.  Audio data itself uses fpga_link_audio_level(). */
+ * substitution path.  Audio data itself uses fpga_link_audio_block(). */
 int fpga_link_audio_begin(fpga_link_t *link, const uint8_t *phases,
                           const uint8_t *enables, uint32_t sequence);
-int fpga_link_audio_level(fpga_link_t *link, uint8_t level, uint32_t sequence);
-/* Hot-path variant: 3-byte transaction, no mutex/status read.  It must only
- * be called from the highest-priority render task while focused-AM mode is
- * active and no other task can be in fpga_link SPI code. */
-int fpga_link_audio_level_fast(fpga_link_t *link, uint8_t level);
+/* Appends count (<= FPGA_AUDIO_BLOCK_MAX) levels to the FPGA FIFO; count 0
+ * is a 2-byte fill poll.  Returns the fill before the transfer, or < 0. */
+int fpga_link_audio_block(fpga_link_t *link, const uint8_t *levels, uint8_t count);
 int fpga_link_audio_mode(fpga_link_t *link, uint8_t enable, uint32_t sequence);
 int fpga_link_mic_read(fpga_link_t *link, uint8_t gate, fpga_mic_gate_wire_t *result);
 const fpga_status_wire_t *fpga_link_status(const fpga_link_t *link);

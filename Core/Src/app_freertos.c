@@ -1635,31 +1635,23 @@ static void render_task(void *argument)
       continue;
     }
     if (audio_engine_owns_output(&audio_engine) != 0u) {
-      /* 20 kHz hot path: one engine lock per tick (service also returns the
-       * next deadline), no status snapshot, and system flags only written
-       * when they change.  The old loop took the engine mutex three times,
-       * built a 32-byte status with a 64-bit division and toggled two flags
-       * every 50 us, which left too little CPU for USB reception. */
-      uint64_t audio_deadline_us = 0u;
+      /* The FPGA level FIFO paces the 20 kHz output from its own clock; one
+       * service per millisecond keeps it topped up, so task or USB jitter
+       * never reaches the envelope.  System flags only change on edges. */
       uint32_t audio_flags;
-      uint8_t have_audio_deadline;
-      now_us = system_time_us();
-      have_audio_deadline = audio_engine_service(&audio_engine, now_us, &audio_deadline_us);
+      audio_engine_service(&audio_engine);
       audio_flags = (audio_engine.state == UMH_AUDIO_RUNNING ? UMH_SYSTEM_PLAYING : 0u) |
                     ((audio_engine.underrun_count != 0u &&
                       audio_engine.state != UMH_AUDIO_OFF) ? UMH_SYSTEM_UNDERRUN : 0u);
       if ((system_status_get()->flags & (UMH_SYSTEM_PLAYING | UMH_SYSTEM_UNDERRUN)) != audio_flags)
         system_status_modify(UMH_SYSTEM_PLAYING | UMH_SYSTEM_UNDERRUN, audio_flags);
+      now_us = system_time_us();
       system_status_get()->device_time = (uint32_t)now_us;
+      system_status_get()->frame_count = 0u;
+      system_status_get()->frame_free = 0u;
       last_time_us = now_us;
       render_burst = 0u;
-      if (have_audio_deadline != 0u) {
-        render_wait_until_us(audio_deadline_us);
-      } else {
-        system_status_get()->frame_count = 0u;
-        system_status_get()->frame_free = 0u;
-        osDelay(1u);
-      }
+      osDelay(1u);
       continue;
     }
     if (motion_engine_owns_output(&motion_engine) != 0u) {
