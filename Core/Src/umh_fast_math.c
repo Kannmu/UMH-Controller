@@ -1,6 +1,6 @@
 #include "umh_fast_math.h"
 
-const int16_t umh_fast_sin_table[UMH_FAST_TRIG_SIZE] = {
+int16_t umh_fast_sin_table[UMH_FAST_TRIG_SIZE] = {
        0,    201,    402,    603,    804,   1005,   1206,   1407,
     1608,   1809,   2009,   2210,   2410,   2611,   2811,   3012,
     3212,   3412,   3612,   3811,   4011,   4210,   4410,   4609,
