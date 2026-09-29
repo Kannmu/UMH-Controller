@@ -191,16 +191,24 @@ static int exchange(fpga_link_t *link, uint16_t length)
   cs_low();
   start_cycles = DWT->CYCCNT;
   timeout_cycles = FPGA_SPI_TIMEOUT_CYCLES;
+  /* One spin per byte instead of two.  TX and RX shift simultaneously, so
+   * byte i-1 is already in the receive register by the time TXE announces that
+   * byte i can be written: the previous byte is loaded here, and only the last
+   * one needs its own wait.  Both registers are drained in the same iteration,
+   * which halves the number of timeout comparisons on the frame hot path.
+   * TXE must still be tested before RXNE, never with it: OR-ing them would
+   * read DR on a cycle where TXE is set but the received byte is not there. */
   for (i = 0u; i < length; ++i) {
     while ((spi->SR & SPI_SR_TXE) == 0u) {
       if ((DWT->CYCCNT - start_cycles) > timeout_cycles) goto exchange_timeout;
     }
     *(__IO uint8_t *)&spi->DR = link->tx[i];
-    while ((spi->SR & SPI_SR_RXNE) == 0u) {
-      if ((DWT->CYCCNT - start_cycles) > timeout_cycles) goto exchange_timeout;
-    }
-    link->rx[i] = *(__IO uint8_t *)&spi->DR;
+    if (i != 0u) link->rx[i - 1u] = *(__IO uint8_t *)&spi->DR;
   }
+  while ((spi->SR & SPI_SR_RXNE) == 0u) {
+    if ((DWT->CYCCNT - start_cycles) > timeout_cycles) goto exchange_timeout;
+  }
+  link->rx[length - 1u] = *(__IO uint8_t *)&spi->DR;
   while ((spi->SR & SPI_SR_BSY) != 0u) {
     if ((DWT->CYCCNT - start_cycles) > timeout_cycles) goto exchange_timeout;
   }
