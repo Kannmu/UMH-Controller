@@ -1044,6 +1044,10 @@ float *us_calibration_scratch(uint32_t *bytes)
 #define CAL_ECHO_VERIFY_REPEATS     4u
 #define CAL_ECHO_VERIFY_MIN_DB    (-0.5f)
 
+/* Exactly one spatial renderer is needed here.  us_calibration_run() and
+ * us_calibration_self_test() both render probe frames, but they are separate
+ * calibration sessions driven from the same task and each re-initialises this
+ * renderer before its first frame, so a second 2 KiB instance bought nothing. */
 static umh_spatial_renderer_t cal_echo_renderer;
 static umh_channel_calibration_t cal_echo_cal[CAL_CHANNELS];
 static float cal_echo_sort[CAL_CHANNELS];

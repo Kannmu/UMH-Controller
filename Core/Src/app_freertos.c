@@ -255,7 +255,7 @@ static const osThreadAttr_t input_task_attributes = {
  *                                          static analysis cannot follow
  *   input            132 B    512    x3.9
  *   health           124 B    512    x4.1
- *   cal             3708 B   6144    x1.7   (deepest chain in the image)
+ *   cal             3708 B   5120    x1.4   (deepest chain in the image)
  */
 static StackType_t protocol_task_stack[768], render_task_stack[1024], storage_task_stack[256], ui_task_stack[1024], health_task_stack[128];
 static const osThreadAttr_t protocol_task_attributes = {
@@ -282,8 +282,16 @@ static const osThreadAttr_t ui_task_attributes = {
   .priority = osPriorityBelowNormal
 };
 static StaticTask_t calibration_task_cb;
-/* v4 calibration high-water is 4680 B; the old 4 KiB stack overflowed into calibration_task_cb. */
-static StackType_t calibration_task_stack[1536];
+/* Deepest chain in the image: 3708 B measured from -fstack-usage plus the
+ * call-graph file (calibration_task -> bench_service ->
+ * calibration_selftest_session -> us_calibration_self_test ->
+ * cal_self_test_eval -> cal_measure_frame_diff -> ... -> mic_command), plus the
+ * 8-word Cortex-M4 exception frame and room for a nested USB/SPI ISR frame.
+ * The v4 high-water figure of 4680 B that the old 4 KiB stack overflowed on
+ * belonged to a code base that allocated a whole spatial_renderer_t inside
+ * cal_self_test_eval; that frame is 1880 B now.  5120 B leaves ~1.3 KiB of
+ * margin over the measured worst case and 1 KiB less than the old grant. */
+static StackType_t calibration_task_stack[1280];
 static const osThreadAttr_t calibration_task_attributes = {
   .name = "cal", .cb_mem = &calibration_task_cb, .cb_size = sizeof(calibration_task_cb),
   .stack_mem = calibration_task_stack, .stack_size = sizeof(calibration_task_stack),
