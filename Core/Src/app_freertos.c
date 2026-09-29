@@ -305,6 +305,7 @@ static const osThreadAttr_t health_task_attributes = {
 
 static void send_response(const umh_protocol_frame_t *request, uint8_t type,
                           const void *payload, uint16_t length);
+static void discard_block_stream(void);
 static void application_init(void);
 static int gui_demo(void *context);
 static int gui_levitation_toggle(void *context);
@@ -408,9 +409,7 @@ static void calibration_raw_session(void)
   device_gui_calibration_begin(&device_gui);
   playback_plan_stop(&playback_plan);
   (void)fpga_link_safe_stop(&fpga_link);
-  block_parser_cancel(&block_parser);
-  frame_ring_init(&frame_ring);
-  block_stream_active = 0u;
+  discard_block_stream();
   demo_building = 1u;
   calibration_progress(DEVICE_GUI_CAL_WAIT, 0u, NULL);
   osDelay(1000u);
@@ -450,9 +449,7 @@ static void calibration_probe_session(void)
   if (motion_engine_owns_output(&motion_engine) != 0u) motion_engine_abort(&motion_engine, &fpga_link);
   playback_plan_stop(&playback_plan);
   (void)fpga_link_safe_stop(&fpga_link);
-  block_parser_cancel(&block_parser);
-  frame_ring_init(&frame_ring);
-  block_stream_active = 0u;
+  discard_block_stream();
   demo_building = 1u;
   saved_cr1 = fpga_link_calibration_link_begin(&fpga_link);
   rc = us_calibration_probe(&fpga_link, rq->phase, rq->level, rq->gate_count,
@@ -496,9 +493,7 @@ static void calibration_selftest_session(void)
   device_gui_calibration_begin(&device_gui);
   playback_plan_stop(&playback_plan);
   (void)fpga_link_safe_stop(&fpga_link);
-  block_parser_cancel(&block_parser);
-  frame_ring_init(&frame_ring);
-  block_stream_active = 0u;
+  discard_block_stream();
   demo_building = 1u;
   calibration_progress(DEVICE_GUI_CAL_WAIT, 0u, NULL);
   osDelay(300u);
@@ -540,9 +535,7 @@ static void calibration_session(void)
   device_gui_calibration_begin(&device_gui);
   playback_plan_stop(&playback_plan);
   (void)fpga_link_safe_stop(&fpga_link);
-  block_parser_cancel(&block_parser);
-  frame_ring_init(&frame_ring);
-  block_stream_active = 0u;
+  discard_block_stream();
   demo_building = 1u;
   calibration_committed = 0u;
   calibration_progress(DEVICE_GUI_CAL_WAIT, 0u, NULL);
@@ -650,9 +643,7 @@ static void bench_service(void)
     case UMH_BENCH_CMD_MEASURE_H:
       playback_plan_stop(&playback_plan);
       (void)fpga_link_safe_stop(&fpga_link);
-      block_parser_cancel(&block_parser);
-      frame_ring_init(&frame_ring);
-      block_stream_active = 0u;
+      discard_block_stream();
       demo_building = 1u;
       rc = us_calibration_measure_h(&fpga_link, device_profile_get(),
                                     (uint8_t)umh_bench_arg[0],
@@ -667,9 +658,7 @@ static void bench_service(void)
     case UMH_BENCH_CMD_PATTERN:
       playback_plan_stop(&playback_plan);
       (void)fpga_link_safe_stop(&fpga_link);
-      block_parser_cancel(&block_parser);
-      frame_ring_init(&frame_ring);
-      block_stream_active = 0u;
+      discard_block_stream();
       demo_building = 1u;
       rc = us_calibration_measure_pattern(&fpga_link,
                                           (const uint8_t *)umh_bench_phase,
@@ -757,6 +746,22 @@ static void calibration_task(void *argument)
   }
 }
 
+/* Abandon any block being streamed or built.
+ *
+ * Nineteen call sites used to open-code the same three statements when a
+ * command, a demo, a calibration session or a levitation/vortex program took
+ * over the output: cancel the parser, drop the stream flag and empty the frame
+ * ring.  Collecting them keeps the takeover sequence identical everywhere,
+ * which is what stops a half-parsed block from surviving into the next owner.
+ * Every site used to be reachable only from the protocol task, so this needs
+ * no locking of its own; render_task only ever reads the ring. */
+static void discard_block_stream(void)
+{
+  block_parser_cancel(&block_parser);
+  block_stream_active = 0u;
+  frame_ring_init(&frame_ring);
+}
+
 static uint8_t levitation_motion_level(void)
 {
   const eeprom_profile_record_t *record = eeprom_profile_current(&eeprom_profile);
@@ -784,9 +789,7 @@ static int gui_levitation_toggle(void *context)
   if (motion_engine_owns_output(&motion_engine) != 0u)
     motion_engine_abort(&motion_engine, &fpga_link);
   playback_plan_stop(&playback_plan);
-  block_parser_cancel(&block_parser);
-  block_stream_active = 0u;
-  frame_ring_init(&frame_ring);
+  discard_block_stream();
   (void)fpga_link_set_ws2812(&fpga_link, 0u, 0u, 0u);
   if (fpga_link_safe_stop(&fpga_link) != 0) return -1;
   if (motion_engine_configure_levitation(&motion_engine, levitation_motion_level(),
@@ -814,9 +817,7 @@ static int gui_defoam_set(void *context)
     aperture_mod_abort(&aperture_mod);
     motion_engine_abort(&motion_engine, &fpga_link);
     playback_plan_stop(&playback_plan);
-    block_parser_cancel(&block_parser);
-    block_stream_active = 0u;
-    frame_ring_init(&frame_ring);
+    discard_block_stream();
     (void)fpga_link_set_ws2812(&fpga_link, 0u, 0u, 0u);
     return fpga_link_safe_stop(&fpga_link) == 0 ? 0 : -1;
   }
@@ -839,9 +840,7 @@ static int gui_defoam_set(void *context)
   if (motion_engine_owns_output(&motion_engine) != 0u)
     motion_engine_abort(&motion_engine, &fpga_link);
   playback_plan_stop(&playback_plan);
-  block_parser_cancel(&block_parser);
-  block_stream_active = 0u;
-  frame_ring_init(&frame_ring);
+  discard_block_stream();
   (void)fpga_link_set_ws2812(&fpga_link, 0u, 0u, 0u);
   if (fpga_link_safe_stop(&fpga_link) != 0) return -1;
   if (motion_engine_configure_vortex(&motion_engine, program) != 0) return -1;
@@ -864,8 +863,7 @@ static int gui_demo(void *context)
   if (motion_engine_owns_output(&motion_engine) != 0u) motion_engine_abort(&motion_engine, &fpga_link);
   playback_plan_stop(&playback_plan);
   (void)fpga_link_safe_stop(&fpga_link);
-  block_parser_cancel(&block_parser);
-  block_stream_active = 0u;
+  discard_block_stream();
   result = demo_engine_build(device_gui.selected_demo, &renderer, &frame_ring,
                              system_time_us(), &playback_plan);
   demo_building = 0u;
@@ -1055,9 +1053,7 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       if (block_stream_active == 0u ||
           frame->header.stream_sequence != block_stream_expected_sequence ||
           block_parser_data(&block_parser, frame->payload, frame->payload_size) != 0) {
-        block_parser_cancel(&block_parser);
-        frame_ring_init(&frame_ring);
-        block_stream_active = 0u;
+        discard_block_stream();
         status = frame->header.stream_sequence != block_stream_expected_sequence ?
                  UMH_STATUS_BAD_SEQUENCE : UMH_STATUS_BAD_LENGTH;
       } else {
@@ -1068,9 +1064,7 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       if (block_stream_active == 0u ||
           frame->header.stream_sequence != block_stream_expected_sequence ||
           block_parser_end(&block_parser) != 0) {
-        block_parser_cancel(&block_parser);
-        frame_ring_init(&frame_ring);
-        block_stream_active = 0u;
+        discard_block_stream();
         status = frame->header.stream_sequence != block_stream_expected_sequence ?
                  UMH_STATUS_BAD_SEQUENCE : UMH_STATUS_INVALID_STATE;
       } else {
@@ -1080,9 +1074,7 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       break;
     case UMH_MSG_BLOCK_CANCEL:
       if (frame->payload_size != 0u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
-      block_parser_cancel(&block_parser);
-      frame_ring_init(&frame_ring);
-      block_stream_active = 0u;
+      discard_block_stream();
       break;
     case UMH_MSG_SET_PLAN:
       if (mod_owns != 0u || motion_owns != 0u || hologram_owns != 0u) { status = UMH_STATUS_BUSY; break; }
@@ -1097,8 +1089,7 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       } else {
         playback_plan_stop(&playback_plan);
         (void)fpga_link_safe_stop(&fpga_link);
-        block_parser_cancel(&block_parser);
-        block_stream_active = 0u;
+        discard_block_stream();
         if (demo_engine_build(frame->payload[0], &renderer, &frame_ring,
                               system_time_us(), &playback_plan) != 0) status = UMH_STATUS_INVALID_STATE;
         else {
@@ -1130,9 +1121,7 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
           demo_building != 0u) { status = UMH_STATUS_BUSY; break; }
       motion_engine_abort(&motion_engine, NULL);
       playback_plan_stop(&playback_plan);
-      block_parser_cancel(&block_parser);
-      block_stream_active = 0u;
-      frame_ring_init(&frame_ring);
+      discard_block_stream();
       if (fpga_link_safe_stop(&fpga_link) != 0) status = UMH_STATUS_IO;
       else { if (motion_engine_uses_rgb(&motion_engine) == 0u) (void)fpga_link_set_ws2812(&fpga_link, 0u, 0u, 0u); if (motion_engine_start(&motion_engine) != 0) status = UMH_STATUS_INVALID_STATE; }
       break;
@@ -1180,9 +1169,7 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       if (motion_owns != 0u) motion_engine_request_stop(&motion_engine);
       if (hologram_owns != 0u) hologram_engine_request_stop(&hologram_engine);
       playback_plan_stop(&playback_plan);
-      block_parser_cancel(&block_parser);
-      block_stream_active = 0u;
-      frame_ring_init(&frame_ring);
+      discard_block_stream();
       if (motion_owns == 0u && hologram_owns == 0u) (void)fpga_link_safe_stop(&fpga_link);
       break;
     case UMH_MSG_CLEAR_PLAN:
@@ -1193,9 +1180,7 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       playback_plan_stop(&playback_plan);
       (void)fpga_link_safe_stop(&fpga_link);
       playback_plan_clear(&playback_plan);
-      block_parser_cancel(&block_parser);
-      block_stream_active = 0u;
-      frame_ring_init(&frame_ring);
+      discard_block_stream();
       break;
     case UMH_MSG_HOLOGRAM_UPLOAD:
       if (mod_owns != 0u || motion_owns != 0u) { status = UMH_STATUS_BUSY; break; }
@@ -1216,9 +1201,7 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       /* Same hand-over protocol as MOTION_START: give up the block path, put the
        * FPGA in a safe state, then own the output. */
       playback_plan_stop(&playback_plan);
-      block_parser_cancel(&block_parser);
-      block_stream_active = 0u;
-      frame_ring_init(&frame_ring);
+      discard_block_stream();
       if (fpga_link_safe_stop(&fpga_link) != 0) status = UMH_STATUS_IO;
       else {
         (void)fpga_link_set_ws2812(&fpga_link, 0u, 0u, 0u);
