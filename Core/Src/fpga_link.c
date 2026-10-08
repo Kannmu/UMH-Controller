@@ -191,24 +191,21 @@ static int exchange(fpga_link_t *link, uint16_t length)
   cs_low();
   start_cycles = DWT->CYCCNT;
   timeout_cycles = FPGA_SPI_TIMEOUT_CYCLES;
-  /* One spin per byte instead of two.  TX and RX shift simultaneously, so
-   * byte i-1 is already in the receive register by the time TXE announces that
-   * byte i can be written: the previous byte is loaded here, and only the last
-   * one needs its own wait.  Both registers are drained in the same iteration,
-   * which halves the number of timeout comparisons on the frame hot path.
-   * TXE must still be tested before RXNE, never with it: OR-ing them would
-   * read DR on a cycle where TXE is set but the received byte is not there. */
+  /* TXE only means the transmit buffer is empty; it does not guarantee the previous
+   * byte has been received.  The 16-byte MOD_FIXED transaction uses this polling
+   * branch, so RXNE must be checked before reading DR or the first status byte is
+   * read as 0 and focused-AM configuration always fails.  Longer transfers use DMA
+   * and are unaffected. */
   for (i = 0u; i < length; ++i) {
     while ((spi->SR & SPI_SR_TXE) == 0u) {
       if ((DWT->CYCCNT - start_cycles) > timeout_cycles) goto exchange_timeout;
     }
     *(__IO uint8_t *)&spi->DR = link->tx[i];
-    if (i != 0u) link->rx[i - 1u] = *(__IO uint8_t *)&spi->DR;
+    while ((spi->SR & SPI_SR_RXNE) == 0u) {
+      if ((DWT->CYCCNT - start_cycles) > timeout_cycles) goto exchange_timeout;
+    }
+    link->rx[i] = *(__IO uint8_t *)&spi->DR;
   }
-  while ((spi->SR & SPI_SR_RXNE) == 0u) {
-    if ((DWT->CYCCNT - start_cycles) > timeout_cycles) goto exchange_timeout;
-  }
-  link->rx[length - 1u] = *(__IO uint8_t *)&spi->DR;
   while ((spi->SR & SPI_SR_BSY) != 0u) {
     if ((DWT->CYCCNT - start_cycles) > timeout_cycles) goto exchange_timeout;
   }
@@ -459,6 +456,14 @@ int fpga_link_safe_stop(fpga_link_t *link)
   length = pack_common(link, FPGA_CMD_STOP, NULL);
   if (exchange(link, length) != 0) { osMutexRelease(link->mutex); return -2; }
   if (unpack_status(link) != 0) { osMutexRelease(link->mutex); return -3; }
+  {
+    umh_rgb_value_t black[UMH_DEVICE_RGB_COUNT];
+    memset(black, 0, sizeof(black));
+    if (fpga_send_rgb_locked(link, black) != 0) {
+      osMutexRelease(link->mutex);
+      return -4;
+    }
+  }
   link->running = 0u;
   link->hold_valid = 0u;
   osMutexRelease(link->mutex);

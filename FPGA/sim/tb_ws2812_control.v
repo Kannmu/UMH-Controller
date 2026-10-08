@@ -16,9 +16,9 @@ module tb_ws2812_control;
     ws2812_stream dut (
         .clk(clk),
         .enable(enable),
-        .g(g),
-        .r(r),
-        .b(b),
+        .grb({g,r,b}),
+
+
         .data_out(data_out)
     );
 

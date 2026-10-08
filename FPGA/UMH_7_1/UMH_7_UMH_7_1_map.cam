@@ -1,152 +1,157 @@
 [ START MERGED ]
-n27088 status_bit_index_1
-sck_N_2980 spi_mic_sck_c
-fpga_cs_n_N_2378 fpga_cs_n_c
-spi1_sck_N_171 spi1_sck_c
-n17635 phase_step_s1
-spi1_miso_N_2369_5 status_bit_index_5
+spi1_sck_N_173 spi1_sck_c
+sck_N_3027 spi_mic_sck_c
+n27497 status_bit_index_1
+spi1_miso_N_2397_5 status_bit_index_5
+n17000 ws2812_enable
+n18044 phase_step_s1
+fpga_cs_n_N_2406 fpga_cs_n_c
 [ END MERGED ]
 [ START CLIPPED ]
 GND_net
-equal_1433_0/S1
-equal_1433_0/S0
-equal_1433_0/CI
-ws2812_i/add_2030_17/S1
-ws2812_i/add_2030_17/CO
+equal_1486_0/S1
+equal_1486_0/S0
+equal_1486_0/CI
+time_divider_2701_add_4_7/S1
+time_divider_2701_add_4_7/CO
+mic_warm_half_2706_add_4_1/S0
+mic_warm_half_2706_add_4_1/CI
+sub_850_add_2_1/S0
+sub_850_add_2_1/CI
+add_683_1/S0
+add_683_1/CI
+add_738_7/CO
+add_747_1/S0
+add_747_1/CI
+ws2812_i/add_2129_1/S0
+ws2812_i/add_2129_1/CI
 ws2812_i/add_15_1/S0
 ws2812_i/add_15_1/CI
 ws2812_i/add_15_9/S1
 ws2812_i/add_15_9/CO
-ws2812_i/add_2030_1/S0
-ws2812_i/add_2030_1/CI
-add_4027_16/S1
-add_4027_16/CO
-add_660_7/CO
-equal_1433_10_13788/S1
-equal_1433_10_13788/S0
-equal_1433_8/S1
-equal_1433_8/S0
-equal_1433_10/S1
-equal_1433_10/CO
-equal_2871_0/S1
-equal_2871_0/S0
-equal_2871_0/CI
-equal_2871_7/S1
-equal_2871_7/S0
-feed_rd_2595_add_4_9/CO
-add_669_1/S0
-add_669_1/CI
-feed_wr_7__I_0_1234_add_2_9/S1
-feed_wr_7__I_0_1234_add_2_9/CO
-time_divider_2593_add_4_1/S0
-time_divider_2593_add_4_1/CI
-spi_byte_count_8__I_0_1232_add_2_1/S0
-spi_byte_count_8__I_0_1232_add_2_1/CI
-add_669_7/CO
-expected_next_15__I_0_1399_15/S1
-expected_next_15__I_0_1399_15/CO
-add_679_1/S0
-add_679_1/CI
-time_divider_2593_add_4_7/S1
-time_divider_2593_add_4_7/CO
+ws2812_i/add_2129_17/S1
+ws2812_i/add_2129_17/CO
+mic_warm_half_2706_add_4_9/S1
+mic_warm_half_2706_add_4_9/CO
+status_bit_index_2695_add_4_1/S0
+status_bit_index_2695_add_4_1/CI
+sub_850_add_2_17/CO
+feed_wr_spi_2699_add_4_1/S0
+feed_wr_spi_2699_add_4_1/CI
+status_bit_index_2695_add_4_9/CO
+add_683_7/CO
+add_4148_2/S0
+add_4148_2/CI
+add_4148_16/S1
+add_4148_16/CO
+add_747_7/CO
+equal_2987_8/S0
+equal_2987_8/CO
+equal_1486_10_13690/S1
+equal_1486_10_13690/S0
+equal_1486_8/S1
+equal_1486_8/S0
+equal_1486_10/S1
+equal_1486_10/CO
+add_759_1/S0
+add_759_1/CI
+feed_wr_spi_2699_add_4_9/S1
+feed_wr_spi_2699_add_4_9/CO
+spi_byte_count_8__I_0_1277_add_2_1/S0
+spi_byte_count_8__I_0_1277_add_2_1/CI
+add_692_1/S0
+add_692_1/CI
+expected_next_15__I_0_1452_1/S0
+expected_next_15__I_0_1452_1/CI
+feed_rd_2704_add_4_1/S1
+feed_rd_2704_add_4_1/S0
+feed_rd_2704_add_4_1/CI
+add_692_7/CO
+add_759_7/CO
+feed_wr_7__I_0_1279_add_2_1/S0
+feed_wr_7__I_0_1279_add_2_1/CI
+equal_2987_0/S1
+equal_2987_0/S0
+equal_2987_0/CI
+spi_byte_count_8__I_0_1277_add_2_cout/S1
+spi_byte_count_8__I_0_1277_add_2_cout/CO
+equal_2987_7/S1
+equal_2987_7/S0
+feed_wr_7__I_0_1279_add_2_9/S1
+feed_wr_7__I_0_1279_add_2_9/CO
+add_978_1/S0
+add_978_1/CI
+global_phase_s2_2700_add_4_1/S0
+global_phase_s2_2700_add_4_1/CI
+feed_rd_2704_add_4_9/CO
+add_701_1/S0
+add_701_1/CI
+expected_next_15__I_0_1452_15/S1
+expected_next_15__I_0_1452_15/CO
+global_phase_s2_2700_add_4_9/S1
+global_phase_s2_2700_add_4_9/CO
+sub_933_add_2_1/S0
+sub_933_add_2_1/CI
 add_257_1/S0
 add_257_1/CI
-spi_byte_count_8__I_0_1232_add_2_cout/S1
-spi_byte_count_8__I_0_1232_add_2_cout/CO
-add_937_1/S0
-add_937_1/CI
-add_679_7/CO
-add_688_1/S0
-add_688_1/CI
-add_688_7/CO
-add_697_1/S0
-add_697_1/CI
-fpga_time_2594_add_4_33/S1
-fpga_time_2594_add_4_33/CO
-sub_809_add_2_1/S0
-sub_809_add_2_1/CI
-add_937_17/S1
-add_937_17/CO
-feed_wr_spi_2591_add_4_1/S0
-feed_wr_spi_2591_add_4_1/CI
-equal_2871_8/S0
-equal_2871_8/CO
-add_697_7/CO
+add_701_7/CO
 add_257_7/CO
-add_706_1/S0
-add_706_1/CI
-add_299_1/S0
-add_299_1/CI
-feed_wr_spi_2591_add_4_9/S1
-feed_wr_spi_2591_add_4_9/CO
-add_1405_1/S0
-add_1405_1/CI
-add_706_7/CO
-sub_809_add_2_17/CO
-global_phase_s2_2592_add_4_1/S0
-global_phase_s2_2592_add_4_1/CI
-add_299_cout/S1
-add_299_cout/CO
-add_642_1/S0
-add_642_1/CI
-add_718_1/S0
-add_718_1/CI
-add_1406_2/S0
-add_1406_2/CI
-global_phase_s2_2592_add_4_9/S1
-global_phase_s2_2592_add_4_9/CO
-add_642_7/CO
-add_651_1/S0
-add_651_1/CI
-ev_ch_2596_add_4_1/S0
-ev_ch_2596_add_4_1/CI
-ev_ch_2596_add_4_7/CO
-add_1406_cout/S1
-add_1406_cout/CO
-add_718_7/CO
-sub_892_add_2_1/S0
-sub_892_add_2_1/CI
-feed_rd_2595_add_4_1/S1
-feed_rd_2595_add_4_1/S0
-feed_rd_2595_add_4_1/CI
-add_651_7/CO
-add_660_1/S0
-add_660_1/CI
-feed_wr_7__I_0_1234_add_2_1/S0
-feed_wr_7__I_0_1234_add_2_1/CI
-add_1405_25/CO
-expected_next_15__I_0_1399_1/S0
-expected_next_15__I_0_1399_1/CI
-fpga_time_2594_add_4_1/S0
-fpga_time_2594_add_4_1/CI
-sub_892_add_2_17/S1
-sub_892_add_2_17/CO
-mic_warm_half_2597_add_4_1/S0
-mic_warm_half_2597_add_4_1/CI
-mic_warm_half_2597_add_4_9/S1
-mic_warm_half_2597_add_4_9/CO
-status_bit_index_2588_add_4_1/S0
-status_bit_index_2588_add_4_1/CI
-status_bit_index_2588_add_4_9/CO
-add_4027_2/S0
-add_4027_2/CI
+add_710_1/S0
+add_710_1/CI
+add_303_1/S0
+add_303_1/CI
+add_978_17/S1
+add_978_17/CO
+sub_933_add_2_17/S1
+sub_933_add_2_17/CO
+fpga_time_2702_add_4_1/S0
+fpga_time_2702_add_4_1/CI
+add_1458_1/S0
+add_1458_1/CI
+add_710_7/CO
+add_1459_2/S0
+add_1459_2/CI
+add_720_1/S0
+add_720_1/CI
+add_1459_cout/S1
+add_1459_cout/CO
+add_303_cout/S1
+add_303_cout/CO
+fpga_time_2702_add_4_33/S1
+fpga_time_2702_add_4_33/CO
+ev_ch_2705_add_4_1/S0
+ev_ch_2705_add_4_1/CI
+add_720_7/CO
+add_729_1/S0
+add_729_1/CI
+ev_ch_2705_add_4_7/CO
+ws2812_frames_left_2703_add_4_1/S0
+ws2812_frames_left_2703_add_4_1/CI
+add_1458_25/CO
+time_divider_2701_add_4_1/S0
+time_divider_2701_add_4_1/CI
+add_729_7/CO
+ws2812_frames_left_2703_add_4_9/S1
+ws2812_frames_left_2703_add_4_9/CO
+add_738_1/S0
+add_738_1/CI
 [ END CLIPPED ]
 [ START DESIGN PREFS ]
 SCHEMATIC START ;
-# map:  version Diamond (64-bit) 3.13.0.56.2 -- WARNING: Map write only section -- Tue Sep 29 21:15:54 2026
+# map:  version Diamond (64-bit) 3.13.0.56.2 -- WARNING: Map write only section -- Wed Sep 30 17:25:23 2026
 
 SYSCONFIG SDM_PORT=DISABLE SLAVE_SPI_PORT=DISABLE I2C_PORT=DISABLE MASTER_SPI_PORT=DISABLE COMPRESS_CONFIG=ON CONFIGURATION=CFG MY_ASSP=OFF ONE_TIME_PROGRAM=OFF CONFIG_SECURE=OFF MCCLK_FREQ=2.08 JTAG_PORT=ENABLE ENABLE_TRANSFR=DISABLE SHAREDEBRINIT=DISABLE MUX_CONFIGURATION_PORTS=DISABLE BACKGROUND_RECONFIG=OFF INBUF=ON ;
+LOCATE COMP "us_tx[75]" SITE "M2" ;
+LOCATE COMP "us_tx[76]" SITE "P4" ;
 LOCATE COMP "us_tx[77]" SITE "N5" ;
 LOCATE COMP "us_tx[78]" SITE "P7" ;
 LOCATE COMP "us_tx[79]" SITE "P9" ;
 LOCATE COMP "us_tx[80]" SITE "L3" ;
 LOCATE COMP "us_tx[81]" SITE "P6" ;
+LOCATE COMP "us_tx[74]" SITE "M3" ;
 LOCATE COMP "us_tx[82]" SITE "N7" ;
 LOCATE COMP "us_tx[83]" SITE "P8" ;
-LOCATE COMP "us_tx[76]" SITE "P4" ;
 LOCATE COMP "spi1_miso" SITE "J1" ;
-LOCATE COMP "us_tx[75]" SITE "M2" ;
-LOCATE COMP "us_tx[74]" SITE "M3" ;
 LOCATE COMP "us_tx[73]" SITE "N2" ;
 LOCATE COMP "us_tx[72]" SITE "N8" ;
 LOCATE COMP "us_tx[71]" SITE "N3" ;

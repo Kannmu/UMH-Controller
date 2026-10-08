@@ -234,6 +234,10 @@ module umh_fpga_top (
      * one DI line, so only the first RGB triple of the payload is stored; the
      * other nine bytes stay wire-compatible but are discarded. */
     reg  [23:0] rgb_values;
+    /* Set only after all three RGB bytes of the current transaction have
+     * been captured.  The output domain refuses to publish a partial update. */
+    reg  [1:0]  spi_rgb_captured;
+    reg         rgb_values_complete_spi;
     reg  [8:0]  status_bit_index;
 
     /* Sticky diagnostics for the board bring-up report.  Status is read
@@ -264,6 +268,8 @@ module umh_fpga_top (
                            (spi_byte_count[8:1] != 8'd0);
 
     reg         ws2812_enable;
+    wire        ws2812_frame_done;
+    reg  [7:0]  ws2812_frames_left;
 
     /* ------------------------------------------------------------------
      * Carrier DDS (Fully Pipelined 5-Stage).
@@ -619,7 +625,7 @@ module umh_fpga_top (
             spi_command <= 8'd0; spi_version <= 8'd0; spi_update_flags <= 16'd0;
             spi_extension_length <= 16'd0; spi_frame_sequence <= 16'd0;
             spi_expected_length <= HEADER_BYTES; spi_channel_index <= 7'd0;
-            spi_channel_field <= 2'd0; spi_phase_pending <= 8'd0;
+            spi_channel_field <= 2'd0; spi_phase_pending <= 8'd0; spi_rgb_captured <= 2'd0;
         end else begin
             if (spi_bit_count == 3'd7) begin
                 spi_bit_count <= 3'd0;
@@ -671,10 +677,11 @@ module umh_fpga_top (
                              * field. */
                             case (spi_rgb_offset)
                                 9'd0: rgb_values[15:8]  <= spi_rx_byte;  /* R */
-                                9'd1: rgb_values[7:0]   <= spi_rx_byte;  /* G */
-                                9'd2: rgb_values[23:16] <= spi_rx_byte;  /* B */
+                                9'd1: rgb_values[23:16] <= spi_rx_byte;  /* G */
+                                9'd2: rgb_values[7:0]   <= spi_rx_byte;  /* B */
                                 default: ;
                             endcase
+                            spi_rgb_captured <= spi_rgb_captured + 2'd1;
                         end
                     end
                 endcase
@@ -693,6 +700,7 @@ module umh_fpga_top (
                         frame_toggle_spi <= ~frame_toggle_spi;
                         accepted_sequence_spi <= spi_frame_sequence;
                         accepted_update_flags_spi <= spi_update_flags[1:0];
+                        rgb_values_complete_spi <= (spi_update_flags[1] != 1'b0) && (spi_rgb_captured == 2'd3);
                         invalid_frame_spi <= 1'b0;
                     end else if (spi_command == 8'h11 || spi_command == 8'h12) begin
                         stop_toggle_spi <= ~stop_toggle_spi;
@@ -703,6 +711,7 @@ module umh_fpga_top (
                         ws2812_toggle_spi <= ~ws2812_toggle_spi;
                         accepted_sequence_spi <= spi_frame_sequence;
                         accepted_update_flags_spi <= spi_update_flags[1:0];
+                        rgb_values_complete_spi <= (spi_update_flags[1] != 1'b0) && (spi_rgb_captured == 2'd3);
                         invalid_frame_spi <= 1'b0;
                     end else if (spi_command == 8'h14 && spi_version == 8'h01 &&
                                  spi_extension_length == 16'd6) begin
@@ -805,6 +814,7 @@ module umh_fpga_top (
         mod_toggle_meta  <= mod_toggle_spi;
         mod_toggle_sync  <= mod_toggle_meta;
 
+        if (ws2812_frame_done != 1'b0 && ws2812_frames_left != 8'd0) begin ws2812_frames_left <= ws2812_frames_left - 8'd1; if (ws2812_frames_left == 8'd1) ws2812_enable <= 1'b0; end
         if (frame_toggle_sync != frame_toggle_seen) begin
             frame_toggle_seen <= frame_toggle_sync;
             frame_settle      <= 4'd8;
@@ -822,11 +832,11 @@ module umh_fpga_top (
                  * through frame_req_mod. */
 
                 if (mod_active == 1'b0) frame_req_mod <= 1'b0;
-                rgb_hold  <= rgb_values;
+                if (accepted_update_flags_spi[1] && rgb_values_complete_spi) rgb_hold <= rgb_values;
                 /* RGB is a persistent independent output.  Ultrasound-only
                  * frames must not erase the last LED test/demo colour. */
                 if (accepted_update_flags_spi[1]) begin
-                    ws2812_enable <= 1'b1;
+                    if (rgb_values_complete_spi) begin ws2812_enable <= 1'b1; ws2812_frames_left <= 8'd2; end
                 end
             end
         end
@@ -865,12 +875,12 @@ module umh_fpga_top (
         if (ws2812_toggle_sync != ws2812_toggle_seen) begin
             ws2812_toggle_seen <= ws2812_toggle_sync;
             /* Allow the final SPI byte and the toggle synchronisers to settle
-                 * before taking the RGB snapshot.  Keep the stream enabled:
-             * ws2812_stream reloads its shift register at every reset gap, so
-             * a register update is enough and there is no reset-dependent
-             * one-shot transition for the LEDs to latch. */
+             * before taking the RGB snapshot. */
+
+
+
             ws2812_settle <= 4'd15;
-            ws2812_enable <= 1'b1;
+            /* Enable the stream only after the snapshot is valid. */
         end else if (ws2812_settle != 4'd0) begin
             /* RGB is written in the SPI clock domain.  Keep the toggle as
              * the event marker and wait for the bus to settle before taking
@@ -880,10 +890,10 @@ module umh_fpga_top (
             if (ws2812_settle == 4'd1) begin
                 ws2812_settle <= 4'd0;
                 accepted_sequence <= accepted_sequence_spi;
-                rgb_hold <= rgb_values;
-                /* The stream is continuous and reloads rgb_hold at its next
-                 * ST_LOAD boundary. */
-                ws2812_enable <= 1'b1;
+                if (rgb_values_complete_spi) rgb_hold <= rgb_values;
+                /* Enable the stream for two complete frames, then frame_done parks
+                 * the line low again. */
+                if (rgb_values_complete_spi) begin ws2812_enable <= 1'b1; ws2812_frames_left <= 8'd2; end
             end
         end
 
@@ -985,6 +995,7 @@ module umh_fpga_top (
             pending_mod_level <= 8'd0;
             swap_pending  <= 1'b0;
             ev_state      <= EV_IDLE;
+            rgb_hold      <= 24'd0;
         end
 
         /* ------------------------------------------------------------------
@@ -1236,6 +1247,7 @@ module umh_fpga_top (
         .clk(fpga_clk),
         .enable(ws2812_enable),
         .grb(rgb_hold),
+        .frame_done(ws2812_frame_done),
         .data_out(rgb_data)
     );
     spi_mic_stream mic_stream_i (
@@ -1248,12 +1260,12 @@ module umh_fpga_top (
         spi_command = 8'd0; spi_version = 8'd0; spi_update_flags = 16'd0;
         spi_extension_length = 16'd0; spi_frame_sequence = 16'd0; accepted_update_flags_spi = 2'd0;
         spi_expected_length = HEADER_BYTES; spi_channel_index = 7'd0;
-        spi_channel_field = 2'd0; spi_phase_pending = 8'd0;
+        spi_channel_field = 2'd0; spi_phase_pending = 8'd0; spi_rgb_captured = 2'd0;
         spi_compact_data = 8'd0; mod_level_spi = 1'b0;
         mod_toggle_spi = 1'b0; feed_wr_spi = 8'd0;
         frame_toggle_spi = 1'b0; stop_toggle_spi = 1'b0; invalid_frame_spi = 1'b0;
         ws2812_toggle_spi = 1'b0;
-        rgb_values = 24'd0; status_bit_index = 9'd0;
+        rgb_values = 24'd0; rgb_values_complete_spi = 1'b0; status_bit_index = 9'd0;
         frame_toggle_meta = 1'b0; frame_toggle_sync = 1'b0; frame_toggle_seen = 1'b0;
         stop_toggle_meta = 1'b0; stop_toggle_sync = 1'b0; stop_toggle_seen = 1'b0;
         ws2812_toggle_meta = 1'b0; ws2812_toggle_sync = 1'b0; ws2812_toggle_seen = 1'b0;
@@ -1310,10 +1322,10 @@ module umh_fpga_top (
         mic_cfg_toggle_spi = 1'b0; mic_cfg_toggle_meta = 1'b0;
         mic_cfg_toggle_sync = 1'b0; mic_cfg_toggle_seen = 1'b0;
         mic_cfg_settle = 4'd0;
-        /* Keep the protocol stream alive from power-up.  New RGB data is
-         * sampled at the next WS2812 reset gap, so updates do not depend on a
-         * fragile 0->1 enable transition or an STM32 reset. */
-        ws2812_enable = 1'b1;
+        /* WS2812 starts parked low.  An RGB update enables two complete frames. */
+        /* frame_done then parks it low again; idle is safer for a static LED. */
+        ws2812_enable = 1'b0;
+        ws2812_frames_left = 8'd0;
     end
 endmodule
 

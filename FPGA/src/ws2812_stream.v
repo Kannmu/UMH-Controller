@@ -17,7 +17,8 @@ module ws2812_stream (
     input wire clk,
     input wire enable,
     input wire [23:0] grb,        /* {G[7:0], R[7:0], B[7:0]} */
-    output wire data_out
+    output wire data_out,
+    output reg  frame_done      /* one-cycle pulse after 24 bits */
 );
     localparam [1:0] ST_RESET = 2'd0, ST_LOAD = 2'd1, ST_SEND = 2'd2;
     localparam [15:0] RESET_CYCLES = 16'd20000; /* 312.5 us at 64 MHz */
@@ -38,7 +39,9 @@ module ws2812_stream (
             data_out_reg <= 1'b0;
             state <= ST_RESET;
             reset_count <= 16'd0;
+            frame_done <= 1'b0;
         end else begin
+            frame_done <= 1'b0;
             case (state)
                 ST_RESET: begin
                     data_out_reg <= 1'b0;
@@ -62,6 +65,7 @@ module ws2812_stream (
                             reset_count <= 16'd0;
                             data_out_reg <= 1'b0;
                             state <= ST_RESET;
+                            frame_done <= 1'b1;
                         end else begin
                             bit_number <= bit_number + 5'd1;
                             data_out_reg <= 1'b1;
@@ -92,5 +96,6 @@ module ws2812_stream (
         bit_number = 5'd0;
         shift_register = 24'd0;
         data_out_reg = 1'b0;
+        frame_done = 1'b0;
     end
 endmodule

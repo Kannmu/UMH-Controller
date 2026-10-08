@@ -3,20 +3,20 @@ Report for cell umh_fpga_top
    Instance path: umh_fpga_top
                      Cell usage:
                                   cell	      count    Res Usage(%)
-                                  SLIC	     818.00        100.0
-                                  LUT4	    1248.00        100.0
+                                  SLIC	     836.00        100.0
+                                  LUT4	    1272.00        100.0
                                  IOBUF	         96        100.0
-                                PFUREG	       1335        100.0
-                                RIPPLE	        188        100.0
+                                PFUREG	       1349        100.0
+                                RIPPLE	        193        100.0
                                    EBR	          8        100.0
 SUB MODULES
                                   cell	      count    SLC Usage(%)
-                         ws2812_stream	          1         4.7
+                         ws2812_stream	          1         4.4
                         umh_mic_iq_ram	          1         0.0
                       umh_toggle_ram84	          1         0.0
                         umh_level_fifo	          1         0.5
                      umh_channel_ram18	          1         0.7
-                        spi_mic_stream	          1         6.5
+                        spi_mic_stream	          1         6.4
 ---------------------------------------------------
 Report for cell umh_level_fifo
    Instance path: umh_fpga_top/level_fifo
@@ -30,8 +30,8 @@ Report for cell spi_mic_stream
    Instance path: umh_fpga_top/mic_stream_i
                      Cell usage:
                                   cell	      count    Res Usage(%)
-                                  SLIC	      53.50         6.5
-                                  LUT4	     110.00         8.8
+                                  SLIC	      53.50         6.4
+                                  LUT4	     110.00         8.6
                                 PFUREG	        102         7.6
 ---------------------------------------------------
 Report for cell umh_toggle_ram84
@@ -52,10 +52,10 @@ Report for cell ws2812_stream
    Instance path: umh_fpga_top/ws2812_i
                      Cell usage:
                                   cell	      count    Res Usage(%)
-                                  SLIC	      38.33         4.7
-                                  LUT4	      59.00         4.7
-                                PFUREG	         56         4.2
-                                RIPPLE	         14         7.4
+                                  SLIC	      36.83         4.4
+                                  LUT4	      57.00         4.5
+                                PFUREG	         57         4.2
+                                RIPPLE	         14         7.3
 ---------------------------------------------------
 Report for cell umh_mic_iq_ram
    Instance path: umh_fpga_top/mic_iq_ram

@@ -929,7 +929,7 @@ uint32_t motion_engine_service(umh_motion_engine_t *engine,
   } else {
     level_scale = (float)engine->last_level * ((float)engine->level / 255.0f);
     if (engine->state == UMH_MOTION_STATE_STOPPING) level_scale *= engine->fade_scale;
-    rgb_level = 255u;
+    rgb_level = engine->state == UMH_MOTION_STATE_STOPPING ? (uint8_t)(255.0f * engine->fade_scale + 0.5f) : 255u;
   }
   if (level_scale > 255.0f) level_scale = 255.0f;
   if (level_scale < 0.0f) level_scale = 0.0f;

@@ -75,8 +75,8 @@ endif
 ######################################
 # C sources
 C_SOURCES =  \
-Core/Src/app_freertos.c \
 Core/Src/aperture_mod.c \
+Core/Src/app_freertos.c \
 Core/Src/block_parser.c \
 Core/Src/cordic.c \
 Core/Src/crc.c \
