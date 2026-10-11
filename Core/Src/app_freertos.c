@@ -916,9 +916,11 @@ static int gun_shot_fire(void)
     system_status_clear(UMH_SYSTEM_PLAYING);
     return -1;
   }
-  /* Red LEDs mark a live shot; the STOP in gun_shot_release() turns them off
-   * together with the ultrasound. */
-  (void)fpga_link_set_ws2812(&fpga_link, 255u, 0u, 0u);
+  /* The LEDs are driven by the frame itself: gun_trigger_emit() writes the
+   * current fade level into frame.rgb, so the four WS2812s come up with the
+   * emitted intensity and are turned black by the STOP in gun_shot_release().
+   * A separate fpga_link_set_ws2812() here would override that with a
+   * full-brightness word. */
   /* The render task is the authoritative writer of PLAYING while the shot is
    * held: a press can land inside a render iteration whose normal-path tail
    * would clear a flag set here.  Setting it here only closes the gap before
@@ -930,7 +932,12 @@ static int gun_shot_fire(void)
 static int gun_shot_release(void)
 {
   int result = gun_trigger_release(&gun_trigger, &fpga_link);
-  system_status_clear(UMH_SYSTEM_PLAYING);
+  /* The render task is the PLAYING writer while the fade still emits, exactly
+   * like the motion and hologram branches.  Clear the bit here only once the
+   * shot really is muted, so a status read never reports a stopped array as
+   * playing and the fade is never reported as silence. */
+  if (gun_trigger_owns_output(&gun_trigger) == 0u)
+    system_status_clear(UMH_SYSTEM_PLAYING);
   return result;
 }
 
@@ -939,10 +946,15 @@ static void gun_trigger_poll(void)
 {
   uint8_t pressed = gun_trigger_pressed(&gun_trigger);
   uint8_t owns = gun_trigger_owns_output(&gun_trigger);
+  uint8_t releasing = gun_trigger_releasing(&gun_trigger);
   if (pressed != 0u) system_status_set(UMH_SYSTEM_TRIGGER);
   else system_status_clear(UMH_SYSTEM_TRIGGER);
-  if (pressed == owns) return;
   if (pressed != 0u) {
+    /* A held shot needs no service here: the render task keeps it emitting.  A
+     * shot that is still fading out while the switch is already down again is a
+     * fresh press, and it rebuilds the plane wave instead of waiting for the
+     * fade to reach its STOP. */
+    if (owns != 0u && releasing == 0u) return;
     /* A calibration session measures timed echo windows and must keep the
      * output until it finishes; a demo under construction owns the frame ring
      * for the same moment.  The switch keeps being sampled, so a trigger that
@@ -954,7 +966,10 @@ static void gun_trigger_poll(void)
       return;
     }
     (void)gun_shot_fire();
-  } else {
+  } else if (owns != 0u) {
+    /* Called on every iteration while the switch is open.  The first call arms
+     * the 100 ms fade-out; the calls after it are the release watchdog that
+     * mutes the array when the render task could not finish that fade. */
     (void)gun_shot_release();
   }
 }
@@ -1757,9 +1772,12 @@ static void render_task(void *argument)
     /* A held PA9 shot is one static image the FPGA already has: nothing is
      * queued and no other producer may touch the channels.  Only the link needs
      * servicing, so this branch keeps the SPI traffic (and with it the FPGA link
-     * watchdog) alive and re-sends the image if the output was stopped
-     * underneath us, for instance by a host STOP_PLAN. */
-    if (gun_trigger_owns_output(&gun_trigger) != 0u) {
+     * watchdog) alive, advances the fade envelope, and re-sends the image if the
+     * output was stopped underneath us, for instance by a host STOP_PLAN.
+     * The gate is holds_image(), not owns_output(): the takeover claims the
+     * output before it has rebuilt the frame, and that window must not be
+     * served with the previous producer's image. */
+    if (gun_trigger_holds_image(&gun_trigger) != 0u) {
       (void)gun_trigger_refresh(&gun_trigger, &fpga_link);
       /* This branch is the authoritative writer of the emitting flag while the
        * shot is held, exactly like the motion and hologram branches: the press

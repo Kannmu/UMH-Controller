@@ -45,11 +45,21 @@
  *
  * Power rise time (fade-in) from 0 to full power in milliseconds.
  * Recommended range: 50-500 ms. Lower values = faster rise. */
-#define UMH_GUN_RAMP_UP_MS 100u
+#define UMH_GUN_RAMP_UP_MS 300u
 
 /* Power fall time (fade-out) from full power to 0 in milliseconds.
  * Recommended range: 50-500 ms. Lower values = faster fall. */
-#define UMH_GUN_RAMP_DOWN_MS 100u
+#define UMH_GUN_RAMP_DOWN_MS 500u
+
+/* Hard deadline for the fade-out.  The ramp itself and the closing STOP are
+ * advanced by the render task, the only context that can submit at frame rate;
+ * the protocol task arms that ramp and re-checks this deadline on every poll,
+ * so a fade the render task cannot finish (SPI mutex held, task starved, a link
+ * that refuses every frame) is muted from the protocol task anyway.  An open
+ * switch must never leave the array firing, so this is a safety net and not a
+ * second fade path: in normal operation the STOP happens at
+ * UMH_GUN_RAMP_DOWN_MS and this timeout never expires. */
+#define UMH_GUN_RELEASE_TIMEOUT_MS (UMH_GUN_RAMP_DOWN_MS + 100u)
 
 /* While a shot is held the render task re-sends the same image at this rate
  * even if the FPGA still reports RUNNING.  The shot is a state, not a timeline,
@@ -69,7 +79,13 @@ typedef struct {
   uint32_t ramp_start_ms;     /* HAL tick when envelope ramp started          */
   uint32_t sequence;          /* last frame sequence handed to the FPGA       */
   uint8_t envelope_state;     /* 0=idle, 1=ramping up, 2=full, 3=ramping down */
-  uint8_t current_level;      /* current ultrasound power level (0-128)       */
+  uint8_t current_level;      /* current envelope value (0-128), LED intensity */
+  /* Levels the envelope is written into.  These are the plane-wave levels and
+   * must never be scaled in place: the envelope is applied to this pristine
+   * copy on every submit, so a repeated refresh cannot compound it. */
+  uint8_t base_level[UMH_DEVICE_CHANNEL_COUNT];
+  uint8_t base_ready;         /* base_level[] holds a built plane wave        */
+  uint8_t envelope_sent;      /* envelope value the last accepted frame had   */
   uint16_t reserved;          /* padding for alignment                        */
   umh_output_frame_t frame;   /* the held plane-wave image                    */
   /* Plane-wave accumulation, shared with spatial_renderer_finalize.  Keeping
@@ -85,6 +101,16 @@ void gun_trigger_init(umh_gun_trigger_t *trigger);
 void gun_trigger_sample(umh_gun_trigger_t *trigger);
 uint8_t gun_trigger_pressed(const umh_gun_trigger_t *trigger);
 uint8_t gun_trigger_owns_output(const umh_gun_trigger_t *trigger);
+/* 1 from the moment the takeover's emit() has built the plane wave until the
+ * release.  The render task gates the shot branch on this instead of on
+ * gun_trigger_owns_output(), because between the claim and the emit the frame
+ * still belongs to the previous producer. */
+uint8_t gun_trigger_holds_image(const umh_gun_trigger_t *trigger);
+/* 1 from the release edge until the fade-out has been muted: the switch is open
+ * and the array is still winding down.  The protocol task uses it to tell a held
+ * shot from a shot that is already fading, so a press that lands inside the
+ * 100 ms fade re-arms the ramp instead of waiting for the STOP. */
+uint8_t gun_trigger_releasing(const umh_gun_trigger_t *trigger);
 /* Claim the output before the producer takeover, so the render task stops
  * pulling frames out of the ring while the takeover resets it.  The claim also
  * marks the image for one forced re-assert: a producer that was already inside
@@ -95,13 +121,25 @@ void gun_trigger_claim_output(umh_gun_trigger_t *trigger);
 void gun_trigger_drop_output(umh_gun_trigger_t *trigger);
 void gun_trigger_note_deferred(umh_gun_trigger_t *trigger);
 /* Build and submit the plane-wave image.  Fails, without owning anything, when
- * the trigger was already released or the FPGA did not accept the frame. */
+ * the trigger was already released or the FPGA did not accept the frame.  The
+ * frame is always rebuilt from the plane-wave levels before it is packed, so
+ * the fade envelope scales it instead of accumulating on it. */
 int gun_trigger_emit(umh_gun_trigger_t *trigger, umh_spatial_renderer_t *renderer,
                      fpga_link_t *link);
-/* STOP the output and hand the channels back to the normal producer order. */
+/* Release edge: latch the fade-out and hand the channels back afterwards.
+ *
+ * Idempotent, because it is called once per protocol-task iteration while the
+ * switch is open: the first call arms the fade, and the calls after it are the
+ * watchdog that force-mutes a fade the render task did not finish within
+ * UMH_GUN_RELEASE_TIMEOUT_MS.  Re-arming the ramp on every call is exactly the
+ * bug this latch exists to prevent -- it held the envelope at ~90 % forever, so
+ * the LEDs stayed at full red and the array kept firing with the switch open. */
 int gun_trigger_release(umh_gun_trigger_t *trigger, fpga_link_t *link);
-/* Render task service: keep the held image emitting and self-heal a cleared
- * output.  Returns the status poll result, or 0 when no shot is held. */
+/* Render task service: advance the fade envelope and keep the held image
+ * emitting, self-healing a cleared output.  The image is re-sent only while
+ * the envelope is moving (or on the keep-alive / after a host STOP), and the
+ * WS2812 brightness always follows the level actually being emitted.
+ * Returns the status poll result, or 0 when no shot is held. */
 int gun_trigger_refresh(umh_gun_trigger_t *trigger, fpga_link_t *link);
 
 #endif
