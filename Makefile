@@ -60,6 +60,7 @@ Core/Src/device_gui.c \
 Core/Src/demo_engine.c \
 Core/Src/motion_engine.c \
 Core/Src/hologram_engine.c \
+Core/Src/gun_trigger.c \
 Core/Src/system_status.c \
 Core/Src/cordic.c \
 Core/Src/crc.c \

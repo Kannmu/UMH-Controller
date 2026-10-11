@@ -41,6 +41,7 @@
         * Free pins are configured automatically as Analog (this feature is enabled through
         * the Code Generation settings)
      PA8   ------> RCC_MCO
+     PA9   ------> shot trigger input (pressed = low)
 */
 void MX_GPIO_Init(void)
 {
@@ -55,7 +56,6 @@ void MX_GPIO_Init(void)
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOA, FPGA_CS_Pin|HEART_Pin, GPIO_PIN_SET);
-  HAL_GPIO_WritePin(TRIGGER_GPIO_Port, TRIGGER_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(SPI3_CS_GPIO_Port, SPI3_CS_Pin, GPIO_PIN_SET);
@@ -72,8 +72,18 @@ void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : FPGA_CS_Pin TRIGGER_Pin */
-  GPIO_InitStruct.Pin = FPGA_CS_Pin|TRIGGER_Pin;
+  /*Configure GPIO pin : TRIGGER_Pin */
+  /* Shot trigger.  PA9 must stay an input: the switch (behind the 22 ohm R176
+   * to the SMA centre pin) shorts the pin to ground, and the internal pull-up
+   * defines the released level.  Writing ODR here would select a pull-down
+   * instead of a pull-up and read as permanently pressed. */
+  GPIO_InitStruct.Pin = TRIGGER_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(TRIGGER_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : FPGA_CS_Pin */
+  GPIO_InitStruct.Pin = FPGA_CS_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;

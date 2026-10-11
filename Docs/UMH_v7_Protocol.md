@@ -72,7 +72,7 @@ uint8[payload_length] payload
 * `SPATIAL_POINT=2`：`x_um, y_um, z_um(int32)`、源强度 `level(uint8)`、源相位 `phase(uint8)` 和 `source_id(uint8)`，共 15 字节。STM32 根据阵元坐标、声速、校准参数解算通道域状态；多个源先进行复数叠加。
 * `COLOR_RGB8=3`：每个选中 RGB 输出 3 字节 RGB 值。
 * `LIGHT_LEVEL8=4`：每个选中 RGB 输出 1 字节亮度。
-* `DIGITAL_STATE=5`：2 字节 `mask,state`，用于通用数字输出，其中 bit0 对应 `TRIGGER`。
+* `DIGITAL_STATE=5`：2 字节 `mask,state`，字段保留在帧格式里以兼容旧主机，但已无消费者：FPGA 忽略它，STM32 曾用 bit0 驱动的 `TRIGGER` 引脚（PA9）现在是扳机输入。
 * `SCALAR=6`、`VECTOR=7`、`RAW=8`：不由 MCU 解释的扩展数据，按记录顺序追加到 32 字节帧扩展区并转发到 FPGA 扩展端点。
 
 颜色和亮度可由不同轨道独立更新。WS2812 没有独立亮度寄存器，STM32 在帧提交时计算 `rgb_out = rgb_color * level / 255`，FPGA 只发送 GRB 时序。
@@ -308,6 +308,27 @@ uint32 max_service_us
 `BLOCK_BEGIN`、`SET_PLAN`、`START_PLAN`、`SET_DEMO` 和 `CAL_*` 请求会返回
 BUSY。重新发送 `MOD_CONFIGURE` 会中止上一路流并重新装载相位。`MOD_STOP`
 由渲染任务先线性淡出到 0，再发送 FPGA `MOD_FIXED=0` 和 STOP。
+
+## PA9 扳机输入（超声枪）
+
+`PA9`/`TRIGGER` 是按键输入而不是输出：内部上拉在按键断开时把引脚保持在高
+电平，按键（经 22 Ω 串联电阻 R176 接到 SMA 中心脚 U174.5）把引脚拉到地。
+输入任务以 10 ms 周期采样，连续两个相同样本才认一次边沿。
+
+按下即接管 84 路输出：取消块流、停止播放计划、中止运动/全息/调制孔径，向
+FPGA 发 `STOP` 后提交一张静态平面波图——84 路同相位（空间点源在远场的极限，
+没有传播延迟项：命令相位就是该路校准修正，因此实际发射相位在 84 路上一致）、
+每路 `level=128` 的 50% 占空比满幅度，同时把 4 颗 WS2812 点亮为红色。松开即
+`STOP`，输出回到默认静音状态（LED 熄灭，不恢复按下前的生产者和计划）。
+
+扳机在任何模式下都可用，持有期间 `BLOCK_BEGIN`、`SET_PLAN`、`START_PLAN`、
+`SET_DEMO`、`MOTION_START`、`HOLOGRAM_START`、`MOD_CONFIGURE` 和 `CAL_*`
+返回 BUSY。校准会话需要不受干扰的回波窗口，因此会话运行期间按下会被推迟，
+会话结束后按键仍按着才发射。
+
+`GET_STATUS` 的 `flags` bit10（`TRIGGER`）是去抖后的按键电平，`PLAYING`
+表示输出正在发射；两者在 `GET_STATUS`/`STATUS` 响应里可直接观察，不需要
+额外的调试命令。
 
 ## 内置近场耦合相位自校准
 

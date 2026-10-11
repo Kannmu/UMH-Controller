@@ -25,6 +25,7 @@
 #include "motion_engine.h"
 #include "aperture_mod.h"
 #include "hologram_engine.h"
+#include "gun_trigger.h"
 #include "spi.h"
 #include "i2c.h"
 #include "i2c_bus.h"
@@ -53,6 +54,7 @@ static umh_playback_plan_t playback_plan;
 static umh_aperture_mod_t aperture_mod;
 static umh_motion_engine_t motion_engine;
 static umh_hologram_engine_t hologram_engine;
+static umh_gun_trigger_t gun_trigger;
 static fpga_link_t fpga_link;
 static flash_store_t flash_store;
 static eeprom_profile_t eeprom_profile;
@@ -248,7 +250,12 @@ static const osThreadAttr_t input_task_attributes = {
  *
  *   task       worst chain   grant   margin
  *   render          1176 B   4096    x3.5   (frame-critical, kept generous)
- *   protocol        1236 B   3072    x2.5
+ *   protocol        1240 B   3072    x2.5   worst chain is the EEPROM/I2C
+ *                                          bring-up in application_init; the
+ *                                          PA9 plane-wave shot path
+ *                                          (gun_trigger_emit -> fpga_link_submit)
+ *                                          is 928 B, and its accumulation arrays
+ *                                          live in the gun_trigger_t, not here
  *   storage          376 B   1024    x2.7
  *   ui               n/a      4096    kept: GUI callbacks arrive through
  *                                          device_gui function pointers, which
@@ -349,6 +356,9 @@ static int gui_calibration(void *context)
 {
   (void)context;
   if (calibration_task_handle == NULL) return -1;
+  /* The calibration sessions need undisturbed echo windows, so they never
+   * start over a held shot (the shot itself is deferred the same way). */
+  if (gun_trigger_owns_output(&gun_trigger) != 0u) return -1;
   if (aperture_mod_owns_output(&aperture_mod) != 0u) aperture_mod_abort(&aperture_mod);
   if (motion_engine_owns_output(&motion_engine) != 0u) motion_engine_abort(&motion_engine, &fpga_link);
   device_gui_calibration_begin(&device_gui);
@@ -360,6 +370,7 @@ static int gui_selftest(void *context)
 {
   (void)context;
   if (calibration_task_handle == NULL) return -1;
+  if (gun_trigger_owns_output(&gun_trigger) != 0u) return -1;
   if (aperture_mod_owns_output(&aperture_mod) != 0u) aperture_mod_abort(&aperture_mod);
   if (motion_engine_owns_output(&motion_engine) != 0u) motion_engine_abort(&motion_engine, &fpga_link);
   device_gui_calibration_begin(&device_gui);
@@ -784,7 +795,8 @@ static int gui_levitation_toggle(void *context)
     motion_engine_request_stop(&motion_engine);
     return 0;
   }
-  if (device_gui_calibration_busy(&device_gui) != 0u || demo_building != 0u) return -1;
+  if (device_gui_calibration_busy(&device_gui) != 0u || demo_building != 0u ||
+      gun_trigger_owns_output(&gun_trigger) != 0u) return -1;
   aperture_mod_abort(&aperture_mod);
   if (motion_engine_owns_output(&motion_engine) != 0u)
     motion_engine_abort(&motion_engine, &fpga_link);
@@ -832,7 +844,8 @@ static int gui_defoam_set(void *context)
     motion_engine_request_stop(&motion_engine);
     return 0;
   }
-  if (device_gui_calibration_busy(&device_gui) != 0u || demo_building != 0u) return -1;
+  if (device_gui_calibration_busy(&device_gui) != 0u || demo_building != 0u ||
+      gun_trigger_owns_output(&gun_trigger) != 0u) return -1;
 
   /* Mutual exclusion: a running block plan, demo, tactile AM or host motion
    * program would otherwise keep driving the same 84 channels. */
@@ -858,6 +871,9 @@ static int gui_demo(void *context)
   (void)context;
   descriptor = demo_engine_descriptor(device_gui.selected_demo);
   if (descriptor == NULL) return -1;
+  /* A demo rebuilds the whole 24-frame ring; a held shot owns the output and
+   * would be silently overwritten by the plan that follows. */
+  if (gun_trigger_owns_output(&gun_trigger) != 0u) return -1;
   demo_building = 1u;
   if (aperture_mod_owns_output(&aperture_mod) != 0u) aperture_mod_abort(&aperture_mod);
   if (motion_engine_owns_output(&motion_engine) != 0u) motion_engine_abort(&motion_engine, &fpga_link);
@@ -868,6 +884,79 @@ static int gui_demo(void *context)
                              system_time_us(), &playback_plan);
   demo_building = 0u;
   return result == 0 ? 0 : -1;
+}
+
+/* --------------------------------------------------------------------------
+ * PA9 shot trigger ("ultrasound gun").
+ *
+ * The trigger is a hardware override, not a mode: while the switch is held the
+ * device emits one static full-amplitude plane wave (every element on the same
+ * acoustic phase), no matter which producer was running before.  The takeover
+ * below is the same one the host MOTION_START and SET_DEMO paths use -- claim
+ * the output, abort the producers, drop the block stream, STOP the FPGA -- so a
+ * shot cannot leave a half-parsed block or a stale plan behind.
+ *
+ * It runs in the protocol task, the context that already owns every other
+ * output takeover.  The debounced level is sampled by the input task and the
+ * held image is kept alive by the render task; see gun_trigger.h.
+ * -------------------------------------------------------------------------- */
+static int gun_shot_fire(void)
+{
+  /* Claim before the takeover: the render task tests this flag before it pulls
+   * a frame out of the ring, so the reset below cannot race a frame in flight. */
+  gun_trigger_claim_output(&gun_trigger);
+  aperture_mod_abort(&aperture_mod);
+  motion_engine_abort(&motion_engine, NULL);
+  hologram_engine_abort(&hologram_engine, NULL);
+  playback_plan_stop(&playback_plan);
+  discard_block_stream();
+  if (fpga_link_safe_stop(&fpga_link) != 0 ||
+      gun_trigger_emit(&gun_trigger, &renderer, &fpga_link) != 0) {
+    gun_trigger_drop_output(&gun_trigger);
+    system_status_clear(UMH_SYSTEM_PLAYING);
+    return -1;
+  }
+  /* Red LEDs mark a live shot; the STOP in gun_shot_release() turns them off
+   * together with the ultrasound. */
+  (void)fpga_link_set_ws2812(&fpga_link, 255u, 0u, 0u);
+  /* The render task is the authoritative writer of PLAYING while the shot is
+   * held: a press can land inside a render iteration whose normal-path tail
+   * would clear a flag set here.  Setting it here only closes the gap before
+   * that next render iteration. */
+  system_status_set(UMH_SYSTEM_PLAYING);
+  return 0;
+}
+
+static int gun_shot_release(void)
+{
+  int result = gun_trigger_release(&gun_trigger, &fpga_link);
+  system_status_clear(UMH_SYSTEM_PLAYING);
+  return result;
+}
+
+/* Edge handler: one call per protocol task iteration. */
+static void gun_trigger_poll(void)
+{
+  uint8_t pressed = gun_trigger_pressed(&gun_trigger);
+  uint8_t owns = gun_trigger_owns_output(&gun_trigger);
+  if (pressed != 0u) system_status_set(UMH_SYSTEM_TRIGGER);
+  else system_status_clear(UMH_SYSTEM_TRIGGER);
+  if (pressed == owns) return;
+  if (pressed != 0u) {
+    /* A calibration session measures timed echo windows and must keep the
+     * output until it finishes; a demo under construction owns the frame ring
+     * for the same moment.  The switch keeps being sampled, so a trigger that
+     * is still held fires as soon as that work is done. */
+    if (device_gui_calibration_busy(&device_gui) != 0u ||
+        calibration_raw_mode != 0u || calibration_selftest_mode != 0u ||
+        calibration_probe_mode != 0u || demo_building != 0u) {
+      gun_trigger_note_deferred(&gun_trigger);
+      return;
+    }
+    (void)gun_shot_fire();
+  } else {
+    (void)gun_shot_release();
+  }
 }
 
 static int gui_ws2812_set(void *context)
@@ -1018,11 +1107,13 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
   uint8_t mod_owns;
   uint8_t motion_owns;
   uint8_t hologram_owns;
+  uint8_t gun_owns;
   (void)context;
   if (frame == NULL) return;
   mod_owns = aperture_mod_owns_output(&aperture_mod);
   motion_owns = motion_engine_owns_output(&motion_engine);
   hologram_owns = hologram_engine_owns_output(&hologram_engine);
+  gun_owns = gun_trigger_owns_output(&gun_trigger);
   switch (frame->header.message_type) {
     case UMH_MSG_GET_PROFILE:
       if (frame->payload_size != 0u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
@@ -1037,7 +1128,8 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       send_response(frame, UMH_MSG_STATUS, status_payload, sizeof(status_payload));
       return;
     case UMH_MSG_BLOCK_BEGIN:
-      if (mod_owns != 0u || motion_owns != 0u || hologram_owns != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (mod_owns != 0u || motion_owns != 0u || hologram_owns != 0u ||
+          gun_owns != 0u) { status = UMH_STATUS_BUSY; break; }
       if (playback_plan.running != 0u || block_stream_active != 0u ||
           frame_ring_count(&frame_ring) != 0u ||
           block_parser_begin(&block_parser, frame->payload, frame->payload_size) != 0) {
@@ -1077,13 +1169,15 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       discard_block_stream();
       break;
     case UMH_MSG_SET_PLAN:
-      if (mod_owns != 0u || motion_owns != 0u || hologram_owns != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (mod_owns != 0u || motion_owns != 0u || hologram_owns != 0u ||
+          gun_owns != 0u) { status = UMH_STATUS_BUSY; break; }
       if (playback_plan.running != 0u ||
           frame->payload_size != sizeof(umh_playback_plan_wire_t) ||
           playback_plan_set(&playback_plan, (const umh_playback_plan_wire_t *)frame->payload) != 0) status = UMH_STATUS_INVALID_STATE;
       break;
     case UMH_MSG_SET_DEMO:
-      if (mod_owns != 0u || motion_owns != 0u || hologram_owns != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (mod_owns != 0u || motion_owns != 0u || hologram_owns != 0u ||
+          gun_owns != 0u) { status = UMH_STATUS_BUSY; break; }
       if (frame->payload_size != 1u || frame->payload[0] >= demo_engine_count()) {
         status = UMH_STATUS_BAD_LENGTH;
       } else {
@@ -1118,7 +1212,7 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
     case UMH_MSG_MOTION_START:
       if (frame->payload_size != 0u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
       if (mod_owns != 0u || device_gui_calibration_busy(&device_gui) != 0u ||
-          demo_building != 0u) { status = UMH_STATUS_BUSY; break; }
+          demo_building != 0u || gun_owns != 0u) { status = UMH_STATUS_BUSY; break; }
       motion_engine_abort(&motion_engine, NULL);
       playback_plan_stop(&playback_plan);
       discard_block_stream();
@@ -1145,7 +1239,8 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       }
     case UMH_MSG_START_PLAN:
       if (frame->payload_size != 0u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
-      if (mod_owns != 0u || motion_owns != 0u || hologram_owns != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (mod_owns != 0u || motion_owns != 0u || hologram_owns != 0u ||
+          gun_owns != 0u) { status = UMH_STATUS_BUSY; break; }
       if (playback_plan.configured == 0u ||
           (block_parser.block.active == 0u && frame_ring_count(&frame_ring) == 0u) ||
           playback_plan.wire.block_id != block_parser.block.header.block_id ||
@@ -1197,7 +1292,7 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
     case UMH_MSG_HOLOGRAM_START:
       if (frame->payload_size != 0u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
       if (mod_owns != 0u || motion_owns != 0u || device_gui_calibration_busy(&device_gui) != 0u ||
-          demo_building != 0u) { status = UMH_STATUS_BUSY; break; }
+          demo_building != 0u || gun_owns != 0u) { status = UMH_STATUS_BUSY; break; }
       /* Same hand-over protocol as MOTION_START: give up the block path, put the
        * FPGA in a safe state, then own the output. */
       playback_plan_stop(&playback_plan);
@@ -1306,7 +1401,8 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       }
     case UMH_MSG_CAL_RAW:
       if (frame->payload_size != 8u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
-      if (mod_owns != 0u || motion_owns != 0u || hologram_owns != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (mod_owns != 0u || motion_owns != 0u || hologram_owns != 0u ||
+          gun_owns != 0u) { status = UMH_STATUS_BUSY; break; }
       if (calibration_raw_mode != 0u || device_gui_calibration_busy(&device_gui) != 0u) {
         status = UMH_STATUS_BUSY;
       } else if (frame->payload[0] == 0u || frame->payload[3] == 0u ||
@@ -1335,7 +1431,8 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       break;
     case UMH_MSG_CAL_START:
       if (frame->payload_size != 0u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
-      if (mod_owns != 0u || motion_owns != 0u || hologram_owns != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (mod_owns != 0u || motion_owns != 0u || hologram_owns != 0u ||
+          gun_owns != 0u) { status = UMH_STATUS_BUSY; break; }
       if (calibration_task_handle == NULL) status = UMH_STATUS_INVALID_STATE;
       else if (calibration_raw_mode != 0u ||
                device_gui_calibration_busy(&device_gui) != 0u) status = UMH_STATUS_BUSY;
@@ -1350,7 +1447,8 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       break;
     case UMH_MSG_CAL_SELFTEST:
       if (frame->payload_size != 0u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
-      if (mod_owns != 0u || motion_owns != 0u || hologram_owns != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (mod_owns != 0u || motion_owns != 0u || hologram_owns != 0u ||
+          gun_owns != 0u) { status = UMH_STATUS_BUSY; break; }
       if (calibration_task_handle == NULL) status = UMH_STATUS_INVALID_STATE;
       else if (calibration_raw_mode != 0u || calibration_selftest_mode != 0u ||
                device_gui_calibration_busy(&device_gui) != 0u) status = UMH_STATUS_BUSY;
@@ -1368,6 +1466,7 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
         send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return;
       }
       if (mod_owns != 0u || motion_owns != 0u || hologram_owns != 0u ||
+          gun_owns != 0u ||
           calibration_task_handle == NULL || calibration_probe_mode != 0u ||
           calibration_raw_mode != 0u || calibration_selftest_mode != 0u ||
           device_gui_calibration_busy(&device_gui) != 0u) {
@@ -1443,7 +1542,7 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
         break;
       }
       if (device_gui_calibration_busy(&device_gui) != 0u || demo_building != 0u ||
-          motion_owns != 0u) {
+          motion_owns != 0u || gun_owns != 0u) {
         status = UMH_STATUS_BUSY;
         break;
       }
@@ -1504,6 +1603,10 @@ static void protocol_task(void *argument)
     count = umh_rx_ring_read(&umh_usb_rx_ring, data, sizeof(data));
     if (count != 0u) umh_protocol_parser_feed(&protocol_parser, data, count);
     else (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10u));
+    /* Hardware fire button.  Sampling happens in the input task; the edges are
+     * handled here, next to every other output takeover, and the 10 ms notify
+     * timeout above bounds the press-to-emission latency when USB is idle. */
+    gun_trigger_poll();
     system_status_get()->parser_errors = umh_protocol_parser_error_count(&protocol_parser);
     system_status_get()->rx_dropped = umh_usb_rx_ring.dropped_bytes;
     system_status_get()->frame_dropped = frame_ring.dropped;
@@ -1651,6 +1754,30 @@ static void render_task(void *argument)
   render_task_handle = xTaskGetCurrentTaskHandle();
   for (;;) {
     update_motion_mode_flags();
+    /* A held PA9 shot is one static image the FPGA already has: nothing is
+     * queued and no other producer may touch the channels.  Only the link needs
+     * servicing, so this branch keeps the SPI traffic (and with it the FPGA link
+     * watchdog) alive and re-sends the image if the output was stopped
+     * underneath us, for instance by a host STOP_PLAN. */
+    if (gun_trigger_owns_output(&gun_trigger) != 0u) {
+      (void)gun_trigger_refresh(&gun_trigger, &fpga_link);
+      /* This branch is the authoritative writer of the emitting flag while the
+       * shot is held, exactly like the motion and hologram branches: the press
+       * edge can arrive between two render iterations, and the host and the OLED
+       * must see "emitting" for as long as the switch is down. */
+      system_status_set(UMH_SYSTEM_PLAYING);
+      system_status_clear(UMH_SYSTEM_UNDERRUN);
+      now_us = system_time_us();
+      system_status_get()->device_time = (uint32_t)now_us;
+      system_status_get()->frame_count = frame_ring_count(&frame_ring);
+      system_status_get()->frame_free = frame_ring_free(&frame_ring);
+      system_status_get()->fpga_credit = fpga_link_status(&fpga_link)->fifo_credit;
+      system_status_get()->fpga_depth = fpga_link_status(&fpga_link)->fifo_depth;
+      last_time_us = now_us;
+      render_burst = 0u;
+      osDelay(1u);
+      continue;
+    }
     if (demo_building != 0u) {
       render_burst = 0u;
       osDelay(1u);
@@ -1846,6 +1973,7 @@ static void input_task(void *argument)
   (void)argument;
   for (;;) {
     input_events_sample();
+    gun_trigger_sample(&gun_trigger);
     vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(10u));
   }
 }
@@ -1905,6 +2033,7 @@ static void application_init(void)
   aperture_mod_init(&aperture_mod);
   motion_engine_init(&motion_engine);
   hologram_engine_init(&hologram_engine);
+  gun_trigger_init(&gun_trigger);
   playback_plan_clear(&playback_plan);
   fpga_link_init(&fpga_link, &hspi1);
   /* A reboot is a new command epoch.  Always clear a possible output left

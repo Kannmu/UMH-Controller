@@ -15,7 +15,6 @@ static void mark_link_fault(fpga_link_t *link)
   if (link == NULL) return;
   link->running = 0u;
   link->status.status_flags |= FPGA_STATUS_OUTPUT_FAULT;
-  HAL_GPIO_WritePin(TRIGGER_GPIO_Port, TRIGGER_Pin, GPIO_PIN_RESET);
 }
 
 /* Use unified serialization helpers from umh_utils.h */
@@ -248,6 +247,9 @@ static uint16_t pack_common(fpga_link_t *link, uint8_t command, const umh_output
   }
   memcpy(&link->tx[pos], mask, sizeof(mask)); pos += sizeof(mask);
   link->tx[pos++] = (update & UMH_FRAME_FLAG_RGB) != 0u ? 0x0Fu : 0u;
+  /* The digital byte pair stays in the wire frame for protocol compatibility,
+   * but it has no consumer on either side any more: the FPGA ignores it and
+   * PA9, the one pin it used to drive, is the trigger input. */
   link->tx[pos++] = frame != NULL ? frame->digital_mask : 0u;
   link->tx[pos++] = frame != NULL ? frame->digital_state : 0u;
   put_u16(&link->tx[pos], extension_length); pos += 2u;
@@ -296,16 +298,6 @@ static int unpack_status(fpga_link_t *link)
   return 0;
 }
 
-static void apply_digital(const umh_output_frame_t *frame)
-{
-  if (frame == NULL || (frame->update_flags & UMH_FRAME_FLAG_DIGITAL) == 0u) return;
-  if ((frame->digital_mask & FPGA_DIGITAL_TRIGGER_BIT) != 0u) {
-    HAL_GPIO_WritePin(TRIGGER_GPIO_Port, TRIGGER_Pin,
-                      (frame->digital_state & FPGA_DIGITAL_TRIGGER_BIT) != 0u ?
-                      GPIO_PIN_SET : GPIO_PIN_RESET);
-  }
-}
-
 static uint8_t fpga_ultrasound_equal(const umh_output_frame_t *held,
                                      const umh_output_frame_t *frame)
 {
@@ -352,10 +344,8 @@ int fpga_link_submit_allow_hold(fpga_link_t *link, const umh_output_frame_t *fra
   frame_has_ultrasound = (frame->update_flags & UMH_FRAME_FLAG_ULTRASOUND) != 0u;
   if (osMutexAcquire(link->mutex, osWaitForever) != osOK) return -1;
 
-  /* RGB/digital-only frames must not command the event builder. */
+  /* RGB-only frames must not command the event builder. */
   if (allow_hold != 0u && frame_has_ultrasound == 0u) {
-    if ((frame->update_flags & UMH_FRAME_FLAG_DIGITAL) != 0u)
-      apply_digital(frame);
     if ((frame->update_flags & UMH_FRAME_FLAG_RGB) != 0u &&
         (link->hold_valid == 0u ||
          (link->hold_frame.update_flags & UMH_FRAME_FLAG_RGB) == 0u ||
@@ -371,11 +361,6 @@ int fpga_link_submit_allow_hold(fpga_link_t *link, const umh_output_frame_t *fra
       memcpy(link->hold_frame.rgb, frame->rgb, sizeof(link->hold_frame.rgb));
       link->hold_frame.update_flags |= UMH_FRAME_FLAG_RGB;
     }
-    if ((frame->update_flags & UMH_FRAME_FLAG_DIGITAL) != 0u) {
-      link->hold_frame.digital_mask = frame->digital_mask;
-      link->hold_frame.digital_state = frame->digital_state;
-      link->hold_frame.update_flags |= UMH_FRAME_FLAG_DIGITAL;
-    }
     if (tx_done == 0u &&
         (uint32_t)(HAL_GetTick() - link->hold_last_tx_tick) >= 10u) {
       (void)fpga_status_locked(link);
@@ -388,8 +373,6 @@ int fpga_link_submit_allow_hold(fpga_link_t *link, const umh_output_frame_t *fra
   /* Hold a static 84-channel image; only re-send on phase/level change. */
   if (allow_hold != 0u && frame_has_ultrasound != 0u && link->hold_valid != 0u &&
       fpga_ultrasound_equal(&link->hold_frame, frame) != 0u) {
-    if ((frame->update_flags & UMH_FRAME_FLAG_DIGITAL) != 0u)
-      apply_digital(frame);
     if ((frame->update_flags & UMH_FRAME_FLAG_RGB) != 0u &&
         ((link->hold_frame.update_flags & UMH_FRAME_FLAG_RGB) == 0u ||
          memcmp(link->hold_frame.rgb, frame->rgb, sizeof(frame->rgb)) != 0)) {
@@ -424,7 +407,6 @@ int fpga_link_submit_allow_hold(fpga_link_t *link, const umh_output_frame_t *fra
   if (length == 0u) { osMutexRelease(link->mutex); return -2; }
   if (exchange(link, length) != 0) { osMutexRelease(link->mutex); return -3; }
   if (unpack_status(link) != 0) { osMutexRelease(link->mutex); return -4; }
-  apply_digital(frame);
   link->running = 1u;
   if (allow_hold != 0u) {
     link->hold_frame = *frame;
@@ -452,7 +434,6 @@ int fpga_link_safe_stop(fpga_link_t *link)
   uint16_t length;
   if (link == NULL || link->mutex == NULL) return -1;
   if (osMutexAcquire(link->mutex, osWaitForever) != osOK) return -1;
-  HAL_GPIO_WritePin(TRIGGER_GPIO_Port, TRIGGER_Pin, GPIO_PIN_RESET);
   length = pack_common(link, FPGA_CMD_STOP, NULL);
   if (exchange(link, length) != 0) { osMutexRelease(link->mutex); return -2; }
   if (unpack_status(link) != 0) { osMutexRelease(link->mutex); return -3; }

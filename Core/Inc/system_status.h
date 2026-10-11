@@ -17,7 +17,11 @@ typedef enum {
    * host BUSY checks read these bits instead of a second state variable.  The
    * bit records which program the engine is emitting. */
   UMH_SYSTEM_VORTEX_STEADY = 1u << 8,
-  UMH_SYSTEM_VORTEX_ALT = 1u << 9
+  UMH_SYSTEM_VORTEX_ALT = 1u << 9,
+  /* The PA9 shot trigger is a hardware input, not a mode: it is reported so a
+   * host or the debugger can see the debounced switch state even while another
+   * producer still owns the output.  Emission itself shows up in PLAYING. */
+  UMH_SYSTEM_TRIGGER = 1u << 10
 } umh_system_flag_t;
 
 /* Set exactly while the motion engine owns the 84-channel output.  Any other

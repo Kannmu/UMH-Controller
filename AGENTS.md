@@ -7,7 +7,7 @@
 - 只维护可运行的开发调试工程，不创建额外指南文件。
 - 不要使用Computer Use，全部通过CLI命令行工具来进行。
 - 不要使用SubAgents
-- PA9 是对外输出的触发信号，用于连接LDV等等外部仪器的时序触发，和超声发射部分没有关系。
+- PA9 是外接的开关接口，用于连接一个扳机开关，来实现将设备当成一个“超声枪”来使用，按下就全功率发射平面波（84 路同相位），松开就停止超声发射。PA9 必须始终是 GPIO 输入 + 内部上拉（`TRIGGER` 经 22 Ω 的 R176 串到 SMA 中心脚 U174.5，网络两端没有外部上拉）：按键对地短路即按下，任何对 ODR 写 0 都会把上拉变成下拉，引脚会读成常按。发射只走 `gun_trigger` + `spatial_renderer` + `fpga_link`：对每路调用 `spatial_renderer_accumulate_q10(renderer, i, renderer->phase_offset_q10[i], 1.0f, ...)` 再 `spatial_renderer_finalize`，即命令相位就是该路的校准修正、没有传播延迟项，实际发射相位在 84 路上一致，每路 `level=128`（50% 占空比才是满幅度）；不要另写相位、包络或 SPI 逻辑，也不要退回单点聚焦或 `level=240` 之类的写法（93% 直流几乎没有 40 kHz 分量）。按下时接管输出（取消块流、停计划、中止运动/全息/调制孔径、`STOP` 后提交一帧），松开即 `STOP` 回到默认静音；按住期间 `BLOCK_BEGIN/SET_PLAN/START_PLAN/SET_DEMO/MOTION_START/HOLOGRAM_START/MOD_CONFIGURE/CAL_*` 返回 BUSY，校准会话运行期间按下推迟到会话结束。状态位 bit10 `UMH_SYSTEM_TRIGGER` 是去抖后的按键电平，`PLAYING` 表示正在发射。
 - 暗核涡旋（trap_mode 6）的聚焦深度就是指令 z；阵列朝桌面时小球高度由桌面钉住的驻波台阶决定，聚焦深度不能连续移动小球高度。GUI 悬浮必须保持 `UMH_LEVITATION_TRAP_Z_UM=100000`。主机运动消息只在涡旋消泡程序运行时 BUSY（`UMH_SYSTEM_VORTEX_MODE_MASK`），不要恢复成对悬浮也 BUSY，否则上位机无法不掉球接管。
 
 ARM_GCC_PATH = D:\SOFTWARE\GCC-ARM-NONE-EABI-10.3-2021.10\BIN
@@ -26,7 +26,7 @@ OPENOCD = D:\Software\OpenOCD\bin\openocd.exe
 - **SPI1 实际时钟为 21.25 MHz**：170 MHz PCLK2 / 8。`UMH_7.lpf` 中 `spi1_sck` 约束是 21.25 MHz，不是 42.5 MHz。
 - **烧录后必须从 Flash 重新加载**：`pgrcmd -infile UMH_7_Programmer_File.xcf` 之后，再执行 `pgrcmd -infile UMH_7_Programmer_Refresh.xcf`。只做 Erase/Program/Verify 时，运行中的 FPGA 可能仍执行旧镜像，导致"改了代码但症状完全不变"。
 - **时序验收标准**：64 MHz 约束下 Diamond/TRACE 必须为 `0 setup errors, 0 hold errors`。不要再用 128 MHz 的 LPF 约束去"通过"构建；64 MHz 是这块板实际可稳定收敛的频点。
-- **84 路超声数量与 PA9**：84 路 `us_tx` 为 40 kHz 数字方波；PA9 只是外部仪器触发，与超声发射无关，不要把它接到超声控制逻辑里。
+- **84 路超声数量**：84 路 `us_tx` 为 40 kHz 数字方波；
 
 ## FPGA Diamond 构建
 

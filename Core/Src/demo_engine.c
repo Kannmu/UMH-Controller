@@ -10,7 +10,6 @@
 #define DEMO_STRENGTH 255u
 #define DEMO_PHASE 0u
 #define DEMO_Z_UM 100000
-#define DEMO_TRIGGER_MASK 0x01u
 
 /* Every demo must cover the same total path length in one 5 ms trajectory
  * period.  The tactile requirement is 30 mm per period:
@@ -93,11 +92,8 @@ int demo_engine_build(uint8_t id, umh_spatial_renderer_t *renderer,
       frame_ring_init(frames);
       return -3;
     }
-    /* The renderer owns the ultrasound fields.  Add the PA9 power-stage gate
-     * after rendering so it cannot be cleared while finalizing the frame. */
-    slot->update_flags |= UMH_FRAME_FLAG_DIGITAL;
-    slot->digital_mask = DEMO_TRIGGER_MASK;
-    slot->digital_state = DEMO_TRIGGER_MASK;
+    /* The renderer owns the ultrasound fields.  No digital gate is added: PA9 is
+     * the shot-trigger input, so the demo has no external trigger output. */
     if (frame_ring_commit_write(frames) != 0) {
       frame_ring_init(frames);
       return -3;

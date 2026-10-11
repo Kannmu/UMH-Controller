@@ -10,7 +10,6 @@
 #define FPGA_FIFO_DEFAULT_CREDIT 64u
 #define FPGA_TX_BUFFER_SIZE 256u  /* longest transaction: 36+168+12+32 = 248 */
 #define FPGA_ULTRASOUND_BITMAP_LAST_MASK 0x0Fu
-#define FPGA_DIGITAL_TRIGGER_BIT 0x01u
 #define FPGA_STATUS_UNDERRUN      (1u << 0)
 #define FPGA_STATUS_OVERFLOW      (1u << 1)
 #define FPGA_STATUS_INVALID_FRAME (1u << 2)
