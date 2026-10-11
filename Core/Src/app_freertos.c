@@ -889,21 +889,22 @@ static int gui_demo(void *context)
 /* --------------------------------------------------------------------------
  * PA9 shot trigger ("ultrasound gun").
  *
- * The trigger is a hardware override, not a mode: while the switch is held the
- * device emits one static full-amplitude plane wave (every element on the same
- * acoustic phase), no matter which producer was running before.  The takeover
- * below is the same one the host MOTION_START and SET_DEMO paths use -- claim
- * the output, abort the producers, drop the block stream, STOP the FPGA -- so a
- * shot cannot leave a half-parsed block or a stale plan behind.
+ * While the switch is held the device emits one static full-amplitude plane wave
+ * (every element on the same acoustic phase), no matter which producer was
+ * running before.  The takeover is the same one the host MOTION_START and
+ * SET_DEMO paths use -- claim the output, abort the producers, drop the block
+ * stream, STOP the FPGA -- so a shot cannot leave a half-parsed block or a stale
+ * plan behind.  Both edges are hard: full power on the press, silence on the
+ * release.
  *
- * It runs in the protocol task, the context that already owns every other
- * output takeover.  The debounced level is sampled by the input task and the
- * held image is kept alive by the render task; see gun_trigger.h.
+ * It runs in the protocol task, the context that already owns every other output
+ * takeover.  The switch is sampled by the input task and the held image is kept
+ * alive by the render task; see gun_trigger.h.
  * -------------------------------------------------------------------------- */
 static int gun_shot_fire(void)
 {
-  /* Claim before the takeover: the render task tests this flag before it pulls
-   * a frame out of the ring, so the reset below cannot race a frame in flight. */
+  /* Claim before the takeover: the render task tests this flag before it pulls a
+   * frame out of the ring, so the reset below cannot race a frame in flight. */
   gun_trigger_claim_output(&gun_trigger);
   aperture_mod_abort(&aperture_mod);
   motion_engine_abort(&motion_engine, NULL);
@@ -916,15 +917,13 @@ static int gun_shot_fire(void)
     system_status_clear(UMH_SYSTEM_PLAYING);
     return -1;
   }
-  /* The LEDs are driven by the frame itself: gun_trigger_emit() writes the
-   * current fade level into frame.rgb, so the four WS2812s come up with the
-   * emitted intensity and are turned black by the STOP in gun_shot_release().
-   * A separate fpga_link_set_ws2812() here would override that with a
-   * full-brightness word. */
+  /* The LEDs come from the frame itself: gun_trigger_emit() writes the level into
+   * frame.rgb, so the four WS2812s light with the emitted intensity.  A separate
+   * fpga_link_set_ws2812() here would override that with a colour of its own. */
   /* The render task is the authoritative writer of PLAYING while the shot is
-   * held: a press can land inside a render iteration whose normal-path tail
-   * would clear a flag set here.  Setting it here only closes the gap before
-   * that next render iteration. */
+   * held: a press can land inside a render iteration whose normal-path tail would
+   * clear a flag set here.  Setting it here only closes the gap before that next
+   * render iteration. */
   system_status_set(UMH_SYSTEM_PLAYING);
   return 0;
 }
@@ -932,10 +931,6 @@ static int gun_shot_fire(void)
 static int gun_shot_release(void)
 {
   int result = gun_trigger_release(&gun_trigger, &fpga_link);
-  /* The render task is the PLAYING writer while the fade still emits, exactly
-   * like the motion and hologram branches.  Clear the bit here only once the
-   * shot really is muted, so a status read never reports a stopped array as
-   * playing and the fade is never reported as silence. */
   if (gun_trigger_owns_output(&gun_trigger) == 0u)
     system_status_clear(UMH_SYSTEM_PLAYING);
   return result;
@@ -946,19 +941,15 @@ static void gun_trigger_poll(void)
 {
   uint8_t pressed = gun_trigger_pressed(&gun_trigger);
   uint8_t owns = gun_trigger_owns_output(&gun_trigger);
-  uint8_t releasing = gun_trigger_releasing(&gun_trigger);
   if (pressed != 0u) system_status_set(UMH_SYSTEM_TRIGGER);
   else system_status_clear(UMH_SYSTEM_TRIGGER);
   if (pressed != 0u) {
-    /* A held shot needs no service here: the render task keeps it emitting.  A
-     * shot that is still fading out while the switch is already down again is a
-     * fresh press, and it rebuilds the plane wave instead of waiting for the
-     * fade to reach its STOP. */
-    if (owns != 0u && releasing == 0u) return;
-    /* A calibration session measures timed echo windows and must keep the
-     * output until it finishes; a demo under construction owns the frame ring
-     * for the same moment.  The switch keeps being sampled, so a trigger that
-     * is still held fires as soon as that work is done. */
+    /* A held shot needs no service here: the render task keeps it emitting. */
+    if (owns != 0u) return;
+    /* A calibration session measures timed echo windows and must keep the output
+     * until it finishes; a demo under construction owns the frame ring for the
+     * same moment.  The switch keeps being sampled, so a trigger that is still
+     * held fires as soon as that work is done. */
     if (device_gui_calibration_busy(&device_gui) != 0u ||
         calibration_raw_mode != 0u || calibration_selftest_mode != 0u ||
         calibration_probe_mode != 0u || demo_building != 0u) {
@@ -967,9 +958,6 @@ static void gun_trigger_poll(void)
     }
     (void)gun_shot_fire();
   } else if (owns != 0u) {
-    /* Called on every iteration while the switch is open.  The first call arms
-     * the 100 ms fade-out; the calls after it are the release watchdog that
-     * mutes the array when the render task could not finish that fade. */
     (void)gun_shot_release();
   }
 }
