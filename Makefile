@@ -50,6 +50,8 @@ Core/Src/playback_plan.c \
 Core/Src/spatial_renderer.c \
 Core/Src/fpga_link.c \
 Core/Src/aperture_mod.c \
+Core/Src/usb_audio.c \
+Core/Src/usb_audio_dsp.c \
 Core/Src/us_calibration.c \
 Core/Src/flash_nor.c \
 Core/Src/flash_store.c \
@@ -77,6 +79,7 @@ USB_Device/Target/usbd_conf.c \
 USB_Device/App/usb_device.c \
 USB_Device/App/usbd_desc.c \
 USB_Device/App/usbd_cdc_if.c \
+USB_Device/App/usbd_cdc_audio.c \
 Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_tim.c \
 Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_tim_ex.c \
 Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_pcd.c \
@@ -242,6 +245,8 @@ CFLAGS += -MMD -MP -MF"$(@:%.o=%.d)"
 # Voice-only hot loops: use the M4 FPU with the bounded 128-point FFT.
 VOICE_DSP_OBJECTS = $(addprefix $(BUILD_DIR)/,gun_voice_dsp.o arm_common_tables.o arm_cfft_f32.o arm_cfft_radix8_f32.o arm_bitreversal2.o arm_rfft_fast_f32.o arm_rfft_fast_init_f32.o)
 $(VOICE_DSP_OBJECTS): CFLAGS += -O3 -fno-math-errno -fno-trapping-math
+# Fixed-point polyphase FIR: inline/unroll the M4 dual multiply-accumulate loop.
+$(BUILD_DIR)/usb_audio_dsp.o: CFLAGS += -O3
 
 
 #######################################

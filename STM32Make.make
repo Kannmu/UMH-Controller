@@ -114,6 +114,8 @@ Core/Src/system_stm32g4xx.c \
 Core/Src/umh_fast_math.c \
 Core/Src/umh_protocol.c \
 Core/Src/us_calibration.c \
+Core/Src/usb_audio.c \
+Core/Src/usb_audio_dsp.c \
 Drivers/CMSIS/DSP/Source/CommonTables/arm_common_tables.c \
 Drivers/CMSIS/DSP/Source/TransformFunctions/arm_bitreversal2.c \
 Drivers/CMSIS/DSP/Source/TransformFunctions/arm_cfft_f32.c \
@@ -161,6 +163,7 @@ Middlewares/Third_Party/FreeRTOS/Source/stream_buffer.c \
 Middlewares/Third_Party/FreeRTOS/Source/tasks.c \
 Middlewares/Third_Party/FreeRTOS/Source/timers.c \
 USB_Device/App/usb_device.c \
+USB_Device/App/usbd_cdc_audio.c \
 USB_Device/App/usbd_cdc_if.c \
 USB_Device/App/usbd_desc.c \
 USB_Device/Target/usbd_conf.c

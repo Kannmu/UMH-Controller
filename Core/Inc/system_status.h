@@ -22,7 +22,8 @@ typedef enum {
    * host or the debugger can see the debounced switch state even while another
    * producer still owns the output.  Emission itself shows up in PLAYING. */
   UMH_SYSTEM_TRIGGER = 1u << 10,
-  UMH_SYSTEM_RECORDING = 1u << 11
+  UMH_SYSTEM_RECORDING = 1u << 11,
+  UMH_SYSTEM_USB_AUDIO = 1u << 12
 } umh_system_flag_t;
 
 /* Set exactly while the motion engine owns the 84-channel output.  Any other

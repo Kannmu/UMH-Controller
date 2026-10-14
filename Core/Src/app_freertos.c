@@ -27,6 +27,8 @@
 #include "hologram_engine.h"
 #include "gun_trigger.h"
 #include "gun_voice_dsp.h"
+#include "usb_audio.h"
+#include "usb_audio_dsp.h"
 #include "spi.h"
 #include "i2c.h"
 #include "i2c_bus.h"
@@ -45,6 +47,7 @@
 #define UMH_LEVITATION_LEVEL_MAX 68u
 
 osThreadId_t umh_protocol_task_handle;
+static void abort_aperture_output(void);
 umh_rx_ring_t umh_usb_rx_ring;
 
 static umh_device_profile_t device_profile;
@@ -53,6 +56,9 @@ static umh_frame_ring_t frame_ring;
 static umh_block_parser_t block_parser;
 static umh_playback_plan_t playback_plan;
 static umh_aperture_mod_t aperture_mod;
+static usb_audio_dsp_t usb_audio_dsp;
+static volatile uint8_t usb_audio_owns, usb_audio_inhibited;
+static uint32_t usb_audio_epoch, usb_audio_blocked_epoch, usb_audio_sequence;
 static umh_motion_engine_t motion_engine;
 static umh_hologram_engine_t hologram_engine;
 static umh_gun_trigger_t gun_trigger;
@@ -285,7 +291,7 @@ static int gun_voice_start_playback(void)
   return 0;
 fail:
   gun_voice_state = GUN_VOICE_IDLE;
-  aperture_mod_abort(&aperture_mod);
+  abort_aperture_output();
   gun_trigger_drop_output(&gun_trigger);
   system_status_clear(UMH_SYSTEM_PLAYING | UMH_SYSTEM_RECORDING);
   return -1;
@@ -592,6 +598,8 @@ static void send_response(const umh_protocol_frame_t *request, uint8_t type,
                           const void *payload, uint16_t length);
 static void discard_block_stream(void);
 static void application_init(void);
+static void usb_audio_cancel(void);
+static void abort_aperture_output(void);
 static int gui_demo(void *context);
 static int gui_levitation_toggle(void *context);
 static int gui_defoam_set(void *context);
@@ -639,7 +647,7 @@ static int gui_calibration(void *context)
   /* The calibration sessions need undisturbed echo windows, so they never
    * start over a held shot (the shot itself is deferred the same way). */
   if (gun_trigger_owns_output(&gun_trigger) != 0u) return -1;
-  if (aperture_mod_owns_output(&aperture_mod) != 0u) aperture_mod_abort(&aperture_mod);
+  if (aperture_mod_owns_output(&aperture_mod) != 0u) abort_aperture_output();
   if (motion_engine_owns_output(&motion_engine) != 0u) motion_engine_abort(&motion_engine, &fpga_link);
   device_gui_calibration_begin(&device_gui);
   (void)xTaskNotifyGive((TaskHandle_t)calibration_task_handle);
@@ -651,7 +659,7 @@ static int gui_selftest(void *context)
   (void)context;
   if (calibration_task_handle == NULL) return -1;
   if (gun_trigger_owns_output(&gun_trigger) != 0u) return -1;
-  if (aperture_mod_owns_output(&aperture_mod) != 0u) aperture_mod_abort(&aperture_mod);
+  if (aperture_mod_owns_output(&aperture_mod) != 0u) abort_aperture_output();
   if (motion_engine_owns_output(&motion_engine) != 0u) motion_engine_abort(&motion_engine, &fpga_link);
   device_gui_calibration_begin(&device_gui);
   calibration_selftest_mode = 1u;
@@ -695,7 +703,7 @@ static void calibration_raw_session(void)
 {
   int rc;
   uint32_t saved_cr1;
-  if (aperture_mod_owns_output(&aperture_mod) != 0u) aperture_mod_abort(&aperture_mod);
+  if (aperture_mod_owns_output(&aperture_mod) != 0u) abort_aperture_output();
   if (motion_engine_owns_output(&motion_engine) != 0u) motion_engine_abort(&motion_engine, &fpga_link);
   device_gui_calibration_begin(&device_gui);
   playback_plan_stop(&playback_plan);
@@ -736,7 +744,7 @@ static void calibration_probe_session(void)
   uint16_t encoded_length;
   float *out = us_calibration_scratch(&scratch_bytes);
   const umh_cal_probe_request_t *rq = &calibration_probe_request;
-  if (aperture_mod_owns_output(&aperture_mod) != 0u) aperture_mod_abort(&aperture_mod);
+  if (aperture_mod_owns_output(&aperture_mod) != 0u) abort_aperture_output();
   if (motion_engine_owns_output(&motion_engine) != 0u) motion_engine_abort(&motion_engine, &fpga_link);
   playback_plan_stop(&playback_plan);
   (void)fpga_link_safe_stop(&fpga_link);
@@ -779,7 +787,7 @@ static void calibration_selftest_session(void)
     memcpy(&gate_start, &record->cal_reserved[2], sizeof(gate_start));
     gate_width = record->cal_reserved[4];
   }
-  if (aperture_mod_owns_output(&aperture_mod) != 0u) aperture_mod_abort(&aperture_mod);
+  if (aperture_mod_owns_output(&aperture_mod) != 0u) abort_aperture_output();
   if (motion_engine_owns_output(&motion_engine) != 0u) motion_engine_abort(&motion_engine, &fpga_link);
   device_gui_calibration_begin(&device_gui);
   playback_plan_stop(&playback_plan);
@@ -821,7 +829,7 @@ static void calibration_session(void)
   uint16_t i;
   const umh_device_profile_t *profile = device_profile_get();
   uint32_t saved_cr1;
-  if (aperture_mod_owns_output(&aperture_mod) != 0u) aperture_mod_abort(&aperture_mod);
+  if (aperture_mod_owns_output(&aperture_mod) != 0u) abort_aperture_output();
   if (motion_engine_owns_output(&motion_engine) != 0u) motion_engine_abort(&motion_engine, &fpga_link);
   device_gui_calibration_begin(&device_gui);
   playback_plan_stop(&playback_plan);
@@ -918,7 +926,7 @@ static void bench_service(void)
   int rc = 0;
   uint16_t i;
   if (cmd == UMH_BENCH_CMD_NONE) return;
-  if (aperture_mod_owns_output(&aperture_mod) != 0u) aperture_mod_abort(&aperture_mod);
+  if (aperture_mod_owns_output(&aperture_mod) != 0u) abort_aperture_output();
   if (motion_engine_owns_output(&motion_engine) != 0u) motion_engine_abort(&motion_engine, &fpga_link);
   umh_bench_cmd = UMH_BENCH_CMD_NONE;
   umh_bench_status = 1u;
@@ -1077,7 +1085,7 @@ static int gui_levitation_toggle(void *context)
   }
   if (device_gui_calibration_busy(&device_gui) != 0u || demo_building != 0u ||
       gun_trigger_owns_output(&gun_trigger) != 0u) return -1;
-  aperture_mod_abort(&aperture_mod);
+  abort_aperture_output();
   if (motion_engine_owns_output(&motion_engine) != 0u)
     motion_engine_abort(&motion_engine, &fpga_link);
   playback_plan_stop(&playback_plan);
@@ -1106,7 +1114,7 @@ static int gui_defoam_set(void *context)
   if (requested == DEVICE_GUI_DEFOAM_STOP) {
     /* Stop button: cut every modulation source at once, whichever task or
      * host started it, and leave the array silent. */
-    aperture_mod_abort(&aperture_mod);
+    abort_aperture_output();
     motion_engine_abort(&motion_engine, &fpga_link);
     playback_plan_stop(&playback_plan);
     discard_block_stream();
@@ -1129,7 +1137,7 @@ static int gui_defoam_set(void *context)
 
   /* Mutual exclusion: a running block plan, demo, tactile AM or host motion
    * program would otherwise keep driving the same 84 channels. */
-  aperture_mod_abort(&aperture_mod);
+  abort_aperture_output();
   if (motion_engine_owns_output(&motion_engine) != 0u)
     motion_engine_abort(&motion_engine, &fpga_link);
   playback_plan_stop(&playback_plan);
@@ -1155,7 +1163,7 @@ static int gui_demo(void *context)
    * would be silently overwritten by the plan that follows. */
   if (gun_trigger_owns_output(&gun_trigger) != 0u) return -1;
   demo_building = 1u;
-  if (aperture_mod_owns_output(&aperture_mod) != 0u) aperture_mod_abort(&aperture_mod);
+  if (aperture_mod_owns_output(&aperture_mod) != 0u) abort_aperture_output();
   if (motion_engine_owns_output(&motion_engine) != 0u) motion_engine_abort(&motion_engine, &fpga_link);
   playback_plan_stop(&playback_plan);
   (void)fpga_link_safe_stop(&fpga_link);
@@ -1206,7 +1214,7 @@ static int gun_shot_fire(void)
   /* Claim before the takeover: the render task tests this flag before it pulls a
    * frame out of the ring, so the reset below cannot race a frame in flight. */
   gun_trigger_claim_output(&gun_trigger);
-  aperture_mod_abort(&aperture_mod);
+  abort_aperture_output();
   motion_engine_abort(&motion_engine, NULL);
   hologram_engine_abort(&hologram_engine, NULL);
   playback_plan_stop(&playback_plan);
@@ -1429,6 +1437,139 @@ static void storage_process(const umh_protocol_frame_t *frame)
   send_result(frame, status, NULL, 0u);
 }
 
+/* UAC is a producer of the existing AM engine, never a second FPGA path.
+ * All control/start/feed work runs in protocol task context.  Explicit legacy
+ * takeovers inhibit this UAC stream until the host opens a new AS epoch. */
+static void usb_audio_release(void)
+{
+  if (usb_audio_owns != 0u) {
+    usb_audio_owns = 0u;
+    umh_usb_audio_stats.owns_output = 0u;
+    ++umh_usb_audio_stats.stops;
+    aperture_mod_abort(&aperture_mod);
+    system_status_clear(UMH_SYSTEM_USB_AUDIO);
+  }
+}
+
+static void usb_audio_cancel(void)
+{
+  usb_audio_blocked_epoch = umh_usb_audio_generation();
+  usb_audio_inhibited = 1u;
+  umh_usb_audio_stats.inhibited = 1u;
+  usb_audio_release();
+}
+
+static void abort_aperture_output(void)
+{
+  usb_audio_cancel();
+  aperture_mod_abort(&aperture_mod);
+}
+
+static uint8_t usb_audio_output_busy(void)
+{
+  return device_gui_calibration_busy(&device_gui) != 0u || demo_building != 0u ||
+      calibration_raw_mode != 0u || calibration_selftest_mode != 0u ||
+      calibration_probe_mode != 0u || gun_trigger_owns_output(&gun_trigger) != 0u ||
+      gun_voice_state != GUN_VOICE_IDLE ||
+      motion_engine_owns_output(&motion_engine) != 0u ||
+      hologram_engine_owns_output(&hologram_engine) != 0u ||
+      playback_plan.running != 0u || block_stream_active != 0u ||
+      block_parser.block.active != 0u || frame_ring_count(&frame_ring) != 0u ||
+      (usb_audio_owns == 0u && aperture_mod_owns_output(&aperture_mod) != 0u);
+}
+
+static void usb_audio_service(void)
+{
+  int16_t pcm[UMH_USB_AUDIO_BLOCK_SAMPLES];
+  uint8_t envelope[USB_AUDIO_DSP_OUTPUT_MAX];
+  uint32_t epoch = umh_usb_audio_generation();
+  uint8_t block;
+  if (epoch != usb_audio_epoch) {
+    usb_audio_release();
+    usb_audio_dsp_reset(&usb_audio_dsp);
+    usb_audio_epoch = epoch;
+    usb_audio_sequence = 0u;
+    if (epoch != usb_audio_blocked_epoch) usb_audio_inhibited = 0u;
+  }
+  if (usb_audio_owns != 0u && aperture_mod.state == UMH_MOD_OFF)
+    usb_audio_cancel(); /* a hardware fault or another producer ended this session */
+  if (umh_usb_audio_debug_inhibit != 0u) usb_audio_release();
+  umh_usb_audio_stats.inhibited = usb_audio_inhibited;
+  if (umh_usb_audio_streaming() == 0u || umh_usb_audio_mute() != 0u ||
+      usb_audio_inhibited != 0u ||
+      hUsbDeviceFS.dev_state != USBD_STATE_CONFIGURED ||
+      (uint32_t)(HAL_GetTick() - umh_usb_audio_last_packet_ms()) >= UMH_USB_AUDIO_TIMEOUT_MS ||
+      usb_audio_output_busy() != 0u) {
+    usb_audio_release();
+    umh_usb_audio_discard();
+    usb_audio_dsp_reset(&usb_audio_dsp);
+    return;
+  }
+  /* Four packets per pass bounds latency and leaves CDC and the trigger live.
+   * The 20 kHz FIFO render task remains the highest-priority consumer. */
+  for (block = 0u; block < 4u; ++block) {
+    uint16_t count = umh_usb_audio_read(pcm, UMH_USB_AUDIO_BLOCK_SAMPLES);
+    uint16_t output, i;
+    uint8_t maximum = 0u, minimum = 128u;
+    uint32_t cycles;
+    if (count == 0u) break;
+    cycles = DWT->CYCCNT;
+    output = usb_audio_dsp_process(&usb_audio_dsp, pcm, count,
+                                    umh_usb_audio_gain_q15(), envelope);
+    cycles = DWT->CYCCNT - cycles;
+    if (cycles > umh_usb_audio_stats.max_process_cycles)
+      umh_usb_audio_stats.max_process_cycles = cycles;
+    umh_usb_audio_stats.processed_samples += count;
+    umh_usb_audio_stats.envelope_samples += output;
+    for (i = 0u; i < output; ++i) {
+      if (envelope[i] > maximum) maximum = envelope[i];
+      if (envelope[i] < minimum) minimum = envelope[i];
+    }
+    umh_usb_audio_stats.level_min = minimum;
+    umh_usb_audio_stats.level_max = maximum;
+    if (output == 0u) continue;
+    /* Recheck the USB epoch after DSP: an ISR may have reset/muted the stream
+     * while the samples were processed.  Stale samples must never be fed. */
+    if (umh_usb_audio_generation() != epoch || umh_usb_audio_mute() != 0u ||
+        usb_audio_inhibited != 0u || umh_usb_audio_streaming() == 0u) {
+      usb_audio_release();
+      return;
+    }
+    if (usb_audio_owns == 0u) {
+      if (umh_usb_audio_debug_inhibit != 0u) continue;
+      const umh_mod_config_wire_t config = {
+        .x_um = 0, .y_um = 0, .z_um = 1000000,
+        .phase = 0u, .level = 255u, .envelope_rate_hz = 20000u,
+        .prebuffer_samples = 256u, .flags = 0u
+      };
+      if (maximum == 0u) continue; /* no emission/ownership on digital silence */
+      usb_audio_owns = 1u; /* publish before configure can yield on an SPI mutex */
+      if (aperture_mod_configure(&aperture_mod, &renderer, &fpga_link,
+                                  (const uint8_t *)&config, sizeof(config)) != 0) {
+        usb_audio_cancel();
+        return;
+      }
+      if (usb_audio_owns == 0u || usb_audio_inhibited != 0u ||
+          umh_usb_audio_debug_inhibit != 0u ||
+          umh_usb_audio_generation() != epoch || umh_usb_audio_mute() != 0u) {
+        usb_audio_release();
+        return;
+      }
+      if (aperture_mod_start(&aperture_mod) != 0) {
+        usb_audio_cancel();
+        return;
+      }
+      ++umh_usb_audio_stats.starts;
+      umh_usb_audio_stats.owns_output = 1u;
+      system_status_set(UMH_SYSTEM_USB_AUDIO);
+    }
+    if (aperture_mod_feed(&aperture_mod, envelope, output, usb_audio_sequence++) != 0) {
+      usb_audio_cancel();
+      return;
+    }
+  }
+}
+
 static void protocol_frame_received(const umh_protocol_frame_t *frame, void *context)
 {
   umh_status_t status = UMH_STATUS_OK;
@@ -1590,8 +1731,9 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       break;
     case UMH_MSG_STOP_PLAN:
       if (frame->payload_size != 0u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
+      usb_audio_cancel();
       gun_voice_cancel_pending();
-      if (mod_owns != 0u) aperture_mod_abort(&aperture_mod);
+      if (mod_owns != 0u) abort_aperture_output();
       if (motion_owns != 0u) motion_engine_request_stop(&motion_engine);
       if (hologram_owns != 0u) hologram_engine_request_stop(&hologram_engine);
       playback_plan_stop(&playback_plan);
@@ -1600,8 +1742,9 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       break;
     case UMH_MSG_CLEAR_PLAN:
       if (frame->payload_size != 0u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
+      usb_audio_cancel();
       gun_voice_cancel_pending();
-      if (mod_owns != 0u) aperture_mod_abort(&aperture_mod);
+      if (mod_owns != 0u) abort_aperture_output();
       if (motion_owns != 0u) motion_engine_abort(&motion_engine, &fpga_link);
       if (hologram_owns != 0u) hologram_engine_abort(&hologram_engine, &fpga_link);
       playback_plan_stop(&playback_plan);
@@ -1884,22 +2027,24 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
         break;
       }
       if (aperture_mod_owns_output(&aperture_mod) != 0u)
-        aperture_mod_abort(&aperture_mod);
+        abort_aperture_output();
       (void)fpga_link_set_ws2812(&fpga_link, 0u, 0u, 0u); if (aperture_mod_configure(&aperture_mod, &renderer, &fpga_link,
                                  frame->payload, frame->payload_size) != 0)
         status = UMH_STATUS_INVALID_STATE;
       break;
     case UMH_MSG_MOD_START:
       if (frame->payload_size != 0u) { status = UMH_STATUS_BAD_LENGTH; break; }
+      if (usb_audio_owns != 0u) { status = UMH_STATUS_BUSY; break; }
       if (aperture_mod_start(&aperture_mod) != 0) status = UMH_STATUS_INVALID_STATE;
       break;
     case UMH_MSG_MOD_FEED:
-      if (frame->payload_size == 0u) return;
+      if (frame->payload_size == 0u || usb_audio_owns != 0u) return;
       (void)aperture_mod_feed(&aperture_mod, frame->payload, frame->payload_size,
                               frame->header.stream_sequence);
       return;
     case UMH_MSG_MOD_STOP:
       if (frame->payload_size != 0u) { status = UMH_STATUS_BAD_LENGTH; break; }
+      usb_audio_cancel();
       gun_voice_cancel_pending();
       aperture_mod_request_stop(&aperture_mod);
       system_status_clear(UMH_SYSTEM_UNDERRUN);
@@ -1935,11 +2080,14 @@ static void protocol_task(void *argument)
   for (;;) {
     count = umh_rx_ring_read(&umh_usb_rx_ring, data, sizeof(data));
     if (count != 0u) umh_protocol_parser_feed(&protocol_parser, data, count);
-    else (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10u));
+    else if (umh_usb_audio_stats.queued_samples == 0u)
+      (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(
+          umh_usb_audio_streaming() != 0u ? 2u : 10u));
     /* Hardware fire button.  Sampling happens in the input task; the edges are
      * handled here, next to every other output takeover, and the 10 ms notify
      * timeout above bounds the press-to-emission latency when USB is idle. */
     gun_trigger_poll();
+    usb_audio_service();
     system_status_get()->parser_errors = umh_protocol_parser_error_count(&protocol_parser);
     system_status_get()->rx_dropped = umh_usb_rx_ring.dropped_bytes;
     system_status_get()->frame_dropped = frame_ring.dropped;

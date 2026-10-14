@@ -64,11 +64,11 @@
 
 #define USBD_VID     1155
 #define USBD_LANGID_STRING     1033
-#define USBD_MANUFACTURER_STRING     "STMicroelectronics"
+#define USBD_MANUFACTURER_STRING     "UMH"
 #define USBD_PID     22336
-#define USBD_PRODUCT_STRING     "STM32 Virtual ComPort"
-#define USBD_CONFIGURATION_STRING     "CDC Config"
-#define USBD_INTERFACE_STRING     "CDC Interface"
+#define USBD_PRODUCT_STRING     "UMH Speaker"
+#define USBD_CONFIGURATION_STRING     "CDC + Audio"
+#define USBD_INTERFACE_STRING     "UMH Audio"
 
 /* USER CODE BEGIN PRIVATE_DEFINES */
 
@@ -150,16 +150,16 @@ __ALIGN_BEGIN uint8_t USBD_CDC_DeviceDesc[USB_LEN_DEV_DESC] __ALIGN_END =
   USB_DESC_TYPE_DEVICE,       /*bDescriptorType*/
   0x00,                       /*bcdUSB */
   0x02,
-  0x02,                       /*bDeviceClass*/
+  0xEF,                       /*bDeviceClass: IAD composite*/
   0x02,                       /*bDeviceSubClass*/
-  0x00,                       /*bDeviceProtocol*/
+  0x01,                       /*bDeviceProtocol: IAD*/
   USB_MAX_EP0_SIZE,           /*bMaxPacketSize*/
   LOBYTE(USBD_VID),           /*idVendor*/
   HIBYTE(USBD_VID),           /*idVendor*/
   LOBYTE(USBD_PID),           /*idProduct*/
   HIBYTE(USBD_PID),           /*idProduct*/
-  0x00,                       /*bcdDevice rel. 2.00*/
-  0x02,
+  0x00,                       /*bcdDevice rel. 3.00 (CDC + UAC1)*/
+  0x03,
   USBD_IDX_MFC_STR,           /*Index of manufacturer  string*/
   USBD_IDX_PRODUCT_STR,       /*Index of product string*/
   USBD_IDX_SERIAL_STR,        /*Index of serial number string*/

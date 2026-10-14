@@ -25,6 +25,7 @@
 #include "usbd_desc.h"
 #include "usbd_cdc.h"
 #include "usbd_cdc_if.h"
+#include "usbd_cdc_audio.h"
 
 /* USER CODE BEGIN Includes */
 
@@ -73,7 +74,7 @@ void MX_USB_Device_Init(void)
   if (USBD_Init(&hUsbDeviceFS, &CDC_Desc, DEVICE_FS) != USBD_OK) {
     Error_Handler();
   }
-  if (USBD_RegisterClass(&hUsbDeviceFS, &USBD_CDC) != USBD_OK) {
+  if (USBD_RegisterClass(&hUsbDeviceFS, &USBD_CDC_AUDIO) != USBD_OK) {
     Error_Handler();
   }
   if (USBD_CDC_RegisterInterface(&hUsbDeviceFS, &USBD_Interface_fops_FS) != USBD_OK) {

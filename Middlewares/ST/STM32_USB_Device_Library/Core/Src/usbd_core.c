@@ -349,7 +349,11 @@ USBD_StatusTypeDef USBD_LL_DataOutStage(USBD_HandleTypeDef *pdev,
         {
           if (pdev->pClass->EP0_RxReady != NULL)
           {
-            pdev->pClass->EP0_RxReady(pdev);
+            ret = (USBD_StatusTypeDef)pdev->pClass->EP0_RxReady(pdev);
+            if (ret != USBD_OK)
+            {
+              return ret;
+            }
           }
         }
 
