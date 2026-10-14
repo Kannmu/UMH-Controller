@@ -54,6 +54,7 @@
       "name": "STM32",
       "includePath": [
         "Core/Inc",
+        "Drivers/CMSIS/DSP/Include",
         "Drivers/CMSIS/Device/ST/STM32G4xx/Include",
         "Drivers/CMSIS/Include",
         "Drivers/STM32G4xx_HAL_Driver/Inc",
@@ -67,6 +68,11 @@
         "USB_Device/Target"
       ],
       "defines": [
+        "ARM_DSP_CONFIG_TABLES",
+        "ARM_FFT_ALLOW_TABLES",
+        "ARM_TABLE_BITREVIDX_FLT_64",
+        "ARM_TABLE_TWIDDLECOEF_F32_64",
+        "ARM_TABLE_TWIDDLECOEF_RFFT_F32_128",
         "STM32G491xx",
         "USE_HAL_DRIVER"
       ],

@@ -1,4 +1,0 @@
-module EHXPLLJ #(
- parameter A=0, B=0,
-)(
-reg clk = 0;

@@ -92,6 +92,7 @@ Core/Src/fpga_link.c \
 Core/Src/frame_ring.c \
 Core/Src/gpio.c \
 Core/Src/gun_trigger.c \
+Core/Src/gun_voice_dsp.c \
 Core/Src/hologram_engine.c \
 Core/Src/i2c.c \
 Core/Src/i2c_bus.c \
@@ -113,6 +114,12 @@ Core/Src/system_stm32g4xx.c \
 Core/Src/umh_fast_math.c \
 Core/Src/umh_protocol.c \
 Core/Src/us_calibration.c \
+Drivers/CMSIS/DSP/Source/CommonTables/arm_common_tables.c \
+Drivers/CMSIS/DSP/Source/TransformFunctions/arm_bitreversal2.c \
+Drivers/CMSIS/DSP/Source/TransformFunctions/arm_cfft_f32.c \
+Drivers/CMSIS/DSP/Source/TransformFunctions/arm_cfft_radix8_f32.c \
+Drivers/CMSIS/DSP/Source/TransformFunctions/arm_rfft_fast_f32.c \
+Drivers/CMSIS/DSP/Source/TransformFunctions/arm_rfft_fast_init_f32.c \
 Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal.c \
 Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_cordic.c \
 Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_cortex.c \
@@ -234,12 +241,22 @@ AS_DEFS =
 
 # C defines
 C_DEFS =  \
+-DARM_DSP_CONFIG_TABLES \
+-DARM_FFT_ALLOW_TABLES \
+-DARM_TABLE_BITREVIDX_FLT_64 \
+-DARM_TABLE_TWIDDLECOEF_F32_64 \
+-DARM_TABLE_TWIDDLECOEF_RFFT_F32_128 \
 -DSTM32G491xx \
 -DUSE_HAL_DRIVER
 
 
 # CXX defines
 CXX_DEFS =  \
+-DARM_DSP_CONFIG_TABLES \
+-DARM_FFT_ALLOW_TABLES \
+-DARM_TABLE_BITREVIDX_FLT_64 \
+-DARM_TABLE_TWIDDLECOEF_F32_64 \
+-DARM_TABLE_TWIDDLECOEF_RFFT_F32_128 \
 -DSTM32G491xx \
 -DUSE_HAL_DRIVER
 
@@ -250,6 +267,7 @@ AS_INCLUDES = \
 # C includes
 C_INCLUDES =  \
 -ICore/Inc \
+-IDrivers/CMSIS/DSP/Include \
 -IDrivers/CMSIS/Device/ST/STM32G4xx/Include \
 -IDrivers/CMSIS/Include \
 -IDrivers/STM32G4xx_HAL_Driver/Inc \

@@ -660,6 +660,38 @@ static uint16_t get_be16(const uint8_t *p)
   return (uint16_t)(((uint16_t)p[0] << 8) | (uint16_t)p[1]);
 }
 
+int fpga_link_mic_audio_reset(fpga_link_t *link)
+{
+  return compact_mod_command(link, FPGA_CMD_MIC_AUDIO_RESET, 0u, HAL_GetTick());
+}
+
+int fpga_link_mic_audio_read(fpga_link_t *link, int16_t *samples, uint8_t capacity,
+                             uint8_t *actual)
+{
+  uint8_t i;
+  uint8_t count;
+  int result;
+  if (link == NULL || samples == NULL || actual == NULL ||
+      capacity == 0u || capacity > FPGA_MIC_AUDIO_BATCH) return -1;
+  if (osMutexAcquire(link->mutex, 5u) != osOK) return -2;
+  memset(link->tx, 0, FPGA_MIC_AUDIO_READ_BYTES);
+  link->tx[0] = FPGA_CMD_MIC_AUDIO_READ;
+  link->tx[1] = FPGA_PROTOCOL_VERSION;
+  link->tx[2] = capacity;
+  if (exchange(link, FPGA_MIC_AUDIO_READ_BYTES) != 0) result = -3;
+  else if (unpack_status(link) != 0) result = -4;
+  else {
+    count = link->rx[16];
+    if (count > capacity) count = capacity;
+    for (i = 0u; i < count; ++i)
+      samples[i] = (int16_t)get_be16(&link->rx[17u + (uint16_t)i * 2u]);
+    *actual = count;
+    result = 0;
+  }
+  osMutexRelease(link->mutex);
+  return result;
+}
+
 int fpga_link_mic_config(fpga_link_t *link, uint8_t gate_count, uint16_t start,
                          uint16_t step, uint8_t width)
 {

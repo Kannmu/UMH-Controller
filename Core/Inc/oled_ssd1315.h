@@ -15,6 +15,15 @@ typedef struct {
   uint8_t tx_buffer[OLED_WIDTH + 1u];
   uint8_t dirty_pages;
   uint8_t initialized;
+  /* Consecutive failed page transfers, and the tick until which the panel is left
+   * alone.  A missing or NACKing display used to cost one full I2C timeout per
+   * page, i.e. up to 800 ms of the UI task per refresh -- and the UI task is also
+   * what dispatches key events, so a dead display looked like dead buttons (the
+   * gun menu never opened even though the long press had been detected).  After a
+   * few failures the refresh backs off instead of retrying at 30 ms intervals. */
+  uint8_t failures;
+  uint8_t reserved[3];
+  uint32_t retry_after_ms;
 } oled_ssd1315_t;
 
 void oled_ssd1315_init(oled_ssd1315_t *oled, I2C_HandleTypeDef *i2c);

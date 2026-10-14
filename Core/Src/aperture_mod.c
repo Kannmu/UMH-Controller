@@ -206,33 +206,42 @@ int aperture_mod_configure(umh_aperture_mod_t *engine,
   memset(&frame, 0, sizeof(frame));
   memset(engine->spatial_real, 0, sizeof(engine->spatial_real));
   memset(engine->spatial_imag, 0, sizeof(engine->spatial_imag));
-  memset(&point, 0, sizeof(point));
-  point.x_um = config->x_um;
-  point.y_um = config->y_um;
-  point.z_um = config->z_um;
-  point.level = 255u;
-  point.phase = config->phase;
-  point.source_id = 0u;
-  if (spatial_renderer_accumulate_point(renderer, &point, engine->spatial_real,
-                                        engine->spatial_imag) != 0) {
-    mod_unlock(engine);
-    return -6;
-  }
-  for (i = 0u; i < (uint16_t)extra_count; ++i) {
-    const umh_mod_point_wire_t *extra =
-        (const umh_mod_point_wire_t *)(payload + sizeof(umh_mod_config_wire_t) + 1u +
-                                       (uint32_t)i * sizeof(umh_mod_point_wire_t));
+  if ((config->flags & UMH_MOD_CONFIG_PLANE_WAVE) != 0u) {
+    for (i = 0u; i < renderer->active_count; ++i) {
+      uint16_t c = renderer->active_index[i];
+      spatial_renderer_accumulate_q10(renderer, c, renderer->phase_offset_q10[c],
+                                      1.0f, engine->spatial_real,
+                                      engine->spatial_imag);
+    }
+  } else {
     memset(&point, 0, sizeof(point));
-    point.x_um = extra->x_um;
-    point.y_um = extra->y_um;
-    point.z_um = extra->z_um;
-    point.level = extra->level;
-    point.phase = extra->phase;
-    point.source_id = (uint8_t)(i + 1u);
+    point.x_um = config->x_um;
+    point.y_um = config->y_um;
+    point.z_um = config->z_um;
+    point.level = 255u;
+    point.phase = config->phase;
+    point.source_id = 0u;
     if (spatial_renderer_accumulate_point(renderer, &point, engine->spatial_real,
                                           engine->spatial_imag) != 0) {
       mod_unlock(engine);
       return -6;
+    }
+    for (i = 0u; i < (uint16_t)extra_count; ++i) {
+      const umh_mod_point_wire_t *extra =
+          (const umh_mod_point_wire_t *)(payload + sizeof(umh_mod_config_wire_t) + 1u +
+                                         (uint32_t)i * sizeof(umh_mod_point_wire_t));
+      memset(&point, 0, sizeof(point));
+      point.x_um = extra->x_um;
+      point.y_um = extra->y_um;
+      point.z_um = extra->z_um;
+      point.level = extra->level;
+      point.phase = extra->phase;
+      point.source_id = (uint8_t)(i + 1u);
+      if (spatial_renderer_accumulate_point(renderer, &point, engine->spatial_real,
+                                            engine->spatial_imag) != 0) {
+        mod_unlock(engine);
+        return -6;
+      }
     }
   }
   if (spatial_renderer_finalize(renderer, engine->spatial_real,

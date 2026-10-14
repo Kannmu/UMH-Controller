@@ -7,7 +7,7 @@
 **  Author		: STM32CubeMX
 **
 **  Abstract    : Linker script for STM32G491KCUx series
-**                256Kbytes FLASH and 112Kbytes RAM
+**                256Kbytes FLASH and 112Kbytes total RAM (96Kbytes SRAM1 plus 16Kbytes CCM)
 **
 **                Set heap size, stack size and stack location according
 **                to application requirements.
@@ -58,11 +58,14 @@ _sstack = _estack - _Min_Stack_Size;
 /* Generate a link error if heap and stack don't fit into RAM */
 _Min_Heap_Size = 0x200;      /* required amount of heap  */
 _Min_Stack_Size = 0x400; /* required amount of stack */
+ASSERT(_estack <= 0x20018000, "RAM must stop at 0x20018000: 0x20018000..0x2001BFFF aliases CCM SRAM")
 
+/* RAM must stop at 96K: 0x20018000..0x2001BFFF aliases the CCM SRAM used by .ccmram below. */
 /* Specify the memory areas */
 MEMORY
 {
-RAM (xrw)      : ORIGIN = 0x20000000, LENGTH = 112K
+RAM (xrw)      : ORIGIN = 0x20000000, LENGTH = 96K
+  CCMRAM (xrw)   : ORIGIN = 0x10000000, LENGTH = 16K
 FLASH (rx)      : ORIGIN = 0x8000000, LENGTH = 256K
 }
 
@@ -181,6 +184,16 @@ SECTIONS
     _ebss = .;         /* define a global symbol at bss end */
     __bss_end__ = _ebss;
   } >RAM
+
+  /* CPU-only voice sample storage.  The buffer is initialized explicitly when
+   * voice capture starts, so it needs no FLASH load image or reset-time copy. */
+  .ccmram (NOLOAD) :
+  {
+    . = ALIGN(4);
+    KEEP(*(.ccmram))
+    KEEP(*(.ccmram*))
+    . = ALIGN(4);
+  } >CCMRAM
 
   /* User_heap_stack section, used to check that there is enough RAM left */
   ._user_heap_stack :

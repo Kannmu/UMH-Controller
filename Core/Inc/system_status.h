@@ -21,7 +21,8 @@ typedef enum {
   /* The PA9 shot trigger is a hardware input, not a mode: it is reported so a
    * host or the debugger can see the debounced switch state even while another
    * producer still owns the output.  Emission itself shows up in PLAYING. */
-  UMH_SYSTEM_TRIGGER = 1u << 10
+  UMH_SYSTEM_TRIGGER = 1u << 10,
+  UMH_SYSTEM_RECORDING = 1u << 11
 } umh_system_flag_t;
 
 /* Set exactly while the motion engine owns the 84-channel output.  Any other

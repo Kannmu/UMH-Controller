@@ -40,6 +40,8 @@
  *   I0..I3 u16, Q0..Q3 u16   (all big-endian). */
 #define FPGA_MIC_READ_BYTES 40u
 #define FPGA_MIC_MAX_GATES 64u
+#define FPGA_MIC_AUDIO_BATCH 16u
+#define FPGA_MIC_AUDIO_READ_BYTES (17u + 2u * FPGA_MIC_AUDIO_BATCH)
 #define FPGA_MIC_STATUS_DONE          (1u << 0)
 #define FPGA_MIC_STATUS_WAIT_PATTERN  (1u << 1)
 #define FPGA_MIC_STATUS_SATURATED     (1u << 2)
@@ -59,7 +61,9 @@ typedef enum {
    * common amplitude levels into the FPGA FIFO.  The opcodes keep the values
    * already deployed in the field. */
   FPGA_CMD_MOD_FIXED = 0x17u,
-  FPGA_CMD_MOD_FEED = 0x1Au
+  FPGA_CMD_MOD_FEED = 0x1Au,
+  FPGA_CMD_MIC_AUDIO_READ = 0x16u,
+  FPGA_CMD_MIC_AUDIO_RESET = 0x18u
 } fpga_command_t;
 
 typedef struct {
@@ -124,6 +128,9 @@ int fpga_link_mod_begin(fpga_link_t *link, const uint8_t *phases,
 int fpga_link_mod_feed(fpga_link_t *link, const uint8_t *levels, uint8_t count);
 int fpga_link_mod_mode(fpga_link_t *link, uint8_t enable, uint32_t sequence);
 int fpga_link_mic_read(fpga_link_t *link, uint8_t gate, fpga_mic_gate_wire_t *result);
+int fpga_link_mic_audio_reset(fpga_link_t *link);
+int fpga_link_mic_audio_read(fpga_link_t *link, int16_t *samples, uint8_t capacity,
+                             uint8_t *actual);
 const fpga_status_wire_t *fpga_link_status(const fpga_link_t *link);
 void fpga_link_spi_txrx_complete(fpga_link_t *link);
 void fpga_link_spi_error(fpga_link_t *link);

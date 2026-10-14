@@ -88,6 +88,8 @@ typedef enum {
 #define UMH_MOD_STATUS_REFILLING  (1u << 3)
 #define UMH_MOD_STATUS_UNDERRUN   (1u << 4)
 
+#define UMH_MOD_CONFIG_PLANE_WAVE (1u << 0)
+
 /* MOD_CONFIGURE wire payload.  Coordinates are signed micrometres, the envelope
  * rate is the host's sample rate for the amplitude stream, and the source
  * level/phase are passed straight to the spatial renderer once. */

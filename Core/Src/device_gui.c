@@ -1,6 +1,7 @@
 #include "device_gui.h"
 #include "main.h"
 #include "demo_engine.h"
+#include "gun_trigger.h"
 #include "FreeRTOS.h"
 #include "task.h"
 #include <stdio.h>
@@ -20,7 +21,8 @@ static void number(char *out, size_t size, uint32_t value);
 static const char *page_title(device_gui_page_t page)
 {
   static const char *const titles[DEVICE_GUI_PAGE_COUNT] = {
-    "STATUS", "PLAYBACK", "DEVICE", "CALIB", "STORAGE", "DEBUG", "SYSTEM", "ACOUSTIC", "DEFOAM", "DEMOS", "LED TEST"
+    "STATUS", "PLAYBACK", "DEVICE", "CALIB", "STORAGE", "DEBUG", "SYSTEM",
+    "ACOUSTIC", "DEFOAM", "DEMOS", "LED TEST", "GUN"
   };
   return page < DEVICE_GUI_PAGE_COUNT ? titles[page] : "UMH-84";
 }
@@ -39,6 +41,7 @@ static uint8_t page_item_count(const device_gui_t *gui)
     case DEVICE_GUI_DEFOAM: return 5u;
     case DEVICE_GUI_DEMOS: return gui->demo_count;
     case DEVICE_GUI_WS2812_TEST: return 5u;
+    case DEVICE_GUI_GUN: return UMH_GUN_MODE_COUNT;
     default: return 0u;
   }
 }
@@ -383,6 +386,21 @@ static void render_ws2812_test(device_gui_t *gui)
   line(gui, 4u, "INFO", "4 LED TEST");
 }
 
+/* One row per firing mode.  The selected row is the mode PA9 fires; the cursor
+ * (draw_cursor) marks it as well.  The trigger state is on every row's value
+ * column so an operator can see the gun firing without leaving the menu. */
+static void render_gun(device_gui_t *gui)
+{
+  uint8_t i;
+  const char *state = "READY";
+  if (gui->status != NULL) {
+    if ((gui->status->flags & UMH_SYSTEM_RECORDING) != 0u) state = "REC";
+    else if ((gui->status->flags & UMH_SYSTEM_PLAYING) != 0u) state = "FIRE";
+  }
+  for (i = 0u; i < UMH_GUN_MODE_COUNT; ++i)
+    line(gui, i, umh_gun_mode_names[i], i == gui->row ? state : "-");
+}
+
 void device_gui_init(device_gui_t *gui, oled_ssd1315_t *oled,
                      const umh_device_profile_t *profile,
                      umh_system_status_t *status,
@@ -396,6 +414,8 @@ void device_gui_init(device_gui_t *gui, oled_ssd1315_t *oled,
                      device_gui_action_t levitation_toggle,
                      device_gui_action_t defoam_set,
                      device_gui_action_t ws2812_set,
+                     device_gui_action_t gun_select,
+                     device_gui_action_t gun_exit,
                      uint8_t demo_count,
                      void *action_context)
 {
@@ -407,6 +427,7 @@ void device_gui_init(device_gui_t *gui, oled_ssd1315_t *oled,
   gui->defoam_set = defoam_set;
   gui->ws2812_set = ws2812_set; gui->calibration = calibration;
   gui->self_test = self_test;
+  gui->gun_select = gun_select; gui->gun_exit = gun_exit;
   gui->demo_count = demo_count;
   gui->action_context = action_context; gui->page = DEVICE_GUI_HOME;
   gui->cursor_y = GUI_BODY_Y + 1u;
@@ -414,6 +435,14 @@ void device_gui_init(device_gui_t *gui, oled_ssd1315_t *oled,
   gui->ws2812_active = 0u;
   gui->defoam_mode = DEVICE_GUI_DEFOAM_STOP;
 }
+
+/* Enter or leave the gun menu.
+ *
+ * Entering always starts at the first mode and fires it, so the menu is
+ * immediately usable and the default a long press leaves behind is the single
+ * focus.  Leaving hands the trigger back to that same default through gun_exit,
+ * whatever the menu had selected. */
+static void gun_menu_set(device_gui_t *gui, uint8_t active);
 
 static void select_page(device_gui_t *gui, device_gui_page_t page)
 {
@@ -426,20 +455,68 @@ static void select_page(device_gui_t *gui, device_gui_page_t page)
   gui->cursor_y = GUI_BODY_Y + 1u;
 }
 
+static void gun_menu_set(device_gui_t *gui, uint8_t active)
+{
+  if (active != 0u) {
+    select_page(gui, DEVICE_GUI_GUN);
+    gui->row = 0u;
+    gui->content_focused = 1u;
+    if (gui->gun_select != NULL) (void)gui->gun_select(gui->action_context);
+  } else {
+    if (gui->gun_exit != NULL) (void)gui->gun_exit(gui->action_context);
+    select_page(gui, DEVICE_GUI_HOME);
+  }
+  gui->action_message = 0u;
+}
+
+/* Short press of either back-key candidate inside the gun menu steps to the
+ * next firing mode.  gun_select can refuse while a shot is held, in which case
+ * the cursor returns to the mode still being emitted. */
+static void gun_menu_step(device_gui_t *gui)
+{
+  uint8_t next;
+  if (gui == NULL || gui->page != DEVICE_GUI_GUN) return;
+  next = (uint8_t)((gui->row + 1u) % UMH_GUN_MODE_COUNT);
+  gui->row = next;
+  if (gui->gun_select != NULL && gui->gun_select(gui->action_context) != 0)
+    gui->row = (uint8_t)((next + UMH_GUN_MODE_COUNT - 1u) % UMH_GUN_MODE_COUNT);
+}
+
 static void move_page(device_gui_t *gui, int8_t direction)
 {
   int16_t next = (int16_t)gui->page + direction;
-  if (next < (int16_t)DEVICE_GUI_HOME) next = (int16_t)DEVICE_GUI_PAGE_COUNT - 1;
-  else if (next >= (int16_t)DEVICE_GUI_PAGE_COUNT) next = DEVICE_GUI_HOME;
+  if (next < (int16_t)DEVICE_GUI_HOME) next = (int16_t)DEVICE_GUI_GUN - 1;
+  else if (next >= (int16_t)DEVICE_GUI_GUN) next = DEVICE_GUI_HOME;
   select_page(gui, (device_gui_page_t)next);
 }
 
 void device_gui_handle_event(device_gui_t *gui, const input_event_t *event)
 {
   uint8_t count;
-  if (gui == NULL || event == NULL || event->type != INPUT_EVENT_PRESS) return;
+  if (gui == NULL || event == NULL) return;
   /* A calibration run owns the device: ignore all key presses until it ends. */
   if (gui->calibration_busy != 0u) return;
+
+  /* The gun menu is a mode of the whole UI, entered and left with one long press
+   * of either back-key candidate (KEY0/SW2 or KEY3/SW5) from anywhere, so this is handled before any page logic and
+   * applies to both the press and the long report.  A short press of the same
+   * key is an ordinary event and falls through to the page handlers below --
+   * inside the gun menu that is what steps through the firing modes. */
+  if ((event->key == INPUT_KEY0 || event->key == INPUT_KEY3) &&
+      event->type == INPUT_EVENT_LONG) {
+    gun_menu_set(gui, (uint8_t)(gui->page != DEVICE_GUI_GUN));
+    return;
+  }
+  if (event->type != INPUT_EVENT_PRESS) return;
+  /* Inside the gun menu both back-key candidates are mode selectors: a short
+   * press steps to the next row.  This runs before the normal page handlers so
+   * KEY0 does not try to leave the menu and KEY3 does not try to page away. */
+  if (gui->page == DEVICE_GUI_GUN &&
+      (event->key == INPUT_KEY0 || event->key == INPUT_KEY3)) {
+    gun_menu_step(gui);
+    return;
+  }
+
 
   if (event->key == INPUT_KEY0) {
     if (gui->content_focused != 0u) {
@@ -468,6 +545,11 @@ void device_gui_handle_event(device_gui_t *gui, const input_event_t *event)
   if (event->key == INPUT_KEY2 && count != 0u) {
     if (gui->row + 1u < count) ++gui->row;
     keep_selected_visible(gui);
+    /* In the gun menu the down key moves the same cursor as the back key, so the
+     * firing mode has to follow it too: leaving them apart would let the display
+     * point at one mode while the trigger fires another. */
+    if (gui->page == DEVICE_GUI_GUN && gui->gun_select != NULL)
+      (void)gui->gun_select(gui->action_context);
     if (gui->page == DEVICE_GUI_DEMOS && gui->row < gui->demo_count) gui->selected_demo = gui->row;
     return;
   }
@@ -478,6 +560,11 @@ void device_gui_handle_event(device_gui_t *gui, const input_event_t *event)
     return;
   }
   if (event->key != INPUT_KEY1) return;
+
+  /* The gun menu is driven by the back key (mode cycling) and the trigger; OK has
+   * no action there, and falling through would run the demo action on whatever
+   * row index the menu happens to be on. */
+  if (gui->page == DEVICE_GUI_GUN) return;
 
   if (gui->page == DEVICE_GUI_CALIBRATION && gui->row == 6u) {
     int result = gui->calibration != NULL ? gui->calibration(gui->action_context) : -1;
@@ -545,6 +632,11 @@ uint8_t device_gui_calibration_busy(const device_gui_t *gui)
   return gui != NULL ? gui->calibration_busy : 0u;
 }
 
+uint8_t device_gui_gun_active(const device_gui_t *gui)
+{
+  return gui != NULL && gui->page == DEVICE_GUI_GUN ? 1u : 0u;
+}
+
 void device_gui_calibration_begin(device_gui_t *gui)
 {
   if (gui == NULL) return;
@@ -584,6 +676,7 @@ void device_gui_render(device_gui_t *gui, uint32_t now_ms)
     case DEVICE_GUI_DEFOAM: render_defoam(gui); break;
     case DEVICE_GUI_DEMOS: render_demos(gui); break;
     case DEVICE_GUI_WS2812_TEST: render_ws2812_test(gui); break;
+    case DEVICE_GUI_GUN: render_gun(gui); break;
     default: break;
   }
   draw_cursor(gui);

@@ -260,7 +260,10 @@ module umh_fpga_top (
                                        (spi_bit_count == 3'd7) &&
                                        (spi_byte_count >= spi_rgb_start) &&
                                        (spi_rgb_offset <= 9'd2);
-    wire        spi_compact_cmd = (spi_command == MOD_CMD_FIXED);
+    wire        spi_compact_cmd = (spi_command == MOD_CMD_FIXED) ||
+                                  (spi_command == 8'h16) || (spi_command == 8'h18);
+    wire        spi_audio_read_cmd = (spi_command == 8'h16);
+    wire        spi_audio_reset_cmd = (spi_command == 8'h18);
     /* Level bytes are bytes 2.. of a MOD_FEED transaction.  spi_command
      * is only valid from byte 1 on, so byte 0 can never match here. */
     wire        feed_we = (spi_bit_count == 3'd7) &&
@@ -337,6 +340,23 @@ module umh_fpga_top (
     reg  [15:0] mic_shift_1_l, mic_shift_1_r;
     reg  [4:0]  mic_sample_count;
     reg  [63:0] mic_latest;
+    /* 16 kHz mono PCM decimator and 32-sample CDC FIFO.  Each PDM input is
+     * counted over 250 4 MHz samples; averaging the four microphones gives a
+     * robust near-mouth voice signal while fitting one small register FIFO. */
+    reg  [8:0]  pcm_decim_count;
+    reg  [9:0]  pcm_ones [0:3];
+    reg  signed [15:0] pcm_fifo [0:31];
+    reg  [5:0]  pcm_wr_ptr;
+    reg  [5:0]  pcm_rd_ptr_spi;
+    reg  [5:0]  pcm_rd_sync1, pcm_rd_sync2;
+    reg  [5:0]  pcm_wr_sync1_spi, pcm_wr_sync2_spi;
+    reg  [4:0]  pcm_read_count_latched_spi;
+    wire [5:0]  pcm_count_spi = pcm_wr_sync2_spi - pcm_rd_ptr_spi;
+    wire [4:0]  pcm_read_count = (pcm_count_spi > 6'd16) ? 5'd16 : pcm_count_spi[4:0];
+    wire [11:0] pcm_density_sum = {2'b00, pcm_ones[0]} + {2'b00, pcm_ones[1]} +
+                                    {2'b00, pcm_ones[2]} + {2'b00, pcm_ones[3]} +
+                                    mic_data_0 + mic_data_1;
+    wire signed [12:0] pcm_centered = $signed({1'b0, pcm_density_sum}) - 13'sd500;
 
     /* 40 kHz local oscillator and one-carrier-period boxcar.  The PDM bit
      * rate is 4 MHz and the LO period is 100 PDM samples (25 us).  XOR-ing
@@ -592,11 +612,20 @@ module umh_fpga_top (
      *   bytes 24..39  four 32-bit {I[15:0], Q[15:0]} words, MSB first
      * The MIC_READ gate address travels in the frame-sequence header field
      * (bytes 6..9), so it is already stable when the payload starts. */
+    wire [8:0] pcm_payload_bit = status_bit_index - 9'd136;
+    wire [4:0] pcm_payload_sample = pcm_payload_bit[8:4];
+    wire signed [15:0] pcm_spi_sample =
+        pcm_fifo[(pcm_rd_ptr_spi + pcm_payload_sample) & 5'h1f];
+    wire pcm_audio_miso = (status_bit_index < 9'd136) ?
+        ((status_bit_index < 9'd128) ? status_hold[8'd127 - status_bit_index[6:0]] :
+         ((pcm_read_count_latched_spi >> (7 - status_bit_index[2:0])) & 1'b1)) :
+        ((pcm_payload_sample < pcm_read_count_latched_spi) ? pcm_spi_sample[4'd15 - pcm_payload_bit[3:0]] : 1'b0);
     assign spi1_miso = fpga_cs_n ? 1'bz :
-                       (status_bit_index < 9'd128) ? status_hold[8'd127 - status_bit_index[6:0]] :
-                       (status_bit_index < 9'd192) ? mic_meta_word[9'd191 - status_bit_index] :
-                       (status_bit_index < 9'd320) ? mic_ram_rd_data[4'd15 - status_bit_index[3:0]] :
-                       1'b0;
+                       (spi_audio_read_cmd ? pcm_audio_miso :
+                        (status_bit_index < 9'd128) ? status_hold[8'd127 - status_bit_index[6:0]] :
+                        (status_bit_index < 9'd192) ? mic_meta_word[9'd191 - status_bit_index] :
+                        (status_bit_index < 9'd320) ? mic_ram_rd_data[4'd15 - status_bit_index[3:0]] :
+                        1'b0);
 
     always @(negedge spi1_sck or posedge fpga_cs_n) begin
         if (fpga_cs_n) status_bit_index <= 9'd0;
@@ -615,8 +644,9 @@ module umh_fpga_top (
     wire        header_end = last_header_byte && (expected_next == HEADER_BYTES);
     wire        payload_end = (spi_expected_length > HEADER_BYTES) &&
                               (spi_byte_count + 16'd1 == spi_expected_length);
-    wire        compact_end = spi_compact_cmd &&
-                              (spi_byte_count == COMPACT_BYTES - 16'd1);
+    wire        compact_end = spi_compact_cmd && (spi_bit_count == 3'd7) &&
+                              ((spi_command == 8'h16) ? (spi_byte_count == pcm_read_end_byte) : (spi_byte_count == COMPACT_BYTES - 16'd1));
+    wire [8:0] pcm_read_end_byte = 9'd48;
     wire        frame_end = spi_compact_cmd ? compact_end : (header_end || payload_end);
 
     always @(posedge spi1_sck or posedge fpga_cs_n) begin
@@ -634,7 +664,10 @@ module umh_fpga_top (
                     16'd0:  spi_command  <= spi_rx_byte;
                     16'd1:  spi_version  <= spi_rx_byte;
                         /* Only MOD_FIXED consumes this byte, at frame_end. */
-                    16'd2:  spi_compact_data <= spi_rx_byte;
+                    16'd2: begin
+                        spi_compact_data <= spi_rx_byte;
+                        if (spi_command == 8'h16) pcm_read_count_latched_spi <= pcm_read_count;
+                    end
                     16'd6:  spi_frame_sequence[7:0]   <= spi_rx_byte;
                     16'd7:  spi_frame_sequence[15:8]  <= spi_rx_byte;
                     16'd18: spi_update_flags[7:0]     <= spi_rx_byte;
@@ -726,6 +759,9 @@ module umh_fpga_top (
                          * payload starts, so the first transaction already
                          * returns the right gate. */
                         invalid_frame_spi <= 1'b0;
+                    end else if ((spi_command == 8'h16 && spi_version == 8'h01) ||
+                                 (spi_command == 8'h18 && spi_version == 8'h01)) begin
+                        invalid_frame_spi <= 1'b0;
                     end else if (spi_command != 8'h01) begin
                         invalid_frame_spi <= 1'b1;
                     end
@@ -742,6 +778,20 @@ module umh_fpga_top (
     /* ------------------------------------------------------------------
      * 64 MHz output domain: frame commit, carrier, microphone clock.
      * ------------------------------------------------------------------ */
+    always @(posedge fpga_clk) begin
+        pcm_rd_sync1 <= pcm_rd_ptr_spi;
+        pcm_rd_sync2 <= pcm_rd_sync1;
+    end
+
+    always @(posedge spi1_sck) begin
+        pcm_wr_sync1_spi <= pcm_wr_ptr;
+        pcm_wr_sync2_spi <= pcm_wr_sync1_spi;
+        if (frame_end && spi_audio_reset_cmd)
+            pcm_rd_ptr_spi <= pcm_wr_sync2_spi;
+        else if (frame_end && spi_audio_read_cmd)
+            pcm_rd_ptr_spi <= pcm_rd_ptr_spi + pcm_read_count_latched_spi;
+    end
+
     always @(posedge fpga_clk) begin
         /* DDS stage 1: fractional carry only */
         phase_frac    <= phase_frac_sum[23:0];
@@ -1053,11 +1103,26 @@ module umh_fpga_top (
             if (mic_phase == 4'd4) begin
                 `MIC_UPDATE(0, mic_data_0)
                 `MIC_UPDATE(2, mic_data_1)
+                if (pcm_ones[0] != 10'h3ff) pcm_ones[0] <= pcm_ones[0] + mic_data_0;
+                if (pcm_ones[2] != 10'h3ff) pcm_ones[2] <= pcm_ones[2] + mic_data_1;
                 mic_shift_0_l <= {mic_shift_0_l[14:0], mic_data_0};
                 mic_shift_1_l <= {mic_shift_1_l[14:0], mic_data_1};
             end else if (mic_phase == 4'd12) begin
                 `MIC_UPDATE(1, mic_data_0)
                 `MIC_UPDATE(3, mic_data_1)
+                if (pcm_ones[1] != 10'h3ff) pcm_ones[1] <= pcm_ones[1] + mic_data_0;
+                if (pcm_ones[3] != 10'h3ff) pcm_ones[3] <= pcm_ones[3] + mic_data_1;
+                if (pcm_decim_count == 9'd249) begin
+                    pcm_decim_count <= 9'd0;
+                    if ((pcm_wr_ptr - pcm_rd_sync2) < 6'd32) begin
+                        pcm_fifo[pcm_wr_ptr[4:0]] <= {{3{pcm_centered[12]}}, pcm_centered} << 6;
+                        pcm_wr_ptr <= pcm_wr_ptr + 6'd1;
+                    end
+                    pcm_ones[0] <= 10'd0; pcm_ones[1] <= 10'd0;
+                    pcm_ones[2] <= 10'd0; pcm_ones[3] <= 10'd0;
+                end else begin
+                    pcm_decim_count <= pcm_decim_count + 9'd1;
+                end
                 mic_shift_0_r <= {mic_shift_0_r[14:0], mic_data_0};
                 mic_shift_1_r <= {mic_shift_1_r[14:0], mic_data_1};
                 mic_sample_count <= mic_sample_count + 5'd1;
@@ -1295,6 +1360,13 @@ module umh_fpga_top (
         mic_shift_0_l = 16'd0; mic_shift_0_r = 16'd0;
         mic_shift_1_l = 16'd0; mic_shift_1_r = 16'd0;
         mic_sample_count = 5'd0; mic_latest = 64'd0;
+        pcm_decim_count = 9'd0;
+        pcm_ones[0] = 10'd0; pcm_ones[1] = 10'd0;
+        pcm_ones[2] = 10'd0; pcm_ones[3] = 10'd0;
+        pcm_wr_ptr = 6'd0; pcm_rd_ptr_spi = 6'd0;
+        pcm_rd_sync1 = 6'd0; pcm_rd_sync2 = 6'd0;
+        pcm_wr_sync1_spi = 6'd0; pcm_wr_sync2_spi = 6'd0;
+        pcm_read_count_latched_spi = 5'd0;
         mic_warm = 1'b0; mic_ultrasonic = 1'b0;
         mic_warm_half = 8'd0; mic_phase = 4'd0;
         /* Microphone demodulator and gate accumulator.  LSE has no reset, so

@@ -26,6 +26,7 @@
 #include "aperture_mod.h"
 #include "hologram_engine.h"
 #include "gun_trigger.h"
+#include "gun_voice_dsp.h"
 #include "spi.h"
 #include "i2c.h"
 #include "i2c_bus.h"
@@ -65,6 +66,7 @@ static umh_calibration_result_t calibration_result;
 static umh_cal_self_test_result_t calibration_self_test_result;
 static osThreadId_t calibration_task_handle;
 static volatile uint8_t calibration_raw_mode;
+static volatile uint8_t calibration_probe_mode;
 static volatile uint8_t calibration_selftest_mode;
 static uint8_t calibration_raw_level;
 static uint16_t calibration_raw_gate_start;
@@ -89,7 +91,274 @@ typedef struct __attribute__((packed)) {
 _Static_assert(sizeof(umh_cal_probe_request_t) == 184u, "cal probe request size");
 static umh_cal_probe_request_t calibration_probe_request;
 static uint32_t calibration_probe_tid;
-static volatile uint8_t calibration_probe_mode;
+static volatile uint8_t gun_voice_state;
+static uint16_t gun_voice_feed_index;
+static volatile uint16_t gun_voice_sample_count; /* CCM buffer follows; keep 0x20018000 alias free in RAM */
+static uint8_t gun_voice_buffer[UMH_GUN_VOICE_MAX_SAMPLES]
+    __attribute__((section(".ccmram"), aligned(4)));
+static uint32_t gun_voice_feed_sequence;
+/* Capture keeps one fixed companded scale; playback processing borrows the
+ * inactive aperture ring and never allocates a second recording. */
+static int32_t gun_voice_dc_q8;
+static int16_t gun_voice_fir_hist[2u * UMH_GUN_VOICE_FIR_HISTORY];
+static uint8_t gun_voice_fir_head;
+static uint8_t gun_voice_decim_phase;
+static uint32_t gun_voice_prime_count;
+static gun_voice_processor_t gun_voice_processor;
+static uint32_t gun_voice_capture_max_cycles;
+static uint32_t gun_voice_process_max_cycles;
+static uint32_t gun_voice_raw_invalid;
+_Static_assert(UMH_GUN_VOICE_MAX_SAMPLES <= CCMSRAM_SIZE,
+               "voice buffer must fit in STM32G491 CCMSRAM");
+_Static_assert(GUN_VOICE_WORK_BYTES <= UMH_MOD_RING_SIZE,
+               "voice processing must fit the inactive aperture ring");
+_Static_assert(offsetof(umh_aperture_mod_t, envelope_ring) % 4u == 0u,
+               "voice FFT workspace must be word aligned");
+
+enum {
+  GUN_VOICE_IDLE = 0u,
+  GUN_VOICE_RECORDING = 1u,
+  GUN_VOICE_FULL = 2u,
+  GUN_VOICE_PLAYBACK = 3u,
+  GUN_VOICE_DRAINING = 4u,
+  GUN_VOICE_READY = 5u
+};
+#define GUN_VOICE_PRIME_SAMPLES 32u
+
+static void gun_voice_chain_reset(void)
+{
+  gun_voice_dc_q8 = 0;
+  gun_voice_decim_phase = 0u;
+  gun_voice_prime_count = GUN_VOICE_PRIME_SAMPLES;
+  gun_voice_fir_head = 0u;
+  gun_voice_capture_max_cycles = 0u;
+  gun_voice_process_max_cycles = 0u;
+  gun_voice_raw_invalid = 0u;
+  memset(&gun_voice_processor, 0, sizeof(gun_voice_processor));
+  memset(gun_voice_fir_hist, 0, sizeof(gun_voice_fir_hist));
+}
+
+/* 16 kHz input -> DC removal -> M4 dual-MAC anti-alias FIR -> 8 kHz.
+ * Fixed mu-law companding preserves quiet speech without a local AGC that
+ * would normalize the hiss in pauses.  Detection/denoising uses decoded PCM
+ * before one common gain is chosen for the whole recording. */
+static void gun_voice_store_sample(int16_t pcm)
+{
+  int32_t centred;
+  int32_t filtered;
+  uint8_t i;
+  /* FPGA's density count is scaled by 64: nonzero low bits diagnose SPI
+   * corruption rather than microphone noise.  Readable over running SWD. */
+  if (((uint16_t)pcm & 63u) != 0u) ++gun_voice_raw_invalid;
+  if (gun_voice_prime_count == GUN_VOICE_PRIME_SAMPLES &&
+      gun_voice_decim_phase == 0u)
+    gun_voice_dc_q8 = (int32_t)pcm * 256;
+  gun_voice_dc_q8 += (((int32_t)pcm * 256) - gun_voice_dc_q8) >> 5;
+  centred = (int32_t)pcm - (gun_voice_dc_q8 >> 8);
+  gun_voice_fir_head = (uint8_t)((gun_voice_fir_head - 1u) &
+                               (UMH_GUN_VOICE_FIR_HISTORY - 1u));
+  gun_voice_fir_hist[gun_voice_fir_head] = (int16_t)__SSAT(centred, 16);
+  gun_voice_fir_hist[gun_voice_fir_head + UMH_GUN_VOICE_FIR_HISTORY] =
+      gun_voice_fir_hist[gun_voice_fir_head];
+  if (++gun_voice_decim_phase < 2u) return;
+  gun_voice_decim_phase = 0u;
+  {
+    const int16_t *history = &gun_voice_fir_hist[gun_voice_fir_head];
+    filtered = history[UMH_GUN_VOICE_FIR_TAPS / 2u] *
+               (int32_t)umh_gun_voice_fir[UMH_GUN_VOICE_FIR_TAPS / 2u];
+    for (i = 0u; i < UMH_GUN_VOICE_FIR_TAPS / 2u; ++i) {
+      uint32_t pair = (uint16_t)history[i] |
+          ((uint32_t)(uint16_t)history[UMH_GUN_VOICE_FIR_TAPS - 1u - i] << 16);
+      uint32_t coefficient = (uint16_t)umh_gun_voice_fir[i];
+      coefficient |= coefficient << 16;
+      filtered = __SMLAD(pair, coefficient, filtered);
+    }
+  }
+  if (gun_voice_prime_count != 0u) { --gun_voice_prime_count; return; }
+  if (gun_voice_sample_count < UMH_GUN_VOICE_MAX_SAMPLES) {
+    gun_voice_buffer[gun_voice_sample_count++] =
+        gun_voice_encode(__SSAT((filtered + 16384) >> 15, 16));
+    if (gun_voice_state == GUN_VOICE_RECORDING &&
+        gun_voice_sample_count >= UMH_GUN_VOICE_MAX_SAMPLES)
+      gun_voice_state = GUN_VOICE_FULL;
+  }
+}
+
+static void gun_voice_capture_service(void)
+{
+  int16_t pcm[FPGA_MIC_AUDIO_BATCH];
+  uint8_t count;
+  uint8_t i;
+  uint8_t batch;
+  uint32_t start = DWT->CYCCNT;
+  uint32_t elapsed;
+  /* The 32-sample FPGA FIFO covers only 2 ms.  Drain a second full batch
+   * after task jitter, but bound the work so the render task always yields. */
+  for (batch = 0u; batch < 2u && gun_voice_state == GUN_VOICE_RECORDING; ++batch) {
+    count = 0u;
+    if (fpga_link_mic_audio_read(&fpga_link, pcm, FPGA_MIC_AUDIO_BATCH, &count) != 0)
+      break;
+    for (i = 0u; i < count && gun_voice_state == GUN_VOICE_RECORDING; ++i)
+      gun_voice_store_sample(pcm[i]);
+    if (count < FPGA_MIC_AUDIO_BATCH) break;
+  }
+  elapsed = DWT->CYCCNT - start;
+  if (elapsed > gun_voice_capture_max_cycles) gun_voice_capture_max_cycles = elapsed;
+}
+
+/* Release hands the buffer to the render task.  Processing is bounded per
+ * iteration while the array stays stopped; the ordinary modulation path is
+ * configured only after the entire envelope is ready. */
+static int gun_voice_prepare_service(void)
+{
+  uint32_t start = DWT->CYCCNT;
+  uint32_t elapsed;
+  int result;
+  /* The ring is scratch only while the voice session owns the stopped array. */
+  if (aperture_mod_owns_output(&aperture_mod) != 0u ||
+      gun_trigger_owns_output(&gun_trigger) == 0u ||
+      gun_trigger_mode(&gun_trigger) != (uint8_t)UMH_GUN_MODE_VOICE)
+    result = -1;
+  else {
+    if (gun_voice_processor.samples == NULL) {
+      gun_voice_process_begin(&gun_voice_processor, gun_voice_buffer,
+                              gun_voice_sample_count, aperture_mod.envelope_ring);
+    }
+    result = gun_voice_process_service(&gun_voice_processor);
+  }
+  elapsed = DWT->CYCCNT - start;
+  if (elapsed > gun_voice_process_max_cycles) gun_voice_process_max_cycles = elapsed;
+  if (result < 0) {
+    gun_voice_state = GUN_VOICE_IDLE;
+    (void)fpga_link_safe_stop(&fpga_link);
+    gun_trigger_drop_output(&gun_trigger);
+    system_status_clear(UMH_SYSTEM_PLAYING | UMH_SYSTEM_RECORDING);
+  }
+  return result;
+}
+
+/* STOP may arrive during the bounded release-time passes, before the AM
+ * module is configured.  Cancel that pending playback as well as AM output.
+ * The render task has higher priority, so protocol commands run between passes. */
+static void gun_voice_cancel_pending(void)
+{
+  if (gun_voice_state != GUN_VOICE_READY) return;
+  gun_voice_state = GUN_VOICE_IDLE;
+  gun_trigger_drop_output(&gun_trigger);
+  system_status_clear(UMH_SYSTEM_PLAYING | UMH_SYSTEM_RECORDING);
+}
+
+static int gun_voice_start_playback(void)
+{
+  umh_mod_config_wire_t config;
+  uint8_t initial[UMH_GUN_VOICE_PREBUFFER];
+  uint16_t first;
+  int rc;
+  system_status_clear(UMH_SYSTEM_RECORDING);
+  if (gun_voice_sample_count < 80u) {
+    gun_voice_state = GUN_VOICE_IDLE;
+    (void)fpga_link_safe_stop(&fpga_link);
+    gun_trigger_drop_output(&gun_trigger);
+    system_status_clear(UMH_SYSTEM_PLAYING | UMH_SYSTEM_RECORDING);
+    return 0;
+  }
+  memset(&config, 0, sizeof(config));
+  /* 255 selects the module's full ceiling, UMH_MOD_MAX_LEVEL = 128 slots, which
+   * is the 50 % duty that actually radiates.  The envelope underneath runs from
+   * 0 to 128, so this is the complete modulation-depth range the FPGA's common
+   * level path accepts. */
+  config.level = 255u;
+  config.envelope_rate_hz = UMH_GUN_VOICE_OUTPUT_RATE;
+  config.prebuffer_samples = UMH_GUN_VOICE_PREBUFFER;
+  config.flags = UMH_MOD_CONFIG_PLANE_WAVE;
+  rc = aperture_mod_configure(&aperture_mod, &renderer, &fpga_link,
+                              (const uint8_t *)&config, sizeof(config));
+  if (rc != 0) goto fail;
+  first = gun_voice_sample_count > sizeof(initial) ? (uint16_t)sizeof(initial)
+                                                   : gun_voice_sample_count;
+  memcpy(initial, gun_voice_buffer, first);
+  if (aperture_mod_feed(&aperture_mod, initial, first, gun_voice_feed_sequence++) != 0 ||
+      aperture_mod_start(&aperture_mod) != 0) goto fail;
+  gun_voice_feed_index = first;
+  gun_voice_state = GUN_VOICE_PLAYBACK;
+  system_status_set(UMH_SYSTEM_PLAYING);
+  return 0;
+fail:
+  gun_voice_state = GUN_VOICE_IDLE;
+  aperture_mod_abort(&aperture_mod);
+  gun_trigger_drop_output(&gun_trigger);
+  system_status_clear(UMH_SYSTEM_PLAYING | UMH_SYSTEM_RECORDING);
+  return -1;
+}
+
+#define GUN_VOICE_FEED_BATCH 128u
+#define GUN_VOICE_RING_TARGET 256u
+#define GUN_VOICE_TAIL_SAMPLES 64u
+_Static_assert(GUN_VOICE_FEED_BATCH >= GUN_VOICE_TAIL_SAMPLES &&
+               GUN_VOICE_RING_TARGET + GUN_VOICE_TAIL_SAMPLES <= UMH_MOD_RING_SIZE,
+               "voice refill and fade tail must fit their buffers");
+_Static_assert(UMH_GUN_VOICE_PREBUFFER <= UMH_MOD_RING_SIZE,
+               "voice prebuffer must fit the envelope ring");
+_Static_assert(UMH_GUN_VOICE_INPUT_RATE == 2u * UMH_GUN_VOICE_SAMPLE_RATE,
+               "voice decimator must be 2:1");
+_Static_assert(UMH_GUN_VOICE_BIAS == 64u && UMH_GUN_VOICE_SWING == 64u &&
+               UMH_MOD_MAX_LEVEL == 128u, "voice DSP envelope range");
+
+/* One render iteration of playback: top the envelope ring up from the recording.
+ * The FPGA pops the FIFO on its own 20 kHz clock, so this only has to stay ahead
+ * of it; the aperture module holds the last sample and fades out on a real gap. */
+static void gun_voice_playback_service(void)
+{
+  umh_mod_status_wire_t status;
+  uint8_t block[GUN_VOICE_FEED_BATCH];
+  uint16_t count;
+  uint16_t i;
+  if (gun_voice_state != GUN_VOICE_PLAYBACK && gun_voice_state != GUN_VOICE_DRAINING)
+    return;
+  aperture_mod_get_status(&aperture_mod, &status);
+  if (status.state == UMH_MOD_OFF) {
+    gun_voice_state = GUN_VOICE_IDLE;
+    gun_trigger_drop_output(&gun_trigger);
+    system_status_clear(UMH_SYSTEM_PLAYING | UMH_SYSTEM_UNDERRUN | UMH_SYSTEM_RECORDING);
+    return;
+  }
+  if (status.state == UMH_MOD_FAULT) {
+    aperture_mod_request_stop(&aperture_mod);
+    gun_voice_state = GUN_VOICE_DRAINING;
+    return;
+  }
+  if (status.state == UMH_MOD_STOPPING) {
+    gun_voice_state = GUN_VOICE_DRAINING;
+    return;
+  }
+  if (gun_voice_state == GUN_VOICE_DRAINING) {
+    /* A zero-valued tail already follows the last voice sample.  Waiting for
+     * the ring to empty preserves every queued sample; STOP still uses the
+     * module's ordinary fade and drains the FPGA FIFO. */
+    if (status.ring_fill == 0u) aperture_mod_request_stop(&aperture_mod);
+    return;
+  }
+  if (status.ring_fill >= GUN_VOICE_RING_TARGET) return;
+  count = (uint16_t)(gun_voice_sample_count - gun_voice_feed_index);
+  if (count > GUN_VOICE_RING_TARGET - status.ring_fill)
+    count = (uint16_t)(GUN_VOICE_RING_TARGET - status.ring_fill);
+  if (count > sizeof(block)) count = (uint16_t)sizeof(block);
+  memcpy(block, &gun_voice_buffer[gun_voice_feed_index], count);
+  if (count != 0u && aperture_mod_feed(&aperture_mod, block, count,
+                                     gun_voice_feed_sequence++) == 0)
+    gun_voice_feed_index = (uint16_t)(gun_voice_feed_index + count);
+  if (gun_voice_feed_index >= gun_voice_sample_count) {
+    /* Fade modulation to silence in the source domain before requesting STOP.
+     * This tail is short, bounded and only appended once. */
+    uint8_t last = count != 0u ? block[count - 1u] : (uint8_t)UMH_GUN_VOICE_BIAS;
+    for (i = 0u; i < GUN_VOICE_TAIL_SAMPLES; ++i)
+      block[i] = (uint8_t)((uint32_t)last * (GUN_VOICE_TAIL_SAMPLES - 1u - i) /
+                          GUN_VOICE_TAIL_SAMPLES);
+    if (aperture_mod_feed(&aperture_mod, block, GUN_VOICE_TAIL_SAMPLES,
+                         gun_voice_feed_sequence++) == 0)
+      gun_voice_state = GUN_VOICE_DRAINING;
+  }
+}
 
 /* --------------------------------------------------------------------------
  * Bench mailbox.
@@ -232,7 +501,7 @@ static umh_fault_code_t fault_code_for_status(umh_status_t status, uint8_t messa
 }
 
 static StaticTask_t protocol_task_cb, render_task_cb, storage_task_cb, ui_task_cb, health_task_cb;
-static StaticTask_t input_task_cb;
+static StaticTask_t input_task_cb, display_task_cb;
 static StackType_t input_task_stack[128];
 static const osThreadAttr_t input_task_attributes = {
   .name = "input", .cb_mem = &input_task_cb, .cb_size = sizeof(input_task_cb),
@@ -252,7 +521,7 @@ static const osThreadAttr_t input_task_attributes = {
  *   render          1176 B   4096    x3.5   (frame-critical, kept generous)
  *   protocol        1240 B   3072    x2.5   worst chain is the EEPROM/I2C
  *                                          bring-up in application_init; the
- *                                          PA9 plane-wave shot path
+ *                                          PA9 focused-shot path
  *                                          (gun_trigger_emit -> fpga_link_submit)
  *                                          is 928 B, and its accumulation arrays
  *                                          live in the gun_trigger_t, not here
@@ -288,6 +557,15 @@ static const osThreadAttr_t ui_task_attributes = {
   .stack_mem = ui_task_stack, .stack_size = sizeof(ui_task_stack),
   .priority = osPriorityBelowNormal
 };
+/* The panel task is deliberately at the same priority as the UI: it only has to
+ * keep the 30 ms refresh cadence, and a display fault must never outrank input
+ * handling.  Its stack is the GUI render chain (104 B) plus the HAL I2C call. */
+static StackType_t display_task_stack[512];
+static const osThreadAttr_t display_task_attributes = {
+  .name = "disp", .cb_mem = &display_task_cb, .cb_size = sizeof(display_task_cb),
+  .stack_mem = display_task_stack, .stack_size = sizeof(display_task_stack),
+  .priority = osPriorityBelowNormal
+};
 static StaticTask_t calibration_task_cb;
 /* Deepest chain in the image: 3708 B measured from -fstack-usage plus the
  * call-graph file (calibration_task -> bench_service ->
@@ -317,6 +595,8 @@ static void application_init(void);
 static int gui_demo(void *context);
 static int gui_levitation_toggle(void *context);
 static int gui_defoam_set(void *context);
+static int gui_gun_select(void *context);
+static int gui_gun_exit(void *context);
 
 /* Use unified serialization helper from umh_utils.h */
 #define read_u32(p) umh_read_u32_le(p)
@@ -886,20 +1166,40 @@ static int gui_demo(void *context)
   return result == 0 ? 0 : -1;
 }
 
+
+/* Gun menu selection.  The callback reads the row back out of the GUI, exactly
+ * like the WS2812 and defoam actions, because the action signature only carries
+ * the context.  gun_trigger_select_mode() refuses while a shot is held; the GUI
+ * then leaves the cursor on the mode that is actually being emitted. */
+static int gui_gun_select(void *context)
+{
+  (void)context;
+  return gun_trigger_select_mode(&gun_trigger, (uint8_t)device_gui.row);
+}
+
+/* Leaving the menu keeps the operator's selected mode active.  The trigger is
+ * still initialized to focus at boot, so the default remains unchanged until a
+ * menu selection is made. */
+static int gui_gun_exit(void *context)
+{
+  (void)context;
+  return 0;
+}
+
 /* --------------------------------------------------------------------------
  * PA9 shot trigger ("ultrasound gun").
  *
- * While the switch is held the device emits one static full-amplitude plane wave
- * (every element on the same acoustic phase), no matter which producer was
- * running before.  The takeover is the same one the host MOTION_START and
- * SET_DEMO paths use -- claim the output, abort the producers, drop the block
- * stream, STOP the FPGA -- so a shot cannot leave a half-parsed block or a stale
- * plan behind.  Both edges are hard: full power on the press, silence on the
- * release.
+ * While the switch is held the device emits the gun mode the menu selected (mode
+ * 1, the single focus, out of the box), no matter which producer was running
+ * before.  The takeover is the same one the host MOTION_START and SET_DEMO paths
+ * use -- claim the output, abort the producers, drop the block stream, STOP the
+ * FPGA -- so a shot cannot leave a half-parsed block or a stale plan behind.
+ * Both edges are hard: full power on the press, silence on the release.
  *
  * It runs in the protocol task, the context that already owns every other output
  * takeover.  The switch is sampled by the input task and the held image is kept
- * alive by the render task; see gun_trigger.h.
+ * alive by the render task, which also advances the mode 5 bottle collapse; see
+ * gun_trigger.h.
  * -------------------------------------------------------------------------- */
 static int gun_shot_fire(void)
 {
@@ -911,6 +1211,22 @@ static int gun_shot_fire(void)
   hologram_engine_abort(&hologram_engine, NULL);
   playback_plan_stop(&playback_plan);
   discard_block_stream();
+  if (gun_trigger_mode(&gun_trigger) == (uint8_t)UMH_GUN_MODE_VOICE) {
+    if (fpga_link_safe_stop(&fpga_link) != 0 ||
+        fpga_link_mic_audio_reset(&fpga_link) != 0) {
+      gun_trigger_drop_output(&gun_trigger);
+      system_status_clear(UMH_SYSTEM_PLAYING | UMH_SYSTEM_RECORDING);
+      return -1;
+    }
+    gun_voice_sample_count = 0u;
+    gun_voice_feed_index = 0u;
+    gun_voice_feed_sequence = 0u;
+    gun_voice_chain_reset();
+    gun_voice_state = GUN_VOICE_RECORDING;
+    system_status_clear(UMH_SYSTEM_PLAYING);
+    system_status_set(UMH_SYSTEM_RECORDING);
+    return 0;
+  }
   if (fpga_link_safe_stop(&fpga_link) != 0 ||
       gun_trigger_emit(&gun_trigger, &renderer, &fpga_link) != 0) {
     gun_trigger_drop_output(&gun_trigger);
@@ -930,6 +1246,14 @@ static int gun_shot_fire(void)
 
 static int gun_shot_release(void)
 {
+  if (gun_trigger_mode(&gun_trigger) == (uint8_t)UMH_GUN_MODE_VOICE &&
+      (gun_voice_state == GUN_VOICE_RECORDING || gun_voice_state == GUN_VOICE_FULL)) {
+    /* The render task owns the capture DSP and CCM store.  Hand off only the
+     * state so release cannot normalize/feed a sample still being written. */
+    gun_voice_state = GUN_VOICE_READY;
+    system_status_clear(UMH_SYSTEM_RECORDING);
+    return 0;
+  }
   int result = gun_trigger_release(&gun_trigger, &fpga_link);
   if (gun_trigger_owns_output(&gun_trigger) == 0u)
     system_status_clear(UMH_SYSTEM_PLAYING);
@@ -958,6 +1282,9 @@ static void gun_trigger_poll(void)
     }
     (void)gun_shot_fire();
   } else if (owns != 0u) {
+    if (gun_voice_state == GUN_VOICE_READY || gun_voice_state == GUN_VOICE_PLAYBACK ||
+        gun_voice_state == GUN_VOICE_DRAINING)
+      return;
     (void)gun_shot_release();
   }
 }
@@ -1263,6 +1590,7 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       break;
     case UMH_MSG_STOP_PLAN:
       if (frame->payload_size != 0u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
+      gun_voice_cancel_pending();
       if (mod_owns != 0u) aperture_mod_abort(&aperture_mod);
       if (motion_owns != 0u) motion_engine_request_stop(&motion_engine);
       if (hologram_owns != 0u) hologram_engine_request_stop(&hologram_engine);
@@ -1272,6 +1600,7 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       break;
     case UMH_MSG_CLEAR_PLAN:
       if (frame->payload_size != 0u) { send_result(frame, UMH_STATUS_BAD_LENGTH, NULL, 0u); return; }
+      gun_voice_cancel_pending();
       if (mod_owns != 0u) aperture_mod_abort(&aperture_mod);
       if (motion_owns != 0u) motion_engine_abort(&motion_engine, &fpga_link);
       if (hologram_owns != 0u) hologram_engine_abort(&hologram_engine, &fpga_link);
@@ -1571,6 +1900,7 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       return;
     case UMH_MSG_MOD_STOP:
       if (frame->payload_size != 0u) { status = UMH_STATUS_BAD_LENGTH; break; }
+      gun_voice_cancel_pending();
       aperture_mod_request_stop(&aperture_mod);
       system_status_clear(UMH_SYSTEM_UNDERRUN);
       break;
@@ -1757,6 +2087,7 @@ static void render_task(void *argument)
   render_task_handle = xTaskGetCurrentTaskHandle();
   for (;;) {
     update_motion_mode_flags();
+    /* Voice capture and playback are serviced below the static gun branch. */
     /* A held PA9 shot is one static image the FPGA already has: nothing is
      * queued and no other producer may touch the channels.  Only the link needs
      * servicing, so this branch keeps the SPI traffic (and with it the FPGA link
@@ -1766,7 +2097,7 @@ static void render_task(void *argument)
      * output before it has rebuilt the frame, and that window must not be
      * served with the previous producer's image. */
     if (gun_trigger_holds_image(&gun_trigger) != 0u) {
-      (void)gun_trigger_refresh(&gun_trigger, &fpga_link);
+      (void)gun_trigger_refresh(&gun_trigger, &renderer, &fpga_link);
       /* This branch is the authoritative writer of the emitting flag while the
        * shot is held, exactly like the motion and hologram branches: the press
        * edge can arrive between two render iterations, and the host and the OLED
@@ -1784,11 +2115,27 @@ static void render_task(void *argument)
       osDelay(1u);
       continue;
     }
+    /* Capture drains up to two 16-sample batches per tick.  Playback feeds
+     * before aperture service and also runs after that module releases output,
+     * so an ordinary end or link abort both clear the gun ownership. */
+    if (gun_voice_state == GUN_VOICE_RECORDING || gun_voice_state == GUN_VOICE_FULL)
+      gun_voice_capture_service();
     if (demo_building != 0u) {
       render_burst = 0u;
       osDelay(1u);
       continue;
     }
+    if (gun_voice_state == GUN_VOICE_READY) {
+      int prepared = gun_voice_prepare_service();
+      if (gun_voice_state == GUN_VOICE_READY && prepared > 0)
+        (void)gun_voice_start_playback();
+      else if (gun_voice_state == GUN_VOICE_READY) {
+        osDelay(1u);
+        continue;
+      }
+    }
+    if (gun_voice_state == GUN_VOICE_PLAYBACK || gun_voice_state == GUN_VOICE_DRAINING)
+      gun_voice_playback_service();
     if (aperture_mod_owns_output(&aperture_mod) != 0u) {
       /* The FPGA level FIFO paces the 20 kHz output from its own clock; one
        * service per millisecond keeps it topped up, so task or USB jitter
@@ -1926,7 +2273,12 @@ static void render_task(void *argument)
       (void)fpga_link_poll_status(&fpga_link);
       osDelay(1u);
     }
-    if (playback_plan.running != 0u) system_status_set(UMH_SYSTEM_PLAYING);
+    /* Voice playback leaves its own PLAYING flag in place; this tail belongs to
+     * the frame-plan path, and a voice shot that has not drained yet must not
+     * have its flag cleared underneath it by a plan that is not running. */
+    if (gun_voice_state == GUN_VOICE_PLAYBACK || gun_voice_state == GUN_VOICE_DRAINING) {
+      /* serviced in the aperture branch above */
+    } else if (playback_plan.running != 0u) system_status_set(UMH_SYSTEM_PLAYING);
     else system_status_clear(UMH_SYSTEM_PLAYING);
     if (playback_plan.underrun_reported != 0u) {
       system_status_set(UMH_SYSTEM_UNDERRUN);
@@ -1987,26 +2339,49 @@ static void input_task(void *argument)
 static void ui_task(void *argument)
 {
   input_event_t event;
-  uint32_t last_oled_attempt = HAL_GetTick();
   (void)argument;
   for (;;) {
     while (input_events_poll(&event) != 0u) {
       device_gui_handle_event(&device_gui, &event);
     }
-    if (oled.initialized == 0u && (HAL_GetTick() - last_oled_attempt) >= 1000u) {
-      last_oled_attempt = HAL_GetTick();
-      oled_ssd1315_init(&oled, &hi2c1);
-    }
     device_gui_render(&device_gui, HAL_GetTick());
-    if (oled.initialized != 0u && oled_ssd1315_refresh(&oled) != 0) {
+    /* Keep the cursor animation responsive while input scanning remains
+     * independent at 10 ms. */
+    osDelay(30u);
+  }
+}
+
+/* The OLED is pushed to the panel from its own task, deliberately not from
+ * ui_task.
+ *
+ * A page transfer is a blocking I2C call, and a panel that stops acknowledging
+ * costs one full HAL timeout per page -- up to ~800 ms per refresh.  While the
+ * refresh ran in ui_task, that was also 800 ms in which no key event was
+ * dispatched: the gun menu's long press would be detected by the input task and
+ * queued, but the UI would not act on it, which reads as "the long press does
+ * nothing".  Splitting them means a slow or dead display can only make the
+ * display lag; keys keep working.
+ *
+ * oled_ssd1315_refresh() also backs off after repeated failures, and the I2C bus
+ * is shared with the EEPROM under its own mutex, so this task cannot corrupt
+ * another master's transaction. */
+static void display_task(void *argument)
+{
+  uint32_t last_init_attempt = HAL_GetTick();
+  (void)argument;
+  for (;;) {
+    if (oled.initialized == 0u) {
+      if ((HAL_GetTick() - last_init_attempt) >= 1000u) {
+        last_init_attempt = HAL_GetTick();
+        oled_ssd1315_init(&oled, &hi2c1);
+      }
+    } else if (oled_ssd1315_refresh(&oled) != 0) {
       oled.initialized = 0u;
-      last_oled_attempt = HAL_GetTick();
+      last_init_attempt = HAL_GetTick();
       /* A display/I2C fault must not disable the FPGA output path.  Keep it
        * visible in diagnostics while allowing the render task to continue. */
       system_status_fault(UMH_FAULT_HAL_INIT, 1u, UMH_FAULT_WARNING);
     }
-    /* Keep the display and cursor animation responsive while input scanning
-     * remains independent at 10 ms. */
     osDelay(30u);
   }
 }
@@ -2029,6 +2404,7 @@ void MX_FREERTOS_Init(void)
 
 static void application_init(void)
 {
+  __HAL_RCC_CCM_CLK_SLEEP_ENABLE();
   umh_rx_ring_init(&umh_usb_rx_ring);
   device_profile_init(&device_profile);
   system_status_init();
@@ -2081,6 +2457,7 @@ static void application_init(void)
                   &playback_plan, &fpga_link, &flash_store, &eeprom_profile,
                   gui_calibration, gui_selftest, gui_demo,
                   gui_levitation_toggle, gui_defoam_set, gui_ws2812_set,
+                  gui_gun_select, gui_gun_exit,
                   demo_engine_count(), NULL);
   {
     const osMessageQueueAttr_t storage_queue_attributes = {
@@ -2094,6 +2471,7 @@ static void application_init(void)
   (void)osThreadNew(render_task, NULL, &render_task_attributes);
   (void)osThreadNew(storage_task, NULL, &storage_task_attributes);
   (void)osThreadNew(ui_task, NULL, &ui_task_attributes);
+  (void)osThreadNew(display_task, NULL, &display_task_attributes);
   (void)osThreadNew(input_task, NULL, &input_task_attributes);
   (void)osThreadNew(health_task, NULL, &health_task_attributes);
   calibration_task_handle = osThreadNew(calibration_task, NULL, &calibration_task_attributes);

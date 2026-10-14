@@ -5,6 +5,14 @@
 
 #define OLED_I2C_ADDRESS 0x78u
 
+/* Consecutive failed page transfers before the panel is left alone, and how long
+ * it is left alone for.  One failure costs a full 100 ms I2C timeout, so three of
+ * them are ~300 ms of the UI task -- and the UI task is also what dispatches key
+ * events, which is why a dead or missing display used to look like dead buttons
+ * (the gun menu never opened even though the long press had been detected). */
+#define OLED_FAILURES_BEFORE_BACKOFF 3u
+#define OLED_BACKOFF_MS 2000u
+
 /* Compact 5x7 glyphs for the device UI.  The UI intentionally uses ASCII so
  * the firmware does not need a large font or a locale-specific text resource. */
 static const uint8_t font_upper[26][5] = {
@@ -190,6 +198,16 @@ int oled_ssd1315_refresh(oled_ssd1315_t *oled)
   uint8_t page;
   uint8_t commands[3];
   if (oled == NULL || oled->initialized == 0u) return -1;
+  /* A panel that is not answering must not hold the UI task: that task is also
+   * what dispatches key events, so eight 100 ms I2C timeouts per refresh read as
+   * dead buttons and the gun menu would never open even though the long press had
+   * been detected.  After a few consecutive failures, leave the display alone for
+   * a while and let the rest of the UI keep running. */
+  if (oled->retry_after_ms != 0u) {
+    if ((int32_t)(oled->retry_after_ms - HAL_GetTick()) > 0) return -3;
+    oled->retry_after_ms = 0u;
+    oled->failures = 0u;
+  }
   for (page = 0u; page < OLED_PAGES; ++page) {
     uint16_t offset;
     if ((oled->dirty_pages & (1u << page)) == 0u) continue;
@@ -197,9 +215,16 @@ int oled_ssd1315_refresh(oled_ssd1315_t *oled)
     commands[0] = (uint8_t)(0xB0u | page);
     commands[1] = 0x00u;
     commands[2] = 0x10u;
-    if (send(oled, 0x00u, commands, sizeof(commands)) != 0 || send(oled, 0x40u, &oled->framebuffer[offset], OLED_WIDTH) != 0) return -2;
+    if (send(oled, 0x00u, commands, sizeof(commands)) != 0 || send(oled, 0x40u, &oled->framebuffer[offset], OLED_WIDTH) != 0) {
+      if (++oled->failures >= OLED_FAILURES_BEFORE_BACKOFF) {
+        oled->retry_after_ms = HAL_GetTick() + OLED_BACKOFF_MS;
+        oled->failures = 0u;
+      }
+      return -2;
+    }
     memcpy(&oled->shadow[offset], &oled->framebuffer[offset], OLED_WIDTH);
     oled->dirty_pages &= (uint8_t)~(1u << page);
   }
+  oled->failures = 0u;
   return 0;
 }
