@@ -250,6 +250,26 @@ const Stimulation DemoTwinTrapStimulation = {
     .cached_circ_v = {0.0f, 0.0f, 0.0f},
 };
 
+// Static focus held 100 mm above the array centre. Point stimulations keep the
+// transducer phases fixed: Update_Full_Waveform_Buffer() renders a single
+// carrier period and replicates it across every trajectory slot, so the focal
+// point never moves until another stimulation is selected.
+const Stimulation DemoStaticFocus = {
+    .name = "StaticFocus",
+    .type = Point,
+    .position = {0.0f, 0.0f, 0.1f},
+    .strength = 100,
+    .startPoint = {0.0f, 0.0f, 0.1f},
+    .endPoint = {0.0f, 0.0f, 0.1f},
+    .segments = 1,
+    .normalVector = {0.0f, 0.0f, 1.0f},
+    .radius = 0.0f,
+    .frequency = 200.0f,
+    .cached_period_us = 0,
+    .cached_circ_u = {0.0f, 0.0f, 0.0f},
+    .cached_circ_v = {0.0f, 0.0f, 0.0f},
+};
+
 const Stimulation *DemoStimulations[] = {
     &DLM_2_Stimulation,
     &DLM_3_Stimulation,
@@ -260,6 +280,7 @@ const Stimulation *DemoStimulations[] = {
     &DemoULM_L_M05_Stimulation,
     &DemoULM_L_M10_Stimulation,
     &DemoULM_L_M20_Stimulation,
+    &DemoStaticFocus,
 };
 
 void Switch_Demo_Mode()
