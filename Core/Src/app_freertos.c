@@ -1514,8 +1514,15 @@ static void usb_audio_service(void)
     uint32_t cycles;
     if (count == 0u) break;
     cycles = DWT->CYCCNT;
+    /* The UAC Feature Unit volume is deliberately not applied to the 8-bit
+     * envelope.  The OS endpoint volume is commonly -6..-20 dB; scaling
+     * 0..128 after the AGC leaves only a handful of codes and is heard as
+     * the mechanical/robotic distortion of the UAC path.  UMH Speaker never
+     * has this stage: the host sends the full-scale 0..128 envelope.  Keep
+     * the modulator at 0 dB; the AGC already normalises whatever PCM level
+     * the host delivers. */
     output = usb_audio_dsp_process(&usb_audio_dsp, pcm, count,
-                                    umh_usb_audio_gain_q15(), envelope);
+                                    32768u, envelope);
     cycles = DWT->CYCCNT - cycles;
     if (cycles > umh_usb_audio_stats.max_process_cycles)
       umh_usb_audio_stats.max_process_cycles = cycles;
@@ -1540,10 +1547,20 @@ static void usb_audio_service(void)
       const umh_mod_config_wire_t config = {
         .x_um = 0, .y_um = 0, .z_um = 1000000,
         .phase = 0u, .level = 255u, .envelope_rate_hz = 20000u,
-        .prebuffer_samples = 256u, .flags = 0u
+        /* Match UMH Speaker's 1536-sample (76.8 ms) prebuffer.  The old 512
+         * left the aperture clock servo target well above the actual fill,
+         * which kept a permanent negative correction and made the servo hunt
+         * slowly (audible as a 1..5 Hz pitch/level wobble on a steady tone).
+         * The CDC reference path always runs at 1536. */
+        .prebuffer_samples = 1536u, .flags = 0u
       };
       if (maximum == 0u) continue; /* no emission/ownership on digital silence */
       usb_audio_owns = 1u; /* publish before configure can yield on an SPI mutex */
+      /* The CDC MOD_CONFIGURE path always clears the WS2812s first; the UAC
+       * path never did.  A lit/breathing LED bank draws its PWM current from
+       * the same rail as the transducer drivers and shows up as a low-rate
+       * amplitude modulation of the 40 kHz carrier. */
+      (void)fpga_link_set_ws2812(&fpga_link, 0u, 0u, 0u);
       if (aperture_mod_configure(&aperture_mod, &renderer, &fpga_link,
                                   (const uint8_t *)&config, sizeof(config)) != 0) {
         usb_audio_cancel();
@@ -1568,6 +1585,51 @@ static void usb_audio_service(void)
       return;
     }
   }
+}
+
+/* Single-channel burst start from silence (UMH_MSG_RAMP_BURST).
+ *
+ * The array is muted and one element is enabled through the FPGA common-level
+ * path: all 84 phases are zero and only the selected staging level byte is a
+ * non-zero enable marker, so the event builder substitutes the streamed
+ * common level for that one channel and mutes every other.  The ramp itself
+ * is played by the FPGA's own level FIFO, which consumes one level per two
+ * carrier periods (50 us at 40 kHz), so the MCU never has to time the steps
+ * and protocol or USB jitter cannot reach the output envelope.
+ *
+ * ramp_ticks = 0 plays a single level, i.e. the hard step the block path
+ * produces anyway; ramp_ticks = 6 spreads 0 -> level over 300 us.  The last
+ * level is held until STOP_PLAN / CLEAR_PLAN, which also drops the FPGA out
+ * of common-level mode so the next ordinary FRAME is not rebuilt at the held
+ * common amplitude. */
+static int ramp_burst_start(uint8_t channel, uint8_t level, uint8_t ramp_ticks)
+{
+  uint8_t phases[UMH_DEVICE_CHANNEL_COUNT];
+  uint8_t enables[UMH_DEVICE_CHANNEL_COUNT];
+  uint8_t levels[FPGA_MOD_BLOCK_MAX];
+  uint8_t count;
+  uint16_t i;
+  if (channel >= UMH_DEVICE_CHANNEL_COUNT || level == 0u ||
+      ramp_ticks >= FPGA_MOD_BLOCK_MAX) return -1;
+  memset(phases, 0, sizeof(phases));
+  memset(enables, 0, sizeof(enables));
+  enables[channel] = 1u;
+  if (ramp_ticks == 0u) {
+    levels[0] = level;
+    count = 1u;
+  } else {
+    for (i = 0u; i <= ramp_ticks; ++i)
+      levels[i] = (uint8_t)(((uint16_t)level * i + (uint16_t)ramp_ticks / 2u) /
+                            (uint16_t)ramp_ticks);
+    count = (uint8_t)(ramp_ticks + 1u);
+  }
+  if (fpga_link_mod_begin(&fpga_link, phases, enables, 0u) != 0) return -2;
+  if (fpga_link_mod_feed(&fpga_link, levels, count) < 0) {
+    (void)fpga_link_mod_mode(&fpga_link, 0u, 0u);
+    (void)fpga_link_safe_stop(&fpga_link);
+    return -3;
+  }
+  return 0;
 }
 
 static void protocol_frame_received(const umh_protocol_frame_t *frame, void *context)
@@ -2058,6 +2120,24 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
                       (uint16_t)sizeof(mod_status));
         return;
       }
+    case UMH_MSG_RAMP_BURST:
+      if (frame->payload_size != 4u) { status = UMH_STATUS_BAD_LENGTH; break; }
+      /* A burst owns the output the way the aperture stream does, so every
+       * other producer has to be idle or explicitly given up below. */
+      if (device_gui_calibration_busy(&device_gui) != 0u || demo_building != 0u ||
+          motion_owns != 0u || gun_owns != 0u || hologram_owns != 0u ||
+          playback_plan.running != 0u || block_stream_active != 0u ||
+          block_parser.block.active != 0u || frame_ring_count(&frame_ring) != 0u) {
+        status = UMH_STATUS_BUSY;
+        break;
+      }
+      {
+        int burst = ramp_burst_start(frame->payload[0], frame->payload[1],
+                                     frame->payload[2]);
+        if (burst == -1) status = UMH_STATUS_BAD_LENGTH;
+        else if (burst != 0) status = UMH_STATUS_IO;
+      }
+      break;
     default:
       status = UMH_STATUS_UNSUPPORTED;
       break;

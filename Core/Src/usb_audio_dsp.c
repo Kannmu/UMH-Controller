@@ -1,22 +1,26 @@
 #include "usb_audio_dsp.h"
 #include <string.h>
+#include <math.h>
 #if defined(__arm__) || defined(__thumb__)
 #include "cmsis_gcc.h"
 #endif
 
 /* 48 kHz -> 20 kHz, rational 5/12 resampler.  A 48-tap Kaiser (beta=6)
- * 7.5 kHz low-pass per fractional phase: <0.20 dB loss at 6 kHz, >65 dB
- * rejection at/above 10 kHz.  Each row sums to 32768; its L1 norm is <=53830,
- * so even full-scale PCM with adversarial signs cannot overflow int32_t.
- * Only output instants run the FIR: 24 M4 SMLADs/output, 480k SMLADs/second.
- * FMAC remains available to calibration; there are no peripheral/DMA locks. */
+ * 8.4 kHz low-pass per fractional phase: 0.3 dB loss at 7 kHz, 3.2 dB at
+ * 8 kHz, 12.8 dB at 9 kHz and 37 dB at 10 kHz.  The previous table cut at
+ * 7.5 kHz (-9.5 dB at 8 kHz, -30 dB at 9 kHz), which removed the top octave
+ * that the CDC focused-AM path (8 kHz baseband biquad) still carries.  Each
+ * row sums to 32768; its L1 norm is <=55420, so even full-scale PCM with
+ * adversarial signs cannot overflow int32_t.  Only output instants run the
+ * FIR: 24 M4 SMLADs/output, 480k SMLADs/second.  FMAC remains available to
+ * calibration; there are no peripheral/DMA locks. */
 static const int16_t coefficients[5][USB_AUDIO_DSP_TAPS]
-    __attribute__((aligned(4))) = {
-  {-6,-1,17,33,15,-46,-100,-63,83,226,183,-105,-433,-433,68,748,922,127,-1259,-2004,-814,2565,6842,9819,9819,6842,2565,-814,-2004,-1259,127,922,748,68,-433,-433,-105,183,226,83,-63,-100,-46,15,33,17,-1,-6},
-  {-5,1,20,31,5,-57,-97,-40,113,230,138,-174,-458,-362,204,831,830,-131,-1491,-1933,-291,3398,7592,10079,9441,6038,1765,-1250,-1996,-997,365,974,641,-66,-484,-392,-35,220,215,51,-84,-99,-34,24,34,14,-4,-6},
-  {-4,4,22,28,-5,-66,-91,-14,140,224,87,-238,-467,-275,340,886,701,-401,-1682,-1778,310,4249,8274,10215,8953,5198,1013,-1597,-1916,-716,576,988,514,-192,-516,-338,35,248,195,17,-102,-94,-21,32,34,10,-6,-6},
-  {-3,6,23,23,-16,-73,-81,14,162,210,30,-296,-458,-173,468,910,536,-674,-1823,-1536,984,5101,8873,10229,8365,4339,320,-1853,-1772,-427,754,965,374,-306,-528,-273,101,265,169,-17,-115,-86,-7,39,33,6,-8,-6},
-  {-2,9,23,17,-25,-76,-67,41,179,187,-30,-343,-430,-60,584,899,341,-941,-1903,-1205,1718,5937,9376,10110,7691,3477,-301,-2019,-1573,-140,895,907,226,-405,-519,-200,161,272,137,-49,-123,-75,7,44,30,2,-10,-6}
+    = {
+  {-1,2,1,-4,-4,5,11,-1,-21,-14,25,47,-1,-80,-75,58,179,93,-182,-338,-93,390,554,54,-706,-843,21,1139,1232,-104,-1700,-1804,77,2377,2762,393,-3021,-4522,-2388,2443,7195,9405,8518,5779,2941,1067,239,19},
+  {-1,2,2,-3,-6,2,11,3,-17,-18,15,45,13,-65,-84,25,163,129,-124,-331,-172,299,571,197,-576,-897,-208,962,1335,239,-1451,-1954,-405,2005,2913,1034,-2399,-4491,-3095,1385,6389,9222,8899,6387,3452,1349,338,37},
+  {-1,1,2,-2,-5,1,10,5,-15,-21,9,45,24,-54,-93,-3,149,158,-69,-318,-240,206,568,325,-433,-915,-418,756,1382,555,-1159,-2023,-849,1574,2950,1609,-1726,-4316,-3673,352,5494,8907,9189,6978,3999,1679,468,64},
+  {0,0,2,-2,-4,2,10,5,-16,-24,7,48,35,-48,-104,-28,138,188,-17,-304,-302,115,554,438,-288,-908,-605,538,1383,835,-842,-2017,-1239,1110,2881,2095,-1033,-4011,-4105,-628,4529,8458,9372,7539,4579,2059,631,102},
+  {1,-1,0,-2,-2,4,10,3,-19,-25,8,54,43,-45,-117,-50,131,215,30,-290,-358,28,533,538,-145,-880,-765,319,1343,1074,-519,-1946,-1564,638,2718,2480,-348,-3597,-4383,-1525,3519,7877,9431,8051,5182,2490,832,155}
 };
 
 static inline int32_t fir_q15(const int16_t *history, const int16_t *coeff)
@@ -44,31 +48,50 @@ static inline int32_t fir_q15(const int16_t *history, const int16_t *coeff)
 #endif
 }
 
+
+/* The dynamic stages are a float port of the UMH Speaker reference chain:
+ * AudioSignalProcessor (5 ms look-ahead limiter, 0.98 ceiling) followed by
+ * ParametricAmModulator (5 ms peak AGC, 0.655 programme peak, 68.7 %
+ * modulation).  The FIR/DC blocker stay fixed point; the limiter, AGC and
+ * level use the FPU so their release curves match the host exactly.  The
+ * previous Q16 version used a constant slew for the limiter release and a
+ * partial peak window for the AGC; both only misbehave on real programme
+ * material, which is why a steady tone always looked and sounded clean. */
+#define DSP_DC_POLE 0.993732f          /* 20 Hz at 20 kHz */
+#define DSP_PREGAIN 3.98107f           /* +12 dB, the app's gainDb=12 */
+#define DSP_LIMIT_CEILING 0.98f
+#define DSP_LIMITER_RELEASE 0.001f     /* 50 ms one-pole */
+#define DSP_PROGRAMME_PEAK 0.655f      /* 0.9 * 0.5 / 0.687 */
+#define DSP_MODULATION 0.687f          /* depth 12/16 */
+#define DSP_AGC_RISE 0.0005f
+#define DSP_AGC_FALL 0.001f
+#define DSP_GATE_FULL 80.0f
+
+/* The limiter look-ahead is CPU-only and lives in CCM: the float window would
+ * not fit main RAM together with the AGC window.  One DSP instance exists. */
+static float dsp_lookahead[USB_AUDIO_DSP_LOOKAHEAD]
+    __attribute__((section(".ccmram")));
+
 void usb_audio_dsp_reset(usb_audio_dsp_t *dsp)
 {
   memset(dsp, 0, sizeof(*dsp));
-  dsp->normalization_gain_q16 = 65536u;
+  memset(dsp_lookahead, 0, sizeof(dsp_lookahead));
+  dsp->limiter_gain = 1.0f;
+  dsp->agc_gain = 1.0f;
 }
 
 uint16_t usb_audio_dsp_process(usb_audio_dsp_t *dsp, const int16_t *pcm,
                                uint16_t input_count, uint16_t gain_q15,
                                uint8_t *envelope)
 {
-  enum {
-    MODULATION_Q15 = 15401u,       /* 47%, UMH Speaker default depth 8/16 */
-    PROGRAMME_PEAK_Q15 = 31372u,   /* 0.9 * 0.5 / 0.47 headroom target */
-    MIN_GAIN_Q16 = 16384u,         /* 0.25 */
-    MAX_GAIN_Q16 = 327680u,        /* 5.0 */
-    GAIN_RISE_STEP_Q16 = 33u,      /* 0.05 per 100 samples at 20 kHz */
-    GAIN_FALL_STEP_Q16 = 66u       /* 0.10 per 100 samples at 20 kHz */
-  };
   uint16_t n, written = 0u;
+  (void)gain_q15;
   for (n = 0u; n < input_count; ++n) {
-    int32_t sample, magnitude, peak = 0, normalized, program_q15, delta, level;
-    uint32_t target_gain_q16;
+    int32_t fir;
     uint8_t phase;
     uint16_t i;
-    int64_t product;
+    float input, value, delayed, peak, desired, limited, magnitude;
+    float peak2, target, am;
 
     dsp->history[dsp->head] = pcm[n];
     dsp->history[dsp->head + USB_AUDIO_DSP_TAPS] = pcm[n];
@@ -76,33 +99,51 @@ uint16_t usb_audio_dsp_process(usb_audio_dsp_t *dsp, const int16_t *pcm,
     phase = (uint8_t)(dsp->phase + 5u);
     if (phase < 12u) { dsp->phase = phase; continue; }
     dsp->phase = (uint8_t)(phase - 12u);
-    sample = fir_q15(&dsp->history[dsp->head], coefficients[dsp->phase]);
+    fir = fir_q15(&dsp->history[dsp->head], coefficients[dsp->phase]);
+    input = (float)fir * (1.0f / 32768.0f);
 
-    /* Match UMH Speaker's 20 Hz DC blocker at the 20 kHz envelope rate.
-     * Q8 state keeps the fixed-point error below one PCM LSB. */
-    int32_t dc_error = sample * 256 - dsp->dc_q8;
-    dsp->dc_q8 += (int32_t)(((int64_t)dc_error * 206) >> 15);
-    sample -= dsp->dc_q8 >> 8;
-    magnitude = sample < 0 ? -sample : sample;
+    /* Same 20 Hz DC blocker and +12 dB programme gain as the host. */
+    dsp->dc_state = input - dsp->previous_input + DSP_DC_POLE * dsp->dc_state;
+    dsp->previous_input = input;
+    value = dsp->dc_state * DSP_PREGAIN;
 
-    dsp->peak_window[dsp->peak_window_pos] = (uint16_t)magnitude;
+    /* 5 ms look-ahead limiter: read the oldest slot, overwrite it, measure
+     * the new window, then apply the gain to the delayed sample. */
+    delayed = dsp_lookahead[dsp->lookahead_pos];
+    dsp_lookahead[dsp->lookahead_pos] = value;
+    peak = 0.0f;
+    for (i = 0u; i < USB_AUDIO_DSP_LOOKAHEAD; ++i) {
+      float a = fabsf(dsp_lookahead[i]);
+      if (a > peak) peak = a;
+    }
+    if (++dsp->lookahead_pos == USB_AUDIO_DSP_LOOKAHEAD) dsp->lookahead_pos = 0u;
+    desired = peak > DSP_LIMIT_CEILING ? DSP_LIMIT_CEILING / peak : 1.0f;
+    if (desired < dsp->limiter_gain) {
+      dsp->limiter_gain = desired;
+    } else {
+      dsp->limiter_gain += (desired - dsp->limiter_gain) * DSP_LIMITER_RELEASE;
+    }
+    limited = delayed * dsp->limiter_gain;
+    if (limited > DSP_LIMIT_CEILING) limited = DSP_LIMIT_CEILING;
+    if (limited < -DSP_LIMIT_CEILING) limited = -DSP_LIMIT_CEILING;
+    magnitude = fabsf(limited);
+
+    dsp->peak_window[dsp->peak_window_pos] = magnitude;
     if (dsp->peak_window_count < USB_AUDIO_DSP_PEAK_WINDOW)
       ++dsp->peak_window_count;
     if (++dsp->peak_window_pos == USB_AUDIO_DSP_PEAK_WINDOW)
       dsp->peak_window_pos = 0u;
+    peak2 = 0.0f;
     for (i = 0u; i < dsp->peak_window_count; ++i)
-      if (dsp->peak_window[i] > peak) peak = dsp->peak_window[i];
-
-    target_gain_q16 = dsp->normalization_gain_q16;
-    if (peak != 0) {
-      target_gain_q16 = (PROGRAMME_PEAK_Q15 * 65536u) / (uint32_t)peak;
-      if (target_gain_q16 < MIN_GAIN_Q16) target_gain_q16 = MIN_GAIN_Q16;
-      if (target_gain_q16 > MAX_GAIN_Q16) target_gain_q16 = MAX_GAIN_Q16;
+      if (dsp->peak_window[i] > peak2) peak2 = dsp->peak_window[i];
+    target = dsp->agc_gain;
+    if (dsp->peak_window_count >= USB_AUDIO_DSP_PEAK_WINDOW && peak2 > 1e-6f) {
+      target = DSP_PROGRAMME_PEAK / peak2;
+      if (target < 0.25f) target = 0.25f;
+      if (target > 5.0f) target = 5.0f;
     }
 
-    /* Silence gates only the carrier bias; the programme is never multiplied
-     * by its own level follower.  This matches UMH Speaker's AM path. */
-    if (magnitude > 3) {
+    if (magnitude > (3.0f / 32768.0f)) {
       dsp->silent_samples = 0u;
       if (dsp->gate < 80u) ++dsp->gate;
     } else if (dsp->silent_samples < 2400u) {
@@ -111,27 +152,31 @@ uint16_t usb_audio_dsp_process(usb_audio_dsp_t *dsp, const int16_t *pcm,
       --dsp->gate;
     }
 
-    product = (int64_t)sample * dsp->normalization_gain_q16;
-    normalized = product >= 0 ? (int32_t)((product + 32768) >> 16) :
-                 -(int32_t)((-product + 32768) >> 16);
-    product = (int64_t)normalized * MODULATION_Q15;
-    program_q15 = product >= 0 ? (int32_t)((product + 16384) >> 15) :
-                  -(int32_t)((-product + 16384) >> 15);
-    delta = program_q15 >= 0 ? (program_q15 + 128) / 256 :
-            -((-program_q15 + 128) / 256);
-    level = ((int32_t)dsp->gate * 64 + 40) / 80 + delta;
-    if (level < 0) level = 0;
-    if (level > 128) level = 128;
-    envelope[written++] = (uint8_t)((level * gain_q15 + 16384) >> 15);
+    am = 0.5f * ((float)dsp->gate / DSP_GATE_FULL) +
+         DSP_MODULATION * limited * dsp->agc_gain;
+    if (am < 0.0f) am = 0.0f;
+    if (am > 1.0f) am = 1.0f;
+    /* Error-feedback quantiser.  A plain 8-bit round of a sine whose period
+     * is not an integer number of 20 kHz samples produces a low-frequency
+     * beat at |f - 20000/round(20000/f)| (C4: 1.5 Hz, A4: 4.4 Hz), heard as
+     * a tone-dependent 1..5 Hz strength wobble and extra sidebands.  Feeding
+     * the previous rounding error forward high-pass shapes that error, which
+     * removes the low-frequency beat at the cost of a little HF hiss. */
+    {
+      float value = am * 128.0f + dsp->quant_error;
+      int level = (int)lrintf(value);
+      if (level < 0) level = 0;
+      if (level > 128) level = 128;
+      dsp->quant_error = value - (float)level;
+      envelope[written++] = (uint8_t)level;
+    }
 
-    if (target_gain_q16 > dsp->normalization_gain_q16) {
-      uint32_t difference = target_gain_q16 - dsp->normalization_gain_q16;
-      dsp->normalization_gain_q16 += difference > GAIN_RISE_STEP_Q16 ?
-                                     GAIN_RISE_STEP_Q16 : difference;
-    } else if (target_gain_q16 < dsp->normalization_gain_q16) {
-      uint32_t difference = dsp->normalization_gain_q16 - target_gain_q16;
-      dsp->normalization_gain_q16 -= difference > GAIN_FALL_STEP_Q16 ?
-                                     GAIN_FALL_STEP_Q16 : difference;
+    if (target > dsp->agc_gain) {
+      float d = target - dsp->agc_gain;
+      dsp->agc_gain += d > DSP_AGC_RISE ? DSP_AGC_RISE : d;
+    } else if (target < dsp->agc_gain) {
+      float d = dsp->agc_gain - target;
+      dsp->agc_gain -= d > DSP_AGC_FALL ? DSP_AGC_FALL : d;
     }
   }
   return written;

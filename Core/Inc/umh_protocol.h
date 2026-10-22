@@ -56,6 +56,17 @@ typedef enum {
   UMH_MSG_MOD_FEED           = 0x92,
   UMH_MSG_MOD_STOP           = 0x93,
   UMH_MSG_MOD_STATUS         = 0x94,
+  /* Single-channel burst start from silence, used to characterise the
+   * turn-on transient of one element.  Payload is four bytes:
+   *   [0] channel 0..83, [1] final level 1..128, [2] ramp_ticks 0..31,
+   *   [3] reserved.
+   * The device silences the array, enables that one element through the FPGA
+   * common-level path, then plays a linear level ramp 0 -> level in
+   * ramp_ticks steps of two carrier periods each (50 us at 40 kHz); zero
+   * ramp_ticks is a hard step.  The FPGA paces the ramp from its own clock,
+   * and the final level is held until STOP_PLAN / CLEAR_PLAN clears the
+   * common-level mode. */
+  UMH_MSG_RAMP_BURST         = 0x95,
   UMH_MSG_ACK                 = 0x70,
   UMH_MSG_NACK                = 0x71,
   UMH_MSG_CAL_DUMP            = 0x80,

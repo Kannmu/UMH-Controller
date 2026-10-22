@@ -1336,6 +1336,15 @@ HAL_StatusTypeDef HAL_PCD_EP_Open(PCD_HandleTypeDef *hpcd, uint8_t ep_addr,
   }
 
   __HAL_LOCK(hpcd);
+  if ((ep_type == EP_TYPE_ISOC) && (ep->is_in == 0U))
+  {
+    /* The isochronous OUT RX-count field shares its register with the buffer
+     * size encoding and is only rewritten when the core stores a packet.
+     * Clear it before the endpoint is armed so the first frame of a stream
+     * cannot be read back with a stale length.  (Bulk/control endpoints are
+     * deliberately left untouched.) */
+    *PCD_EP_RX_CNT(hpcd->Instance, ep->num) = 0U;
+  }
   (void)USB_ActivateEndpoint(hpcd->Instance, ep);
   __HAL_UNLOCK(hpcd);
 
@@ -1391,6 +1400,20 @@ HAL_StatusTypeDef HAL_PCD_EP_Receive(PCD_HandleTypeDef *hpcd, uint8_t ep_addr, u
   ep->xfer_count = 0U;
   ep->is_in = 0U;
   ep->num = ep_addr & EP_ADDR_MSK;
+
+  /* The isochronous OUT count register doubles as the PMA buffer-size limit
+   * and is overwritten by the core with the length of the packet it has just
+   * stored.  Writing it only once at EP open (the stock HAL) leaves the size
+   * of the last frame in force: after a short or zero-length frame the next
+   * full-size frame is truncated in PMA and the host's audio pipe looks dead.
+   * Re-program the advertised size for every isochronous re-arm.  NAK first so
+   * the core cannot store a packet while the count is being rewritten;
+   * USB_EPStartXfer() sets the endpoint VALID again. */
+  if ((ep->type == EP_TYPE_ISOC) && (ep->num != 0U))
+  {
+    PCD_SET_EP_RX_STATUS(hpcd->Instance, ep->num, USB_EP_RX_NAK);
+    PCD_SET_EP_RX_CNT(hpcd->Instance, ep->num, ep->maxpacket);
+  }
 
   (void)USB_EPStartXfer(hpcd->Instance, ep);
 
@@ -1771,6 +1794,15 @@ static HAL_StatusTypeDef PCD_EP_ISR_Handler(PCD_HandleTypeDef *hpcd)
         {
           count = (uint16_t)PCD_GET_EP_RX_CNT(hpcd->Instance, ep->num);
 
+          /* A full-speed isochronous OUT endpoint carries exactly one packet
+           * per frame and that packet can never exceed wMaxPacketSize.  Clamp
+           * before the copy so a stale or not-yet-updated RX count can never
+           * overrun the single-packet buffer supplied by the class driver. */
+          if ((ep->type == EP_TYPE_ISOC) && (count > (uint16_t)ep->maxpacket))
+          {
+            count = (uint16_t)ep->maxpacket;
+          }
+
           if (count != 0U)
           {
             USB_ReadPMA(hpcd->Instance, ep->xfer_buff, ep->pmaadress, count);
@@ -1816,7 +1848,14 @@ static HAL_StatusTypeDef PCD_EP_ISR_Handler(PCD_HandleTypeDef *hpcd)
         /* multi-packet on the NON control OUT endpoint */
         ep->xfer_count += count;
 
-        if ((ep->xfer_len == 0U) || (count < ep->maxpacket))
+        /* Isochronous OUT is always a single packet per frame: report it as
+         * complete even when its length equals wMaxPacketSize.  The
+         * multi-packet branch below belongs to bulk transfers; for an
+         * isochronous sink it re-arms with an advanced xfer_buff, which is
+         * not a valid model and would run past the caller's packet buffer if
+         * the armed length ever exceeded wMaxPacketSize. */
+        if ((ep->type == EP_TYPE_ISOC) || (ep->xfer_len == 0U) ||
+            (count < ep->maxpacket))
         {
           /* RX COMPLETE */
 #if (USE_HAL_PCD_REGISTER_CALLBACKS == 1U)

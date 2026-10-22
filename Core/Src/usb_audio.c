@@ -63,15 +63,23 @@ void umh_usb_audio_receive(const uint8_t *data, uint16_t length)
   uint16_t count, index, first;
   if (streaming == 0u || length == 0u) return;
   if (data == NULL || length > UMH_USB_AUDIO_PACKET_MAX || (length & 1u) != 0u) {
+    /* Drop only the malformed frame.  Resetting the whole ring here threw away
+     * up to 5 ms of already-received PCM and, worse, made the next service
+     * pass see a discontinuity; a single bad isochronous length is not a
+     * reason to tear the session down. */
     ++umh_usb_audio_stats.bad_packets;
-    umh_usb_audio_set_stream(0u); /* malformed PCM fails closed */
     return;
   }
   count = length / 2u;
   if (head - tail + count > UMH_USB_AUDIO_RING_SAMPLES) {
-    umh_usb_audio_stats.dropped_samples += head - tail;
-    head = tail = 0u;
-    ++generation; /* discard stale history and restart only with fresh PCM */
+    /* Keep the queued history and drop the new frame.  The old code advanced
+     * generation here, which aborted the running common-level stream and
+     * forced a fresh ~13 ms prebuffer; a single overflow during the initial
+     * SPI/SETUP window then produced a burst of restarts instead of one short
+     * gap.  The aperture ring has 102 ms of slack, so a dropped 1 ms frame is
+     * inaudible while a stream restart is not. */
+    umh_usb_audio_stats.dropped_samples += count;
+    return;
   }
   index = (uint16_t)(head & (UMH_USB_AUDIO_RING_SAMPLES - 1u));
   first = (uint16_t)(UMH_USB_AUDIO_RING_SAMPLES - index);

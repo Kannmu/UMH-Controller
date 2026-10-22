@@ -493,7 +493,9 @@ uint32_t hologram_engine_service(umh_hologram_engine_t *engine, fpga_link_t *lin
     {
       uint16_t i;
       for (i = 0u; i < UMH_HOLOGRAM_CHANNELS; ++i) {
-        frame.channels[i].phase = phase[i];
+        /* The frame builder marks the rising edge of the high window, so the
+         * fundamental trails it by level/2 slots; carry the window centre. */
+        frame.channels[i].phase = (uint8_t)(phase[i] - (uint8_t)(level[i] >> 1));
         frame.channels[i].level = level[i];
       }
     }

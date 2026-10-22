@@ -18,10 +18,12 @@
 #define UAC_RATE_CONTROL 1u
 
 enum { EP0_NONE, EP0_CDC, EP0_MUTE, EP0_VOLUME, EP0_RATE };
-static uint8_t ep0_owner, alternate, suspended;
+static uint8_t ep0_owner, alternate, suspended, audio_ep_open;
 static uint8_t control[4] __attribute__((aligned(4)));
-/* RX PMA rounds a 98-byte endpoint to 128 bytes.  Keep the RAM staging buffer
- * that size too: a malformed host packet cannot overflow it before validation. */
+/* RX PMA rounds a 96-byte endpoint to 96 bytes (the three 32-byte blocks the
+ * core programs from wMaxPacketSize).  Keep the RAM staging buffer the full
+ * 128-byte allocation: a malformed host packet cannot overflow it before the
+ * length validation in umh_usb_audio_receive(). */
 static uint8_t audio_rx[UAC_PMA_BYTES] __attribute__((aligned(4)));
 
 /* ST core writes descriptor[1] when serving GET_CONFIGURATION, hence this
@@ -69,6 +71,8 @@ static uint8_t configuration[UAC_CONFIG_DESC_SIZE] __attribute__((aligned(4))) =
 _Static_assert(sizeof(configuration) == UAC_CONFIG_DESC_SIZE, "composite descriptor size");
 _Static_assert(UAC_PMA_OUT >= 0x148u && UAC_PMA_OUT + UAC_PMA_BYTES <= 512u,
                "audio PMA must not overlap CDC and must fit even a 512-byte PMA");
+_Static_assert(UAC_PMA_BYTES >= UMH_USB_AUDIO_PACKET_MAX,
+               "one isochronous packet must fit the staging buffer");
 
 static uint8_t *get_config(uint16_t *length)
 {
@@ -85,18 +89,44 @@ static uint8_t fail(USBD_HandleTypeDef *pdev, USBD_SetupReqTypedef *req)
 static void close_audio(USBD_HandleTypeDef *pdev)
 {
   umh_usb_audio_set_stream(0u);
-  if (alternate != 0u) {
+  if (audio_ep_open != 0u) {
     (void)USBD_LL_CloseEP(pdev, UAC_OUT_EP);
     pdev->ep_out[UAC_OUT_EP].is_used = 0u;
+    audio_ep_open = 0u;
   }
   alternate = 0u;
+}
+
+/* Configure the isochronous OUT endpoint once per configuration and keep it
+ * configured across alternate-setting changes.  Opening it only while alt 1
+ * is selected and closing it again on SET_INTERFACE(0) makes the host's USB
+ * audio driver tear down the endpoint on every stop; Windows then reports
+ * AUDCLNT_E_DEVICE_INVALIDATED on the next play until the device is
+ * re-enumerated.  The endpoint is inert while alt 0 (the host has no pipe for
+ * an interface with no endpoints), so leaving it enabled is harmless. */
+static uint8_t open_audio(USBD_HandleTypeDef *pdev)
+{
+  if (audio_ep_open == 0u) {
+    if (USBD_LL_OpenEP(pdev, UAC_OUT_EP, USBD_EP_TYPE_ISOC,
+                       UMH_USB_AUDIO_PACKET_MAX) != USBD_OK)
+      return USBD_FAIL;
+    pdev->ep_out[UAC_OUT_EP].is_used = 1u;
+    audio_ep_open = 1u;
+  }
+  return USBD_OK;
 }
 
 static uint8_t composite_init(USBD_HandleTypeDef *pdev, uint8_t cfgidx)
 {
   alternate = suspended = ep0_owner = 0u;
+  audio_ep_open = 0u;
   umh_usb_audio_init();
-  return USBD_CDC.Init(pdev, cfgidx);
+  if (USBD_CDC.Init(pdev, cfgidx) != USBD_OK) return USBD_FAIL;
+  if (open_audio(pdev) != USBD_OK) {
+    (void)USBD_CDC.DeInit(pdev, cfgidx);
+    return USBD_FAIL;
+  }
+  return USBD_OK;
 }
 
 static uint8_t composite_deinit(USBD_HandleTypeDef *pdev, uint8_t cfgidx)
@@ -127,21 +157,45 @@ static uint8_t audio_standard(USBD_HandleTypeDef *pdev, USBD_SetupReqTypedef *re
           (iface == UAC_CONTROL_INTERFACE && req->wValue != 0u))
         return fail(pdev, req);
       if (iface == UAC_CONTROL_INTERFACE) return USBD_OK;
-      close_audio(pdev);
       suspended = 0u;
-      if (req->wValue == 1u) {
-        if (USBD_LL_OpenEP(pdev, UAC_OUT_EP, USBD_EP_TYPE_ISOC,
-                            UMH_USB_AUDIO_PACKET_MAX) != USBD_OK)
-          return fail(pdev, req);
-        pdev->ep_out[UAC_OUT_EP].is_used = 1u;
-        alternate = 1u;
-        umh_usb_audio_set_stream(1u);
-        if (USBD_LL_PrepareReceive(pdev, UAC_OUT_EP, audio_rx,
-                                   UMH_USB_AUDIO_PACKET_MAX) != USBD_OK) {
-          close_audio(pdev);
-          return fail(pdev, req);
-        }
+      if (req->wValue == 0u) {
+        alternate = 0u;
+        umh_usb_audio_set_stream(0u);
+        return USBD_OK;
       }
+      if (open_audio(pdev) != USBD_OK) return fail(pdev, req);
+      alternate = 1u;
+      umh_usb_audio_set_stream(1u);
+      if (USBD_LL_PrepareReceive(pdev, UAC_OUT_EP, audio_rx,
+                                 UMH_USB_AUDIO_PACKET_MAX) != USBD_OK) {
+        alternate = 0u;
+        umh_usb_audio_set_stream(0u);
+        return fail(pdev, req);
+      }
+      return USBD_OK;
+    default:
+      return fail(pdev, req);
+  }
+}
+
+/* Standard requests addressed to the isochronous OUT endpoint.  macOS and
+ * iOS query endpoint status (and clear a halt) while opening a stream; a
+ * stall here can make the host retry or abandon the stream, which shows up as
+ * a device that enumerates but never plays. */
+static uint8_t audio_endpoint_standard(USBD_HandleTypeDef *pdev, USBD_SetupReqTypedef *req)
+{
+  switch (req->bRequest) {
+    case USB_REQ_GET_STATUS:
+      if (req->bmRequest != 0x82u || req->wLength != 2u || req->wValue != 0u)
+        return fail(pdev, req);
+      control[0] = control[1] = 0u;
+      return USBD_CtlSendData(pdev, control, 2u);
+    case USB_REQ_CLEAR_FEATURE:
+      /* Isochronous endpoints are never halted by this device; acknowledge so
+       * the host does not keep the stream in an error state. */
+      if (req->bmRequest != 0x02u || req->wValue != USB_FEATURE_EP_HALT ||
+          req->wLength != 0u)
+        return fail(pdev, req);
       return USBD_OK;
     default:
       return fail(pdev, req);
@@ -168,6 +222,9 @@ static uint8_t composite_setup(USBD_HandleTypeDef *pdev, USBD_SetupReqTypedef *r
   if (recipient == USB_REQ_RECIPIENT_ENDPOINT &&
       (iface == CDC_IN_EP || iface == CDC_OUT_EP || iface == CDC_CMD_EP))
     return USBD_CDC.Setup(pdev, req);
+  if (recipient == USB_REQ_RECIPIENT_ENDPOINT && iface == UAC_OUT_EP &&
+      (req->bmRequest & USB_REQ_TYPE_MASK) == USB_REQ_TYPE_STANDARD)
+    return audio_endpoint_standard(pdev, req);
   if (recipient == USB_REQ_RECIPIENT_INTERFACE &&
       (iface == UAC_CONTROL_INTERFACE || iface == UAC_STREAM_INTERFACE) &&
       (req->bmRequest & USB_REQ_TYPE_MASK) == USB_REQ_TYPE_STANDARD)
@@ -250,17 +307,20 @@ static uint8_t data_in(USBD_HandleTypeDef *pdev, uint8_t epnum)
 static uint8_t data_out(USBD_HandleTypeDef *pdev, uint8_t epnum)
 {
   if (epnum == CDC_OUT_EP) return USBD_CDC.DataOut(pdev, epnum);
-  if (epnum == UAC_OUT_EP && alternate != 0u) {
-    umh_usb_audio_receive(audio_rx, (uint16_t)USBD_LL_GetRxDataSize(pdev, epnum));
-    return USBD_LL_PrepareReceive(pdev, UAC_OUT_EP, audio_rx, UMH_USB_AUDIO_PACKET_MAX);
+  if (epnum == UAC_OUT_EP) {
+    if (alternate != 0u)
+      umh_usb_audio_receive(audio_rx, (uint16_t)USBD_LL_GetRxDataSize(pdev, epnum));
+    return USBD_LL_PrepareReceive(pdev, UAC_OUT_EP, audio_rx,
+                                  UMH_USB_AUDIO_PACKET_MAX);
   }
   return USBD_OK;
 }
 
 static uint8_t iso_out_incomplete(USBD_HandleTypeDef *pdev, uint8_t epnum)
 {
-  if (epnum == UAC_OUT_EP && alternate != 0u)
-    return USBD_LL_PrepareReceive(pdev, UAC_OUT_EP, audio_rx, UMH_USB_AUDIO_PACKET_MAX);
+  if (epnum == UAC_OUT_EP && audio_ep_open != 0u)
+    return USBD_LL_PrepareReceive(pdev, UAC_OUT_EP, audio_rx,
+                                  UMH_USB_AUDIO_PACKET_MAX);
   return USBD_OK;
 }
 

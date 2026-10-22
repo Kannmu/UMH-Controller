@@ -309,6 +309,29 @@ uint32 max_service_us
 BUSY。重新发送 `MOD_CONFIGURE` 会中止上一路流并重新装载相位。`MOD_STOP`
 由渲染任务先线性淡出到 0，再发送 FPGA `MOD_FIXED=0` 和 STOP。
 
+### 单通道突发启动（0x95）
+
+`RAMP_BURST=0x95` 用同一条公共电平通路做一次“从静音到目标电平”的单阵元
+启动，专门用来测换能器的开通瞬态。载荷 4 字节：
+
+```
+uint8 channel      0..83
+uint8 level        1..255，最终电平（128 = 50% 占空比满幅度）
+uint8 ramp_ticks   0..31，上升步数；0 = 硬边沿
+uint8 reserved     0
+```
+
+设备先静音整列，只给 `channel` 打上使能标记，再进入 FPGA 公共电平模式
+（`MOD_FIXED=1`）；随后把 `ramp_ticks+1` 个电平推入 FPGA 的电平 FIFO：
+从 0 线性升到 `level`，**每个电平由 FPGA 自己保持两个载波周期（40 kHz 下
+50 µs）**，因此 `ramp_ticks=6` 正好是 300 µs 的线性占空比斜坡，`ramp_ticks=0`
+就是块流本来会产生的硬边沿。斜坡由 FPGA 时钟定拍，MCU 或 USB 的抖动进不到
+包络里。最后一个电平一直保持到下一次 `STOP_PLAN`/`CLEAR_PLAN`，这两条命令
+同时把 FPGA 的公共电平模式清掉，所以紧接着的普通 `FRAME` 不会被重建在保持
+的公共电平上。
+
+该命令与块流、播放计划、运动、全息、超声枪和校准互斥（占用时返回 BUSY）。
+
 ## PA9 扳机输入（超声枪）
 
 `PA9`/`TRIGGER` 是按键输入而不是输出：内部上拉在按键断开时把引脚保持在高

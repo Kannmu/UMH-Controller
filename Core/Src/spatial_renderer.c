@@ -192,6 +192,7 @@ int spatial_renderer_finalize(const umh_spatial_renderer_t *renderer,
   for (i = 0u; i < active_count; ++i) {
     uint16_t c = active_index[i];
     float magnitude = umh_hypotf(real_accum[c], imag_accum[c]);
+    uint8_t level;
     if (magnitude > 1.0f) magnitude = 1.0f;
     if (have_codes != 0u) {
       frame->channels[c].phase = phase_codes[c];
@@ -206,7 +207,16 @@ int spatial_renderer_finalize(const umh_spatial_renderer_t *renderer,
      * carrier.  Full spatial amplitude therefore maps to a 50% duty
      * (level=128).  Using 255 here would be 99.6% DC and would leave no
      * 40 kHz component for the transducer to launch. */
-    frame->channels[c].level = (uint8_t)(magnitude * 128.0f + 0.5f);
+    level = (uint8_t)(magnitude * 128.0f + 0.5f);
+    frame->channels[c].level = level;
+    /* The frame builder anchors the high window on its rising edge, so the
+     * fundamental of the emitted rectangle lags that edge by half the window
+     * (pi*D).  Advancing the phase word by level/2 slots puts the centre of
+     * the window, and not its edge, on the commanded phase.  Without this a
+     * tapered channel would acquire an AM-to-PM error of up to pi/2 relative
+     * to a full-amplitude one. */
+    frame->channels[c].phase =
+        (uint8_t)(frame->channels[c].phase - (uint8_t)(level >> 1));
   }
   /* Channels outside the calibrated set keep the phase the caller left in the
    * frame and are muted, which is exactly what the previous per-channel enable
