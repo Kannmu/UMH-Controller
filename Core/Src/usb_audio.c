@@ -61,7 +61,12 @@ void umh_usb_audio_receive(const uint8_t *data, uint16_t length)
 {
   uint32_t start = DWT->CYCCNT;
   uint16_t count, index, first;
-  if (streaming == 0u || length == 0u) return;
+  if (streaming == 0u) return;
+  if (length == 0u) {
+    ++umh_usb_audio_stats.zero_packets;
+    return;
+  }
+  if (length != UMH_USB_AUDIO_PACKET_MAX) ++umh_usb_audio_stats.short_packets;
   if (data == NULL || length > UMH_USB_AUDIO_PACKET_MAX || (length & 1u) != 0u) {
     /* Drop only the malformed frame.  Resetting the whole ring here threw away
      * up to 5 ms of already-received PCM and, worse, made the next service
@@ -71,6 +76,18 @@ void umh_usb_audio_receive(const uint8_t *data, uint16_t length)
     return;
   }
   count = length / 2u;
+  {
+    const int16_t *pcm = (const int16_t *)(const void *)data;
+    uint32_t max_delta = 0u;
+    for (index = 1u; index < count; ++index) {
+      int32_t d = (int32_t)pcm[index] - (int32_t)pcm[index - 1u];
+      if (d < 0) d = -d;
+      if ((uint32_t)d > max_delta) max_delta = (uint32_t)d;
+    }
+    if (max_delta > umh_usb_audio_stats.max_packet_delta)
+      umh_usb_audio_stats.max_packet_delta = max_delta;
+    if (max_delta > 4000u) ++umh_usb_audio_stats.bad_delta_packets;
+  }
   if (head - tail + count > UMH_USB_AUDIO_RING_SAMPLES) {
     /* Keep the queued history and drop the new frame.  The old code advanced
      * generation here, which aborted the running common-level stream and

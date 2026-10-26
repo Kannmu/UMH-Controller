@@ -549,7 +549,7 @@ int motion_engine_configure(umh_motion_engine_t *engine, const uint8_t *payload,
   if (ext != NULL) {
     if (ext->ulm_frequency_hz > 1000u) return -10;
     if (ext->ulm_wave_speed_mm_s > 10000u) return -11;
-    if (ext->ulm_axis > 3u) return -12;
+    if ((ext->ulm_axis & UMH_MOTION_ULM_AXIS_BITS) != 0u) return -12;
   }
   if (motion_lock(engine) != 0) return -9;
   engine->mode = wire->mode;
@@ -958,11 +958,20 @@ uint32_t motion_engine_service(umh_motion_engine_t *engine,
     }
     if ((engine->flags & UMH_MOTION_FLAG_ULM) != 0u &&
         engine->ulm_frequency_hz != 0u && engine->ulm_amplitude_um > 0) {
-      float ulm_off = sinf(UMH_TWO_PI * engine->ulm_phase) * (float)engine->ulm_amplitude_um;
-      float ulm_off_q = cosf(UMH_TWO_PI * engine->ulm_phase) * (float)engine->ulm_amplitude_um;
-      if (engine->ulm_axis == 1u) emit_x += ulm_off;
-      else if (engine->ulm_axis == 2u) emit_y += ulm_off;
-      else { emit_x += ulm_off; emit_y += ulm_off_q; }
+      uint8_t ulm_axis = engine->ulm_axis & UMH_MOTION_ULM_AXIS_MASK;
+      float ulm_amp = (float)engine->ulm_amplitude_um;
+      if ((engine->ulm_axis & UMH_MOTION_ULM_SAWTOOTH) != 0u) {
+        /* Unidirectional -A -> +A ramp; phase wrap is the flyback reset. */
+        float ulm_off = (2.0f * engine->ulm_phase - 1.0f) * ulm_amp;
+        if (ulm_axis == 1u) emit_x += ulm_off;
+        else emit_y += ulm_off;
+      } else {
+        float ulm_off = sinf(UMH_TWO_PI * engine->ulm_phase) * ulm_amp;
+        float ulm_off_q = cosf(UMH_TWO_PI * engine->ulm_phase) * ulm_amp;
+        if (ulm_axis == 1u) emit_x += ulm_off;
+        else if (ulm_axis == 2u) emit_y += ulm_off;
+        else { emit_x += ulm_off; emit_y += ulm_off_q; }
+      }
     }
     float palette_emit = (engine->display_flags & UMH_MOTION_DISPLAY_SMOOTH_PALETTE) != 0u ?
         engine->palette_pos : (float)engine->last_palette;

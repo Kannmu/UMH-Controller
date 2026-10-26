@@ -136,7 +136,16 @@ void system_status_fault(umh_fault_code_t code, uint32_t argument,
 
 void configureTimerForRunTimeStats(void) { }
 
+/* Scheduler run-time accounting.
+ *
+ * TIM2 already runs as the 1 MHz wall clock, so the same free-running counter
+ * gives the profiler microsecond resolution instead of the 1 ms tick.  The
+ * kernel only ever subtracts two samples (ulTaskSwitchedInTime), so the 32-bit
+ * wrap every 71 minutes costs exactly the one switch interval that straddles
+ * it; no accumulated state depends on the absolute value.  Before
+ * system_time_init() starts TIM2 the counter reads 0, which is also where the
+ * timer starts, so the transition is continuous. */
 unsigned long getRunTimeCounterValue(void)
 {
-  return (unsigned long)HAL_GetTick();
+  return time_ready != 0u ? (unsigned long)TIM2->CNT : 0ul;
 }

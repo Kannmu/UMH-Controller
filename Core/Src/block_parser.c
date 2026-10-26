@@ -87,15 +87,20 @@ static int apply_channel_state(const umh_track_wire_descriptor_t *track,
   } else if (track->target_mode != UMH_TARGET_ALL) return -2;
   if (track->encoding == UMH_ENCODING_DENSE) {
     if (track->target_mode == UMH_TARGET_SPARSE || length < payload_offset + target_count * 2u) return -3;
+    /* A bitmap target indexes the payload by the ordinal of the selected
+     * channel, not by the channel number.  The ordinal is carried in a running
+     * counter: recomputing the prefix popcount of the bitmap for every channel
+     * made this loop O(n^2) (up to 3.5k iterations for one dense record), and
+     * a host that streams bitmap-targeted frames pays it on every record. */
+    uint16_t bitmap_ordinal = 0u;
     for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
       uint8_t selected = track->target_mode == UMH_TARGET_BITMAP ?
                          (uint8_t)((payload[i / 8u] >> (i % 8u)) & 1u) :
                          (uint8_t)(i >= target_start && i < target_start + target_count);
-      uint16_t source_index = 0u;
+      uint16_t source_index;
       if (selected == 0u) continue;
       if (track->target_mode == UMH_TARGET_BITMAP) {
-        for (uint16_t j = 0u; j < i; ++j)
-          if ((payload[j / 8u] & (uint8_t)(1u << (j % 8u))) != 0u) ++source_index;
+        source_index = bitmap_ordinal++;
       } else {
         source_index = (uint16_t)(i - target_start);
       }

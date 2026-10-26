@@ -19,6 +19,7 @@
 #include "oled_ssd1315.h"
 #include "input_events.h"
 #include "system_status.h"
+#include "task_stats.h"
 #include "device_gui.h"
 #include "us_calibration.h"
 #include "demo_engine.h"
@@ -59,6 +60,14 @@ static umh_aperture_mod_t aperture_mod;
 static usb_audio_dsp_t usb_audio_dsp;
 static volatile uint8_t usb_audio_owns, usb_audio_inhibited;
 static uint32_t usb_audio_epoch, usb_audio_blocked_epoch, usb_audio_sequence;
+/* UAC envelope feed accumulator.  Feeding aperture_mod 20 samples every
+ * millisecond put a 1 kHz component on the common level; the microphone
+ * comparison showed the UAC-specific 1.2..1.3 kHz sideband (1 kHz + 261.6 Hz)
+ * that the CDC path (256-sample frames at 78 Hz) does not have.  Accumulate
+ * to 32 samples so the host feed rate is ~625 Hz instead of 1 kHz. */
+static uint8_t usb_audio_env_block[256];
+#define UAC_SERVICE_BLOCK 48u
+static uint16_t usb_audio_env_count;
 static umh_motion_engine_t motion_engine;
 static umh_hologram_engine_t hologram_engine;
 static umh_gun_trigger_t gun_trigger;
@@ -1442,6 +1451,7 @@ static void storage_process(const umh_protocol_frame_t *frame)
  * takeovers inhibit this UAC stream until the host opens a new AS epoch. */
 static void usb_audio_release(void)
 {
+  usb_audio_env_count = 0u;
   if (usb_audio_owns != 0u) {
     usb_audio_owns = 0u;
     umh_usb_audio_stats.owns_output = 0u;
@@ -1480,7 +1490,7 @@ static uint8_t usb_audio_output_busy(void)
 
 static void usb_audio_service(void)
 {
-  int16_t pcm[UMH_USB_AUDIO_BLOCK_SAMPLES];
+  int16_t pcm[UAC_SERVICE_BLOCK];
   uint8_t envelope[USB_AUDIO_DSP_OUTPUT_MAX];
   uint32_t epoch = umh_usb_audio_generation();
   uint8_t block;
@@ -1508,7 +1518,7 @@ static void usb_audio_service(void)
   /* Four packets per pass bounds latency and leaves CDC and the trigger live.
    * The 20 kHz FIFO render task remains the highest-priority consumer. */
   for (block = 0u; block < 4u; ++block) {
-    uint16_t count = umh_usb_audio_read(pcm, UMH_USB_AUDIO_BLOCK_SAMPLES);
+    uint16_t count = umh_usb_audio_read(pcm, UAC_SERVICE_BLOCK);
     uint16_t output, i;
     uint8_t maximum = 0u, minimum = 128u;
     uint32_t cycles;
@@ -1580,9 +1590,25 @@ static void usb_audio_service(void)
       umh_usb_audio_stats.owns_output = 1u;
       system_status_set(UMH_SYSTEM_USB_AUDIO);
     }
-    if (aperture_mod_feed(&aperture_mod, envelope, output, usb_audio_sequence++) != 0) {
-      usb_audio_cancel();
-      return;
+    if (output != 0u) {
+      if ((uint32_t)usb_audio_env_count + output > sizeof(usb_audio_env_block)) {
+        if (aperture_mod_feed(&aperture_mod, usb_audio_env_block,
+                              usb_audio_env_count, usb_audio_sequence++) != 0) {
+          usb_audio_cancel();
+          return;
+        }
+        usb_audio_env_count = 0u;
+      }
+      memcpy(&usb_audio_env_block[usb_audio_env_count], envelope, output);
+      usb_audio_env_count = (uint16_t)(usb_audio_env_count + output);
+      if (usb_audio_env_count >= sizeof(usb_audio_env_block)) {
+        if (aperture_mod_feed(&aperture_mod, usb_audio_env_block,
+                              usb_audio_env_count, usb_audio_sequence++) != 0) {
+          usb_audio_cancel();
+          return;
+        }
+        usb_audio_env_count = 0u;
+      }
     }
   }
 }
@@ -2303,6 +2329,14 @@ static void update_motion_mode_flags(void)
   system_status_modify(mask & ~wanted, wanted);
 }
 
+/* Render-path cycle profile, readable from a debugger as an untyped word array
+ * so no DWARF type lookup is involved.
+ *   [0] frames submitted          [1] sum loop-entry -> submit-entry cycles
+ *   [2] max of [1]                [3] sum cycles inside fpga_link_submit
+ *   [4] max of [3]                [5] sum whole-iteration cycles
+ *   [6] max of [5]                [7] credit-wait retries */
+volatile uint32_t umh_render_profile[8];
+
 static void render_task(void *argument)
 {
   umh_output_frame_t *frame;
@@ -2311,9 +2345,11 @@ static void render_task(void *argument)
   uint64_t elapsed_us;
   uint16_t previous_fpga_flags = 0u;
   uint8_t render_burst = 0u;
+  uint32_t render_idle_poll_ms = 0u;
   (void)argument;
   render_task_handle = xTaskGetCurrentTaskHandle();
   for (;;) {
+    uint32_t loop_start_cycles = DWT->CYCCNT;
     update_motion_mode_flags();
     /* Voice capture and playback are serviced below the static gun branch. */
     /* A held PA9 shot is one static image the FPGA already has: nothing is
@@ -2444,7 +2480,18 @@ static void render_task(void *argument)
       uint8_t due = playback_plan_frame_due(&playback_plan, frame->deadline, now_us);
       if (due != 0u) {
         if (fpga_link_status(&fpga_link)->fifo_credit != 0u) {
+          uint32_t t_before = DWT->CYCCNT;
+          uint32_t t_pre = t_before - loop_start_cycles;
           int submit_result = fpga_link_submit_allow_hold(&fpga_link, frame, 1u);
+          uint32_t t_submit = DWT->CYCCNT - t_before;
+          ++umh_render_profile[0];
+          umh_render_profile[1] += t_pre;
+          if (t_pre > umh_render_profile[2]) umh_render_profile[2] = t_pre;
+          umh_render_profile[3] += t_submit;
+          if (t_submit > umh_render_profile[4]) umh_render_profile[4] = t_submit;
+          umh_render_profile[5] += t_pre + t_submit;
+          if ((t_pre + t_submit) > umh_render_profile[6])
+            umh_render_profile[6] = t_pre + t_submit;
           if (submit_result == 0) {
             (void)frame_ring_release_read(&frame_ring);
             playback_plan_frame_submitted(&playback_plan);
@@ -2479,6 +2526,7 @@ static void render_task(void *argument)
            * the real credit and retry without dropping into a full 1 ms RTOS
            * tick: at a 200 Hz trajectory each extra tick would destroy the
            * frame cadence. */
+          ++umh_render_profile[7];
           (void)fpga_link_poll_status(&fpga_link);
           continue;
         }
@@ -2498,7 +2546,15 @@ static void render_task(void *argument)
       }
     } else {
       render_burst = 0u;
-      (void)fpga_link_poll_status(&fpga_link);
+      /* Keep the FPGA link alive without paying an SPI transaction on every
+       * 1 ms tick.  The FPGA link watchdog drops the last frame after ~30 ms
+       * without a CS edge, so a 4 ms status cadence keeps the link up and cuts
+       * the idle SPI traffic (and the render task's idle share) by four. */
+      uint32_t poll_ms = HAL_GetTick();
+      if ((uint32_t)(poll_ms - render_idle_poll_ms) >= 4u) {
+        render_idle_poll_ms = poll_ms;
+        (void)fpga_link_poll_status(&fpga_link);
+      }
       osDelay(1u);
     }
     /* Voice playback leaves its own PLAYING flag in place; this tail belongs to
@@ -2621,6 +2677,10 @@ static void health_task(void *argument)
     HAL_GPIO_TogglePin(HEART_GPIO_Port, HEART_Pin);
     system_status_get()->heartbeat ^= 1u;
     system_status_get()->uptime_ms = HAL_GetTick();
+    /* One scheduler snapshot per heartbeat.  The CPU shares the SYSTEM page
+     * shows and the ones a debugger reads come from this single 4 Hz sample,
+     * so the render path never walks the task list. */
+    umh_task_stats_update();
     osDelay(250u);
   }
 }
@@ -2636,6 +2696,7 @@ static void application_init(void)
   umh_rx_ring_init(&umh_usb_rx_ring);
   device_profile_init(&device_profile);
   system_status_init();
+  umh_task_stats_init();
   i2c_bus_init();
   frame_ring_init(&frame_ring);
   spatial_renderer_init(&renderer, &device_profile);

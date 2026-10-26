@@ -77,3 +77,15 @@ $env:CLEAN_DIAMOND = '1'; cmd /d /c run_diamond.cmd; Remove-Item Env:CLEAN_DIAMO
 - **EEPROM v3**: 布局不变。phase 高字节为修正；cal_level=16；cal_rms_deg_x10=pair sd；cal_tilt_x_x10=verify_gain×10；cal_tilt_y_x10=correction_rms×10；cal_reserved: [0..1] 锥内对数，[2..4] SELFTEST 近场门固定 20/16，[5] level，[6] method=2，[7] 验证胜出组数，[8..9] V×10，[10] 坏通道数，[11] B 门起点。
 - **工具**: `python Utiles/umh_cal_run.py --runs 3`（触发并打印/比较结果），`python Utiles/umh_focus_check.py`（独立聚焦检查），`python Utiles/umh_echo_cal_ref.py --scan <npz>`（与固件同算法的离线参考），`python Utiles/umh_echo_scan.py`（84 通道 64 门剖面采集），`python Utiles/umh_eeprom_phase_zero.py`（清零 EEPROM 相位）。UMH_MSG_CAL_PROBE=0x86 为台架时间剖面探针。
 - **不退回**: 不要恢复近场相位作为生产校准、平面回波 pose 搜索、FISTA/L1、Paley 码、z=0；不要用 level≥48 或多通道同时发射做单通道相位测量；不要去掉锥角限制或 Wiener 收缩；FPGA RTL 不动。
+
+## 性能基线、测量锚点与不可回退的优化（2026-10-26）
+
+- **任务级测量**: `health_task` 每 250 ms 调一次 `umh_task_stats_update()`（Core/Src/task_stats.c）。它把 `uxTaskGetSystemState()` 的结果换算成每任务 CPU 占比（1/100 %）写进 `stats.entries[]`，并累计 `stats.avg_busy_x100` / `peak_busy_x100`；`accum_handle[]`+`accum_sum_x100[]`+`accum_windows` 是窗口平均。GUI 的 SYSTEM 页只读这份缓存，不再在渲染路径里调用调度器。GDB 读 `'task_stats.c'::stats`；把 `stats.reset_request` 写 1 可清零累计量。
+- **运行时间计数器**: `getRunTimeCounterValue()` 返回 TIM2 的 1 MHz 计数（1 µs 分辨率），不再是 `HAL_GetTick()` 的 1 ms。内核只做两次采样相减，32 位 71 分钟回绕只损失跨越回绕点的那一个切换区间，不会累积漂移。
+- **实测基线**（170 MHz，`Utiles/bench/bench_stream.py`，250 ms 窗口）：空闲 CPU 79.5 % → 3.5 %；200 Hz 块播放 → 3.6 %（优化前同一负载下 `disp` 仍占 70.8 %，整机约 79 %；中间态只修好内容比较时是 37.2 %）；`SET_DEMO` 的 4.8 kHz 扫描 91 % → 31 %。稳态 200 Hz 的余量分布：render 1.5 / ui 0.95 / protocol 0.5 / disp 0.3。
+- **OLED 刷新不可回退**: `oled_ssd1315_refresh()` 必须用 `memcmp(framebuffer, shadow)` 决定发哪一页。`device_gui_render()` 每帧先 `clear()` 再重画，会把每个有像素的页的 dirty 位重新置起，dirty 位只能当提示。`send()` 必须走 `HAL_I2C_Master_Transmit_DMA()` + 二值信号量（129 字节页线上约 4 ms，轮询会烧掉整块 CPU）；`oled_ssd1315_draw_char()` 按字节列直接写帧缓冲，不要退回逐像素 `set_pixel`。
+- **FPGA 链路提交不可回退为自旋**: `exchange_dma()` 用 SPI1 RX DMA 的传输完成中断给信号量，render 任务阻塞等待。回调挂在 `hdma_spi1_rx.XferCpltCallback/XferErrorCallback` 上，由 `HAL_DMA_IRQHandler()` 负责清标志；`rx->CCR` 的 TCIE/TEIE 在通道使能前设置。改回 `DMA1->ISR` 轮询会让 4.8 kHz 模式重新吃掉约 90 % CPU。调度器未启动或信号量创建失败时仍走原来的轮询分支。
+- **GUI 文本**: `line()`/`number()`/`page_header()` 用 `put_u32()`/`append_text()`，不要再引入 `snprintf()`——新库每次调用数微秒，33 Hz 重绘下是 UI 任务的主要开销（校准页的稀有格式保留 `snprintf`）。
+- **块解析**: `apply_channel_state()` 的 BITMAP+DENSE 分支用运行计数器 `bitmap_ordinal` 算源索引，不要再退回"每个通道重算前缀 popcount"的 O(n²)。
+- **链路空闲轮询**: render 任务空闲分支每 4 ms 发一次 STATUS（FPGA 看门狗约 30 ms），不必每 1 ms 发。
+- **台架脚本**（`Utiles/bench/`，已被 .gitignore 忽略）: `bench_stream.py {idle,demo,spatial,channel,bitmap}` 经 COM9 打流并在结束后用 GDB 读回平均占用；`ocd.py` 是 OpenOCD TCL 客户端（telnet 4444 / tcl 6666）；`taskstats.gdb`、`oled_check.gdb` 用 GDB 读锚点。**注意**：halt 之后这块板的 Windows CDC 句柄会失效（SetCommState 报错），读完必须 `reset run` 再打开串口。

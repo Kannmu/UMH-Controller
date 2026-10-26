@@ -2,6 +2,7 @@
 #include "main.h"
 #include "demo_engine.h"
 #include "gun_trigger.h"
+#include "task_stats.h"
 #include "FreeRTOS.h"
 #include "task.h"
 #include <stdio.h>
@@ -17,6 +18,8 @@
 
 static void line(device_gui_t *gui, uint8_t row, const char *label, const char *value);
 static void number(char *out, size_t size, uint32_t value);
+static size_t put_u32(char *out, size_t size, uint32_t value, char suffix);
+static size_t append_text(char *out, size_t size, size_t pos, const char *text);
 
 static const char *page_title(device_gui_page_t page)
 {
@@ -46,24 +49,24 @@ static uint8_t page_item_count(const device_gui_t *gui)
   }
 }
 
-static TaskStatus_t gui_task_snapshot[16];
-
 static void render_system(device_gui_t *gui)
 {
-  UBaseType_t count, i;
-  uint32_t total = 0u;
+  const umh_task_stats_t *stats = umh_task_stats_get();
+  uint32_t count = stats->count;
+  uint32_t i;
   char value[16];
-  count = uxTaskGetSystemState(gui_task_snapshot, 16u, &total);
-  if (count > 16u) count = 16u;
+  if (count > UMH_TASK_STATS_MAX) count = UMH_TASK_STATS_MAX;
   line(gui, 0u, "CPU", "MONITOR");
   number(value, sizeof(value), xPortGetFreeHeapSize()); line(gui, 1u, "HEAP", value);
   number(value, sizeof(value), count); line(gui, 2u, "TASKS", value);
-  (void)snprintf(value, sizeof(value), "%lus", (unsigned long)(HAL_GetTick() / 1000u));
+  (void)put_u32(value, sizeof(value), HAL_GetTick() / 1000u, 's');
   line(gui, 3u, "TICK", value);
   for (i = 0u; i < count; ++i) {
-    uint32_t percent = total != 0u ? (uint32_t)(((uint64_t)gui_task_snapshot[i].ulRunTimeCounter * 100u) / total) : 0u;
+    /* The sampler stores the CPU share in 1/100 %, so the page keeps showing
+     * whole percent without a scheduler call in the render path. */
+    uint32_t percent = stats->entries[i].ulRunTimeCounter / 100u;
     (void)snprintf(value, sizeof(value), "%lu%%", (unsigned long)percent);
-    line(gui, (uint8_t)(4u + i), gui_task_snapshot[i].pcTaskName, value);
+    line(gui, (uint8_t)(4u + i), stats->entries[i].pcTaskName, value);
   }
 }
 
@@ -90,10 +93,15 @@ static void line(device_gui_t *gui, uint8_t row, const char *label, const char *
 {
   char text[22];
   uint8_t selected;
+  size_t pos;
   if (row < gui->scroll_offset || row >= (uint8_t)(gui->scroll_offset + GUI_VISIBLE_ROWS)) return;
   selected = (uint8_t)(gui->content_focused != 0u && row == gui->row);
-  /* 5x7 glyphs are six pixels wide. Keep a full blank column between fields. */
-  (void)snprintf(text, sizeof(text), "%-9s%s", label, value != NULL ? value : "-");
+  /* 5x7 glyphs are six pixels wide. Keep a full blank column between fields:
+   * the label is left-justified in 9 characters, exactly like "%-9s%s". */
+  pos = append_text(text, sizeof(text), 0u, label);
+  while (pos < 9u && pos + 1u < sizeof(text)) text[pos++] = ' ';
+  text[pos] = '\0';
+  (void)append_text(text, sizeof(text), pos, value != NULL ? value : "-");
   oled_ssd1315_draw_text(gui->oled, 0u,
                          (uint8_t)(GUI_BODY_Y + (row - gui->scroll_offset) * GUI_ROW_HEIGHT),
                          text, selected);
@@ -108,8 +116,10 @@ static void separator(device_gui_t *gui)
 static void page_header(device_gui_t *gui)
 {
   char title[22];
-  (void)snprintf(title, sizeof(title), "%s %u/%u", page_title(gui->page),
-                 (unsigned)(gui->page + 1u), (unsigned)DEVICE_GUI_PAGE_COUNT);
+  size_t pos = append_text(title, sizeof(title), 0u, page_title(gui->page));
+  pos = append_text(title, sizeof(title), pos, " ");
+  pos += put_u32(title + pos, sizeof(title) - pos, (uint32_t)(gui->page + 1u), '/');
+  (void)put_u32(title + pos, sizeof(title) - pos, (uint32_t)DEVICE_GUI_PAGE_COUNT, '\0');
   /* The title is the top-level menu item. Highlight it until OK enters the page. */
   oled_ssd1315_draw_text(gui->oled, 0u, GUI_TITLE_Y, title,
                          (uint8_t)(gui->content_focused == 0u));
@@ -131,9 +141,40 @@ static void draw_cursor(device_gui_t *gui)
   oled_ssd1315_set_pixel(gui->oled, 127u, y, 1u);
 }
 
+/* Decimal formatting without printf.
+ *
+ * Every repaint formats the title plus one string per visible row, and the UI
+ * repaints at 33 Hz.  newlib-nano charges several microseconds per snprintf(),
+ * which made the string building a visible slice of the UI task; these helpers
+ * are a few dozen cycles each.  Only the text that appears on the common pages
+ * is converted -- the calibration page's rare formats keep snprintf(). */
+static size_t put_u32(char *out, size_t size, uint32_t value, char suffix)
+{
+  char tmp[11];
+  size_t digits = 0u;
+  size_t pos = 0u;
+  if (out == NULL || size == 0u) return 0u;
+  do {
+    tmp[digits++] = (char)('0' + (char)(value % 10u));
+    value /= 10u;
+  } while (value != 0u && digits < sizeof(tmp));
+  while (digits != 0u && pos + 2u < size) out[pos++] = tmp[--digits];
+  if (suffix != '\0' && pos + 1u < size) out[pos++] = suffix;
+  out[pos] = '\0';
+  return pos;
+}
+
+static size_t append_text(char *out, size_t size, size_t pos, const char *text)
+{
+  if (out == NULL || text == NULL || size == 0u) return pos;
+  while (*text != '\0' && pos + 1u < size) out[pos++] = *text++;
+  out[pos] = '\0';
+  return pos;
+}
+
 static void number(char *out, size_t size, uint32_t value)
 {
-  (void)snprintf(out, size, "%lu", (unsigned long)value);
+  (void)put_u32(out, size, value, '\0');
 }
 
 static const char *fault_name(uint16_t code)
@@ -164,7 +205,7 @@ static void render_home(device_gui_t *gui)
        ((s->flags & UMH_SYSTEM_PLAYING) != 0u ? "RUN" : "HOLD") : "IDLE");
   number(value, sizeof(value), s->frame_count); line(gui, 3u, "FRAMES", value);
   number(value, sizeof(value), s->fpga_credit); line(gui, 4u, "CREDIT", value);
-  (void)snprintf(value, sizeof(value), "%lus", (unsigned long)(s->uptime_ms / 1000u));
+  (void)put_u32(value, sizeof(value), s->uptime_ms / 1000u, 's');
   line(gui, 5u, "UPTIME", value);
 }
 

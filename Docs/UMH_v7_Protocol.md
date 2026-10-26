@@ -144,6 +144,12 @@ int16  path_spin_mrad_s  整条轨迹绕阵列 z 轴的实时转台角速度，
 只旋转路径点，不旋转 `trap_mode` 的图案偏移，因此环形/涡旋声场保持
 轴对称。两者均按输出帧的 dt 积分，50..2000 Hz 任意帧率下速度一致。
 
+v7.5.1 的 76 字节 ULM 扩展把 `ulm_axis` 的 bit7 定义为波形选择：0 为正弦
+（双向），1 为单向锯齿。低两位仍为 1=x、2=y、3=环形；bit2..6 保留且必须
+为 0。锯齿模式下 `ulm_phase` 仍按 `ulm_frequency_hz * dt` 累加，输出
+`off = (2*phase - 1) * amplitude`；相位回绕时从 +A 跳回 -A，形成单向
+ULM_L 和一次回扫。振幅字段仍以 10 µm 为单位，频率范围 1..1000 Hz。
+
 `trap_mode` 开启后，每个输出帧会在当前路径点周围合成最多 8 个
 `SPATIAL_POINT` 源，再由 `spatial_renderer_accumulate_point` 复数叠加。
 这使单面向上阵列可以尝试单焦点、环形、涡旋和双环声场，而不需要主机

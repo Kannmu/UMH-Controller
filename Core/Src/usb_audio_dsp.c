@@ -5,6 +5,11 @@
 #include "cmsis_gcc.h"
 #endif
 
+/* SWD diagnostic: 1 bypasses the limiter/AGC and maps the FIR output with a
+ * fixed gain, to separate DSP dynamics from the resampler/feed path. */
+volatile uint8_t umh_usb_audio_dsp_bypass;
+
+
 /* 48 kHz -> 20 kHz, rational 5/12 resampler.  A 48-tap Kaiser (beta=6)
  * 8.4 kHz low-pass per fractional phase: 0.3 dB loss at 7 kHz, 3.2 dB at
  * 8 kHz, 12.8 dB at 9 kHz and 37 dB at 10 kHz.  The previous table cut at
@@ -28,17 +33,12 @@ static inline int32_t fir_q15(const int16_t *history, const int16_t *coeff)
   int32_t sum = 0;
   uint32_t i;
   for (i = 0u; i < USB_AUDIO_DSP_TAPS; i += 2u) {
-#if defined(__arm__) || defined(__thumb__)
-    uint32_t x, c;
-    /* memcpy compiles to word loads, including a permitted unaligned SRAM
-     * load when history starts on an odd halfword.  No aliasing violation. */
-    memcpy(&x, history + i, sizeof(x));
-    memcpy(&c, coeff + i, sizeof(c));
-    sum = __SMLAD(x, c, sum);
-#else
+    /* Scalar path on the MCU as well: the previous __SMLAD/memcpy form did an
+     * unaligned 32-bit load from history + i when head was odd, which is the
+     * prime suspect for the intermittent 40..70 LSB level jumps seen on the
+     * MCU but not in the PC harness. */
     sum += (int32_t)history[i] * coeff[i];
     sum += (int32_t)history[i + 1u] * coeff[i + 1u];
-#endif
   }
   sum = (sum + 16384) >> 15;
 #if defined(__arm__) || defined(__thumb__)
@@ -102,6 +102,18 @@ uint16_t usb_audio_dsp_process(usb_audio_dsp_t *dsp, const int16_t *pcm,
     fir = fir_q15(&dsp->history[dsp->head], coefficients[dsp->phase]);
     input = (float)fir * (1.0f / 32768.0f);
 
+    if (umh_usb_audio_dsp_bypass != 0u) {
+      am = 0.5f + DSP_MODULATION * input * 0.9f * 0.7f;
+      if (am < 0.0f) am = 0.0f;
+      if (am > 1.0f) am = 1.0f;
+      {
+        int level = (int)lrintf(am * 128.0f);
+        if (level < 0) level = 0;
+        if (level > 128) level = 128;
+        envelope[written++] = (uint8_t)level;
+      }
+      continue;
+    }
     /* Same 20 Hz DC blocker and +12 dB programme gain as the host. */
     dsp->dc_state = input - dsp->previous_input + DSP_DC_POLE * dsp->dc_state;
     dsp->previous_input = input;
@@ -156,19 +168,17 @@ uint16_t usb_audio_dsp_process(usb_audio_dsp_t *dsp, const int16_t *pcm,
          DSP_MODULATION * limited * dsp->agc_gain;
     if (am < 0.0f) am = 0.0f;
     if (am > 1.0f) am = 1.0f;
-    /* Error-feedback quantiser.  A plain 8-bit round of a sine whose period
-     * is not an integer number of 20 kHz samples produces a low-frequency
-     * beat at |f - 20000/round(20000/f)| (C4: 1.5 Hz, A4: 4.4 Hz), heard as
-     * a tone-dependent 1..5 Hz strength wobble and extra sidebands.  Feeding
-     * the previous rounding error forward high-pass shapes that error, which
-     * removes the low-frequency beat at the cost of a little HF hiss. */
+    /* Plain rounding.  The microphone comparison against the UMH Speaker
+     * CDC reference showed the 1..5 Hz sidebands are present in BOTH paths
+     * (the CDC's are even stronger at +-1.5 Hz), while the error-feedback
+     * version added 10..20 dB of HF hiss and much stronger 2nd/3rd
+     * harmonics.  The beat is not the level quantiser, so do not shape it. */
     {
-      float value = am * 128.0f + dsp->quant_error;
-      int level = (int)lrintf(value);
+      int level = (int)lrintf(am * 128.0f);
       if (level < 0) level = 0;
       if (level > 128) level = 128;
-      dsp->quant_error = value - (float)level;
       envelope[written++] = (uint8_t)level;
+
     }
 
     if (target > dsp->agc_gain) {

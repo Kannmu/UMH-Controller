@@ -53,6 +53,7 @@ Core/Src/aperture_mod.c \
 Core/Src/usb_audio.c \
 Core/Src/usb_audio_dsp.c \
 Core/Src/us_calibration.c \
+Core/Src/task_stats.c \
 Core/Src/flash_nor.c \
 Core/Src/flash_store.c \
 Core/Src/eeprom_profile.c \

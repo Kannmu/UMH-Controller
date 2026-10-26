@@ -42,7 +42,7 @@ void device_profile_init(umh_device_profile_t *target)
   if (target == NULL) return;
   memset(target, 0, sizeof(*target));
   memcpy(target->model, "UMH-84", 6u);
-  memcpy(target->firmware, "v7.5.0", 6u);
+  memcpy(target->firmware, "v7.5.1", 6u);
   memcpy(target->protocol, "UMH7", 4u);
   target->channel_count = UMH_DEVICE_CHANNEL_COUNT;
   target->rgb_count = UMH_DEVICE_RGB_COUNT;

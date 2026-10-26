@@ -55,6 +55,8 @@ PCM 经 48→20 kHz 多相 FIR（8.4 kHz 通带，8 kHz 处 3.2 dB、9 kHz 处 1
 播放输出，不是对手机扬声器声音的镜像；具体接线仍需满足手机 USB 主机/OTG、
 控制器 USB 设备模式及供电要求。原有 CDC 接口与协议端点保持不变。
 
+`MOTION` 的 76 字节 ULM 扩展在 v7.5.1 增加单向锯齿波形：`ulm_axis` 低两位仍选 x/y/环形，bit7 置 1 时 `motion_engine_service` 输出 `off = (2*ulm_phase - 1) * ulm_amplitude_um`，每个 `ulm_frequency_hz` 周期从 -A 单向走到 +A，相位回绕即回扫重置。这样任意 150..250 Hz 的 `ulm_frequency_hz` 都对应连续可变的单向 ULM_L，不再受路径 `loop_ms` 的整数毫秒限制。旧主机不置 bit7 时仍是原来的双向正弦，完全向后兼容。
+
 同版本新增 `MOTION` 能力位和 `0x62..0x67` 实时焦点运动扩展。主机上传
 最多 160 个紧凑路径点（8 字节/点），渲染任务按 50..2000 Hz 直接合成
 单个空间点并提交 FPGA；支持单焦点、轴向/横向双焦点、环阵、涡旋和双环

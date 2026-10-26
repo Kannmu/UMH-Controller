@@ -78,6 +78,13 @@ typedef enum {
 #define UMH_MOTION_FLAG_STEP         (1u << 6)
 #define UMH_MOTION_FLAG_ULM          (1u << 7)
 
+/* The ULM axis byte keeps the low two bits as the spatial axis and uses bit 7
+ * as a waveform selector.  With this bit set the engine emits a unidirectional
+ * sawtooth from -A to +A once per ulm_frequency_hz period, then resets. */
+#define UMH_MOTION_ULM_SAWTOOTH      0x80u
+#define UMH_MOTION_ULM_AXIS_MASK     0x03u
+#define UMH_MOTION_ULM_AXIS_BITS     0x7Cu
+
 /* trap_mode 6: single-sided dark-core vortex levitation. */
 #define UMH_MOTION_TRAP_DARK_VORTEX 6u
 

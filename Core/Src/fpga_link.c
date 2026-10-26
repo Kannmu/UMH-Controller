@@ -1,6 +1,9 @@
 #include "fpga_link.h"
 #include "main.h"
 #include "cmsis_os.h"
+#include "FreeRTOS.h"
+#include "task.h"
+#include "semphr.h"
 #include "system_status.h"
 #include "umh_utils.h"
 #include <string.h>
@@ -24,6 +27,8 @@ static void mark_link_fault(fpga_link_t *link)
 #define get_u16(p)     umh_read_u16_le(p)
 #define get_u32(p)     umh_read_u32_le(p)
 
+static void spi_dma_blocking_init(void);
+
 void fpga_link_init(fpga_link_t *link, SPI_HandleTypeDef *spi)
 {
   osMutexAttr_t mutex_attributes;
@@ -40,6 +45,7 @@ void fpga_link_init(fpga_link_t *link, SPI_HandleTypeDef *spi)
   for (uint16_t map_i = 0u; map_i < UMH_DEVICE_CHANNEL_COUNT; ++map_i)
     fpga_logical_to_physical[map_i] = (uint8_t)map_i;
   cs_high();
+  spi_dma_blocking_init();
 }
 
 /* Calibration runs own the FPGA link and do not need the normal 21.25 MHz
@@ -93,14 +99,66 @@ static void spi_flush_rx(SPI_TypeDef *spi)
   while ((spi->SR & SPI_SR_FRLVL) != 0u) (void)*(__IO uint8_t *)&spi->DR;
 }
 
+/* Transfer completion is signalled by the SPI1 RX DMA channel.
+ *
+ * The frame path used to spin on DMA1->ISR for the whole 200-byte transaction.
+ * At the demo's 4.8 kHz frame rate that spin was 33 % of the CPU, all of it
+ * waiting for bytes to shift out at 21.25 MHz; the RX channel raises its
+ * transfer-complete interrupt at exactly the same instant the spin loop exited.
+ * The interrupt now gives a semaphore and the render task blocks on it for the
+ * duration of the transfer instead of burning cycles, so the protocol and UI
+ * tasks (and the idle task, and the MCU's power budget) get that time back.
+ *
+ * The polling loop is kept as the fallback when the scheduler is not running
+ * yet or the semaphore could not be created. */
+extern DMA_HandleTypeDef hdma_spi1_rx;
+
+static SemaphoreHandle_t spi_dma_sem;
+static StaticSemaphore_t spi_dma_sem_mem;
+static volatile uint8_t spi_dma_error;
+static uint8_t spi_dma_blocking_ready;
+
+static void spi_dma_complete_isr(DMA_HandleTypeDef *hdma)
+{
+  BaseType_t woken = pdFALSE;
+  (void)hdma;
+  if (spi_dma_sem != NULL) {
+    (void)xSemaphoreGiveFromISR(spi_dma_sem, &woken);
+    portYIELD_FROM_ISR(woken);
+  }
+}
+
+static void spi_dma_error_isr(DMA_HandleTypeDef *hdma)
+{
+  BaseType_t woken = pdFALSE;
+  (void)hdma;
+  spi_dma_error = 1u;
+  if (spi_dma_sem != NULL) {
+    (void)xSemaphoreGiveFromISR(spi_dma_sem, &woken);
+    portYIELD_FROM_ISR(woken);
+  }
+}
+
+static void spi_dma_blocking_init(void)
+{
+  if (spi_dma_blocking_ready != 0u) return;
+  if (xTaskGetSchedulerState() == taskSCHEDULER_NOT_STARTED) return;
+  if (spi_dma_sem == NULL) spi_dma_sem = xSemaphoreCreateBinaryStatic(&spi_dma_sem_mem);
+  if (spi_dma_sem == NULL) return;
+  hdma_spi1_rx.XferCpltCallback = spi_dma_complete_isr;
+  hdma_spi1_rx.XferErrorCallback = spi_dma_error_isr;
+  spi_dma_blocking_ready = 1u;
+}
+
 static int exchange_dma(fpga_link_t *link, uint16_t length)
 {
   SPI_TypeDef *spi = link->spi->Instance;
   DMA_Channel_TypeDef *tx = DMA1_Channel1;
   DMA_Channel_TypeDef *rx = DMA1_Channel2;
   uint32_t start_cycles;
-  uint32_t expired;
-  uint32_t isr;
+  uint32_t expired = 0u;
+  uint32_t isr = 0u;
+  uint8_t complete = 0u;
   if (spi == NULL || tx == NULL || rx == NULL) return -1;
   /* The HAL initialised both DMA channels for SPI1 TX/RX byte streams.  The
    * old code polled TXE/RXNE per byte and inserted a ~50-cycle turn-around
@@ -126,18 +184,32 @@ static int exchange_dma(fpga_link_t *link, uint16_t length)
    * then stalled RX DMA for the whole timeout with CS low, long enough for
    * the FPGA link watchdog to drop MOD_FIXED. */
   cs_low();
+  if (spi_dma_blocking_ready != 0u) {
+    /* Drop any stale completion and arm the RX transfer-complete interrupt
+     * before the channel starts. */
+    (void)xSemaphoreTake(spi_dma_sem, 0);
+    spi_dma_error = 0u;
+    rx->CCR |= DMA_CCR_TCIE | DMA_CCR_TEIE;
+  }
   rx->CCR |= DMA_CCR_EN;
   tx->CCR |= DMA_CCR_EN;
 
-  /* Sample the deadline before the flags so a preempted wait can never
-   * report a finished transfer as a timeout. */
-  start_cycles = DWT->CYCCNT;
-  do {
-    expired = (DWT->CYCCNT - start_cycles) > FPGA_SPI_TIMEOUT_CYCLES;
-    isr = DMA1->ISR;
-  } while ((isr & (DMA_ISR_TEIF1 | DMA_ISR_TEIF2)) == 0u &&
-           (isr & (DMA_ISR_TCIF1 | DMA_ISR_TCIF2)) != (DMA_ISR_TCIF1 | DMA_ISR_TCIF2) &&
-           expired == 0u);
+  if (spi_dma_blocking_ready != 0u) {
+    complete = xSemaphoreTake(spi_dma_sem, pdMS_TO_TICKS(2u)) == pdTRUE ? 1u : 0u;
+    if (complete != 0u && spi_dma_error == 0u) isr = DMA_ISR_TCIF1 | DMA_ISR_TCIF2;
+    else if (complete != 0u) isr = DMA_ISR_TEIF1;
+    else expired = 1u;
+  } else {
+    /* Sample the deadline before the flags so a preempted wait can never
+     * report a finished transfer as a timeout. */
+    start_cycles = DWT->CYCCNT;
+    do {
+      expired = (DWT->CYCCNT - start_cycles) > FPGA_SPI_TIMEOUT_CYCLES;
+      isr = DMA1->ISR;
+    } while ((isr & (DMA_ISR_TEIF1 | DMA_ISR_TEIF2)) == 0u &&
+             (isr & (DMA_ISR_TCIF1 | DMA_ISR_TCIF2)) != (DMA_ISR_TCIF1 | DMA_ISR_TCIF2) &&
+             expired == 0u);
+  }
   tx->CCR &= ~DMA_CCR_EN;
   rx->CCR &= ~DMA_CCR_EN;
   DMA1->IFCR = DMA_IFCR_CGIF1 | DMA_IFCR_CGIF2;

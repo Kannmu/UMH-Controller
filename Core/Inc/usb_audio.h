@@ -21,7 +21,7 @@
  * old 12 ms before the aperture engine is told the stream died; a brief USB
  * scheduling gap must not release and restart the output. */
 #define UMH_USB_AUDIO_TIMEOUT_MS 40u
-#define UMH_USB_AUDIO_BUILD_ID 0x5541430Cu
+#define UMH_USB_AUDIO_BUILD_ID 0x5541431Du
 
 typedef struct {
   uint32_t build_id;
@@ -36,6 +36,10 @@ typedef struct {
   uint32_t max_isr_cycles;
   uint32_t max_process_cycles;
   uint16_t queued_samples;
+  uint16_t short_packets;   /* isoc frames whose length != 96 */
+  uint16_t zero_packets;    /* isoc frames with length 0 */
+  uint32_t max_packet_delta; /* max |s[i]-s[i-1]| inside one frame */
+  uint32_t bad_delta_packets; /* frames with a >4000 LSB intra-frame step */
   uint8_t owns_output;
   uint8_t inhibited;
   uint8_t level_min;
@@ -65,4 +69,6 @@ uint16_t umh_usb_audio_read(int16_t *samples, uint16_t capacity);
 void umh_usb_audio_discard(void);
 
 #endif
+
+
 

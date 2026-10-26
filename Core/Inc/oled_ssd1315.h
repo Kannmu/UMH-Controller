@@ -22,7 +22,11 @@ typedef struct {
    * gun menu never opened even though the long press had been detected).  After a
    * few failures the refresh backs off instead of retrying at 30 ms intervals. */
   uint8_t failures;
-  uint8_t reserved[3];
+  /* Set after a controller reset: the SSD1315 keeps its own RAM across an MCU
+   * reset, so the first refresh must push every page even though the local
+   * framebuffer matches the shadow. */
+  uint8_t force_full;
+  uint8_t reserved[2];
   uint32_t retry_after_ms;
 } oled_ssd1315_t;
 

@@ -4,8 +4,8 @@
 #include <stdint.h>
 
 #define USB_AUDIO_DSP_TAPS 48u
-#define USB_AUDIO_DSP_OUTPUT_MAX 20u
-#define USB_AUDIO_DSP_PEAK_WINDOW 100u /* 5 ms at 20 kHz, matches the host */
+#define USB_AUDIO_DSP_OUTPUT_MAX 54u /* ceil(128 * 5/12); the service uses 128-sample blocks */
+#define USB_AUDIO_DSP_PEAK_WINDOW 64u /* 3.2 ms at 20 kHz; RAM-limited */
 #define USB_AUDIO_DSP_LOOKAHEAD 96u    /* 4.8 ms look-ahead limiter */
 
 typedef struct {
@@ -42,3 +42,4 @@ uint16_t usb_audio_dsp_process(usb_audio_dsp_t *dsp, const int16_t *pcm,
                                uint8_t *envelope);
 
 #endif
+
