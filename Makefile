@@ -247,7 +247,9 @@ CFLAGS += -MMD -MP -MF"$(@:%.o=%.d)"
 VOICE_DSP_OBJECTS = $(addprefix $(BUILD_DIR)/,gun_voice_dsp.o arm_common_tables.o arm_cfft_f32.o arm_cfft_radix8_f32.o arm_bitreversal2.o arm_rfft_fast_f32.o arm_rfft_fast_init_f32.o)
 $(VOICE_DSP_OBJECTS): CFLAGS += -O3 -fno-math-errno -fno-trapping-math
 # Fixed-point polyphase FIR: inline/unroll the M4 dual multiply-accumulate loop.
-$(BUILD_DIR)/usb_audio_dsp.o: CFLAGS += -O3
+# -fno-strict-aliasing: the FIR reads its 16-bit history/coefficient rows with
+# aligned 32-bit loads for SMLAD, which is only well defined with aliasing off.
+$(BUILD_DIR)/usb_audio_dsp.o: CFLAGS += -O3 -fno-strict-aliasing
 
 
 #######################################

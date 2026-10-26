@@ -9,6 +9,23 @@
  * fixed gain, to separate DSP dynamics from the resampler/feed path. */
 volatile uint8_t umh_usb_audio_dsp_bypass;
 
+/* lrintf() rounds to nearest with ties to even in the default FPU mode, which
+ * is exactly VCVTR.S32.F32.  newlib ships it out of line, so the envelope
+ * quantiser paid a call per 20 kHz sample for one instruction. */
+static inline int32_t dsp_lrint(float value)
+{
+#if defined(__arm__) || defined(__thumb__)
+  /* VCVTR writes the integer into the low 32 bits of a single register. */
+  float rounded;
+  int32_t result;
+  __asm__("vcvtr.s32.f32 %0, %1" : "=t" (rounded) : "t" (value));
+  memcpy(&result, &rounded, sizeof(result));
+  return result;
+#else
+  return (int32_t)lrintf(value);
+#endif
+}
+
 
 /* 48 kHz -> 20 kHz, rational 5/12 resampler.  A 48-tap Kaiser (beta=6)
  * 8.4 kHz low-pass per fractional phase: 0.3 dB loss at 7 kHz, 3.2 dB at
@@ -19,27 +36,67 @@ volatile uint8_t umh_usb_audio_dsp_bypass;
  * adversarial signs cannot overflow int32_t.  Only output instants run the
  * FIR: 24 M4 SMLADs/output, 480k SMLADs/second.  FMAC remains available to
  * calibration; there are no peripheral/DMA locks. */
-static const int16_t coefficients[5][USB_AUDIO_DSP_TAPS]
-    = {
+static const int16_t coefficients[5][USB_AUDIO_DSP_TAPS] __attribute__((aligned(4))) = {
   {-1,2,1,-4,-4,5,11,-1,-21,-14,25,47,-1,-80,-75,58,179,93,-182,-338,-93,390,554,54,-706,-843,21,1139,1232,-104,-1700,-1804,77,2377,2762,393,-3021,-4522,-2388,2443,7195,9405,8518,5779,2941,1067,239,19},
   {-1,2,2,-3,-6,2,11,3,-17,-18,15,45,13,-65,-84,25,163,129,-124,-331,-172,299,571,197,-576,-897,-208,962,1335,239,-1451,-1954,-405,2005,2913,1034,-2399,-4491,-3095,1385,6389,9222,8899,6387,3452,1349,338,37},
   {-1,1,2,-2,-5,1,10,5,-15,-21,9,45,24,-54,-93,-3,149,158,-69,-318,-240,206,568,325,-433,-915,-418,756,1382,555,-1159,-2023,-849,1574,2950,1609,-1726,-4316,-3673,352,5494,8907,9189,6978,3999,1679,468,64},
   {0,0,2,-2,-4,2,10,5,-16,-24,7,48,35,-48,-104,-28,138,188,-17,-304,-302,115,554,438,-288,-908,-605,538,1383,835,-842,-2017,-1239,1110,2881,2095,-1033,-4011,-4105,-628,4529,8458,9372,7539,4579,2059,631,102},
-  {1,-1,0,-2,-2,4,10,3,-19,-25,8,54,43,-45,-117,-50,131,215,30,-290,-358,28,533,538,-145,-880,-765,319,1343,1074,-519,-1946,-1564,638,2718,2480,-348,-3597,-4383,-1525,3519,7877,9431,8051,5182,2490,832,155}
+  {1,-1,0,-2,-2,4,10,3,-19,-25,8,54,43,-45,-117,-50,131,215,30,-290,-358,28,533,538,-145,-880,-765,319,1343,1074,-519,-1946,-1564,638,2718,2480,-348,-3597,-4383,-1525,3519,7877,9431,8051,5182,2490,832,155},
 };
 
-static inline int32_t fir_q15(const int16_t *history, const int16_t *coeff)
+static const int16_t coefficients_shifted[5][USB_AUDIO_DSP_TAPS] __attribute__((aligned(4))) = {
+  {2,1,-4,-4,5,11,-1,-21,-14,25,47,-1,-80,-75,58,179,93,-182,-338,-93,390,554,54,-706,-843,21,1139,1232,-104,-1700,-1804,77,2377,2762,393,-3021,-4522,-2388,2443,7195,9405,8518,5779,2941,1067,239,19,19},
+  {2,2,-3,-6,2,11,3,-17,-18,15,45,13,-65,-84,25,163,129,-124,-331,-172,299,571,197,-576,-897,-208,962,1335,239,-1451,-1954,-405,2005,2913,1034,-2399,-4491,-3095,1385,6389,9222,8899,6387,3452,1349,338,37,37},
+  {1,2,-2,-5,1,10,5,-15,-21,9,45,24,-54,-93,-3,149,158,-69,-318,-240,206,568,325,-433,-915,-418,756,1382,555,-1159,-2023,-849,1574,2950,1609,-1726,-4316,-3673,352,5494,8907,9189,6978,3999,1679,468,64,64},
+  {0,2,-2,-4,2,10,5,-16,-24,7,48,35,-48,-104,-28,138,188,-17,-304,-302,115,554,438,-288,-908,-605,538,1383,835,-842,-2017,-1239,1110,2881,2095,-1033,-4011,-4105,-628,4529,8458,9372,7539,4579,2059,631,102,102},
+  {-1,0,-2,-2,4,10,3,-19,-25,8,54,43,-45,-117,-50,131,215,30,-290,-358,28,533,538,-145,-880,-765,319,1343,1074,-519,-1946,-1564,638,2718,2480,-348,-3597,-4383,-1525,3519,7877,9431,8051,5182,2490,832,155,155},
+};
+
+/* 48-tap dot product, two taps per SMLAD.
+ *
+ * The paired halfwords must be fetched as one aligned 32-bit word.  The FIR
+ * window starts at history + head, so the pair grid is fixed by the parity of
+ * head: with an even head the pairs are (0,1), (2,3)..., with an odd head they
+ * are (1,2), (3,4)... and the first and last taps are scalar.  The coefficient
+ * operand has to advance by one in the odd case, which is what
+ * coefficients_shifted[] is for - one extra flash row per phase, no RAM, and
+ * the loads stay aligned in both variants.  Both variants accumulate the same
+ * integer products in the same order, so the result is bit-identical to the
+ * scalar loop this replaces (integer addition is associative and the L1 bound
+ * of every row keeps the sum inside int32_t).
+ *
+ * The scalar form had to be used before because an unaligned 32-bit load of
+ * history + 1 was suspected of producing the 40..70 LSB level jumps seen on
+ * the MCU; with the parity split there is no unaligned access left at all. */
+static inline int32_t fir_q15(const int16_t *history, uint8_t head,
+                              const int16_t *coeff, const int16_t *coeff_shift)
 {
+  const int16_t *h = history + head;
   int32_t sum = 0;
   uint32_t i;
-  for (i = 0u; i < USB_AUDIO_DSP_TAPS; i += 2u) {
-    /* Scalar path on the MCU as well: the previous __SMLAD/memcpy form did an
-     * unaligned 32-bit load from history + i when head was odd, which is the
-     * prime suspect for the intermittent 40..70 LSB level jumps seen on the
-     * MCU but not in the PC harness. */
-    sum += (int32_t)history[i] * coeff[i];
-    sum += (int32_t)history[i + 1u] * coeff[i + 1u];
+#if defined(__arm__) || defined(__thumb__)
+  if ((head & 1u) == 0u) {
+    for (i = 0u; i < USB_AUDIO_DSP_TAPS; i += 2u) {
+      uint32_t hw = *(const uint32_t *)(const void *)(h + i);
+      uint32_t cw = *(const uint32_t *)(const void *)(coeff + i);
+      sum = __SMLAD(hw, cw, sum);
+    }
+  } else {
+    sum = (int32_t)h[0] * (int32_t)coeff[0];
+    for (i = 0u; i < USB_AUDIO_DSP_TAPS - 2u; i += 2u) {
+      uint32_t hw = *(const uint32_t *)(const void *)(h + 1u + i);
+      uint32_t cw = *(const uint32_t *)(const void *)(coeff_shift + i);
+      sum = __SMLAD(hw, cw, sum);
+    }
+    sum += (int32_t)h[USB_AUDIO_DSP_TAPS - 1u] *
+           (int32_t)coeff[USB_AUDIO_DSP_TAPS - 1u];
   }
+#else
+  /* Reference form, also what the PC harness compares against. */
+  (void)coeff_shift;
+  for (i = 0u; i < USB_AUDIO_DSP_TAPS; ++i)
+    sum += (int32_t)h[i] * (int32_t)coeff[i];
+#endif
   sum = (sum + 16384) >> 15;
 #if defined(__arm__) || defined(__thumb__)
   return __SSAT(sum, 16);
@@ -159,20 +216,39 @@ uint16_t usb_audio_dsp_process(usb_audio_dsp_t *dsp, const int16_t *pcm,
                                uint8_t *envelope)
 {
   uint16_t n, written = 0u;
+  /* Every state field the loop touches is mirrored into a local and written
+   * back once at the end.  The look-ahead and AGC windows are written through
+   * pointers derived from dsp, so a compiler that must assume aliasing (this
+   * object is built with -fno-strict-aliasing for the FIR word loads) would
+   * otherwise reload and re-store all of them on every one of the 48 kHz input
+   * samples. */
+  uint8_t head = dsp->head;
+  uint8_t phase = dsp->phase;
+  uint16_t lookahead_pos = dsp->lookahead_pos;
+  uint16_t peak_pos = dsp->peak_window_pos;
+  uint16_t peak_count = dsp->peak_window_count;
+  uint16_t silent_samples = dsp->silent_samples;
+  uint8_t gate = dsp->gate;
+  float dc_state = dsp->dc_state;
+  float previous_input = dsp->previous_input;
+  float limiter_gain = dsp->limiter_gain;
+  float agc_gain = dsp->agc_gain;
+  int16_t *history = dsp->history;
+  float *peak_window = dsp->peak_window;
   (void)gain_q15;
   for (n = 0u; n < input_count; ++n) {
     int32_t fir;
-    uint8_t phase;
     float input, value, delayed, peak, desired, limited, magnitude;
     float peak2, target, am;
 
-    dsp->history[dsp->head] = pcm[n];
-    dsp->history[dsp->head + USB_AUDIO_DSP_TAPS] = pcm[n];
-    if (++dsp->head == USB_AUDIO_DSP_TAPS) dsp->head = 0u;
-    phase = (uint8_t)(dsp->phase + 5u);
-    if (phase < 12u) { dsp->phase = phase; continue; }
-    dsp->phase = (uint8_t)(phase - 12u);
-    fir = fir_q15(&dsp->history[dsp->head], coefficients[dsp->phase]);
+    history[head] = pcm[n];
+    history[head + USB_AUDIO_DSP_TAPS] = pcm[n];
+    if (++head == USB_AUDIO_DSP_TAPS) head = 0u;
+    phase = (uint8_t)(phase + 5u);
+    if (phase < 12u) continue;
+    phase = (uint8_t)(phase - 12u);
+    fir = fir_q15(history, head, coefficients[phase],
+                  coefficients_shifted[phase]);
     input = (float)fir * (1.0f / 32768.0f);
 
     if (umh_usb_audio_dsp_bypass != 0u) {
@@ -180,7 +256,7 @@ uint16_t usb_audio_dsp_process(usb_audio_dsp_t *dsp, const int16_t *pcm,
       if (am < 0.0f) am = 0.0f;
       if (am > 1.0f) am = 1.0f;
       {
-        int level = (int)lrintf(am * 128.0f);
+        int level = (int)dsp_lrint(am * 128.0f);
         if (level < 0) level = 0;
         if (level > 128) level = 128;
         envelope[written++] = (uint8_t)level;
@@ -188,51 +264,49 @@ uint16_t usb_audio_dsp_process(usb_audio_dsp_t *dsp, const int16_t *pcm,
       continue;
     }
     /* Same 20 Hz DC blocker and +12 dB programme gain as the host. */
-    dsp->dc_state = input - dsp->previous_input + DSP_DC_POLE * dsp->dc_state;
-    dsp->previous_input = input;
-    value = dsp->dc_state * DSP_PREGAIN;
+    dc_state = input - previous_input + DSP_DC_POLE * dc_state;
+    previous_input = input;
+    value = dc_state * DSP_PREGAIN;
 
     /* 5 ms look-ahead limiter: read the oldest slot, overwrite it, measure
      * the new window, then apply the gain to the delayed sample. */
-    delayed = dsp_lookahead[dsp->lookahead_pos];
-    window_write(dsp_lookahead, lookahead_max, dsp->lookahead_pos, value);
+    delayed = dsp_lookahead[lookahead_pos];
+    window_write(dsp_lookahead, lookahead_max, lookahead_pos, value);
     peak = bits_value(window_peak(lookahead_max, DSP_LOOKAHEAD_BUCKETS));
-    if (++dsp->lookahead_pos == USB_AUDIO_DSP_LOOKAHEAD) dsp->lookahead_pos = 0u;
+    if (++lookahead_pos == USB_AUDIO_DSP_LOOKAHEAD) lookahead_pos = 0u;
     desired = peak > DSP_LIMIT_CEILING ? DSP_LIMIT_CEILING / peak : 1.0f;
-    if (desired < dsp->limiter_gain) {
-      dsp->limiter_gain = desired;
+    if (desired < limiter_gain) {
+      limiter_gain = desired;
     } else {
-      dsp->limiter_gain += (desired - dsp->limiter_gain) * DSP_LIMITER_RELEASE;
+      limiter_gain += (desired - limiter_gain) * DSP_LIMITER_RELEASE;
     }
-    limited = delayed * dsp->limiter_gain;
+    limited = delayed * limiter_gain;
     if (limited > DSP_LIMIT_CEILING) limited = DSP_LIMIT_CEILING;
     if (limited < -DSP_LIMIT_CEILING) limited = -DSP_LIMIT_CEILING;
     magnitude = fabsf(limited);
 
-    window_write(dsp->peak_window, agc_max, dsp->peak_window_pos, magnitude);
-    if (dsp->peak_window_count < USB_AUDIO_DSP_PEAK_WINDOW)
-      ++dsp->peak_window_count;
-    if (++dsp->peak_window_pos == USB_AUDIO_DSP_PEAK_WINDOW)
-      dsp->peak_window_pos = 0u;
+    window_write(peak_window, agc_max, peak_pos, magnitude);
+    if (peak_count < USB_AUDIO_DSP_PEAK_WINDOW) ++peak_count;
+    if (++peak_pos == USB_AUDIO_DSP_PEAK_WINDOW) peak_pos = 0u;
     peak2 = bits_value(window_peak(agc_max, DSP_AGC_BUCKETS));
-    target = dsp->agc_gain;
-    if (dsp->peak_window_count >= USB_AUDIO_DSP_PEAK_WINDOW && peak2 > 1e-6f) {
+    target = agc_gain;
+    if (peak_count >= USB_AUDIO_DSP_PEAK_WINDOW && peak2 > 1e-6f) {
       target = DSP_PROGRAMME_PEAK / peak2;
       if (target < 0.25f) target = 0.25f;
       if (target > 5.0f) target = 5.0f;
     }
 
     if (magnitude > (3.0f / 32768.0f)) {
-      dsp->silent_samples = 0u;
-      if (dsp->gate < 80u) ++dsp->gate;
-    } else if (dsp->silent_samples < 2400u) {
-      ++dsp->silent_samples;
-    } else if (dsp->gate != 0u) {
-      --dsp->gate;
+      silent_samples = 0u;
+      if (gate < 80u) ++gate;
+    } else if (silent_samples < 2400u) {
+      ++silent_samples;
+    } else if (gate != 0u) {
+      --gate;
     }
 
-    am = 0.5f * ((float)dsp->gate / DSP_GATE_FULL) +
-         DSP_MODULATION * limited * dsp->agc_gain;
+    am = 0.5f * ((float)gate / DSP_GATE_FULL) +
+         DSP_MODULATION * limited * agc_gain;
     if (am < 0.0f) am = 0.0f;
     if (am > 1.0f) am = 1.0f;
     /* Plain rounding.  The microphone comparison against the UMH Speaker
@@ -241,20 +315,31 @@ uint16_t usb_audio_dsp_process(usb_audio_dsp_t *dsp, const int16_t *pcm,
      * version added 10..20 dB of HF hiss and much stronger 2nd/3rd
      * harmonics.  The beat is not the level quantiser, so do not shape it. */
     {
-      int level = (int)lrintf(am * 128.0f);
+      int level = (int)dsp_lrint(am * 128.0f);
       if (level < 0) level = 0;
       if (level > 128) level = 128;
       envelope[written++] = (uint8_t)level;
-
     }
 
-    if (target > dsp->agc_gain) {
-      float d = target - dsp->agc_gain;
-      dsp->agc_gain += d > DSP_AGC_RISE ? DSP_AGC_RISE : d;
-    } else if (target < dsp->agc_gain) {
-      float d = dsp->agc_gain - target;
-      dsp->agc_gain -= d > DSP_AGC_FALL ? DSP_AGC_FALL : d;
+    if (target > agc_gain) {
+      float d = target - agc_gain;
+      agc_gain += d > DSP_AGC_RISE ? DSP_AGC_RISE : d;
+    } else if (target < agc_gain) {
+      float d = agc_gain - target;
+      agc_gain -= d > DSP_AGC_FALL ? DSP_AGC_FALL : d;
     }
   }
+  dsp->head = head;
+  dsp->phase = phase;
+  dsp->lookahead_pos = lookahead_pos;
+  dsp->peak_window_pos = peak_pos;
+  dsp->peak_window_count = peak_count;
+  dsp->silent_samples = silent_samples;
+  dsp->gate = gate;
+  dsp->dc_state = dc_state;
+  dsp->previous_input = previous_input;
+  dsp->limiter_gain = limiter_gain;
+  dsp->agc_gain = agc_gain;
   return written;
 }
+
