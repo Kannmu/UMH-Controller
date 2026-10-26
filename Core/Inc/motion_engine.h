@@ -26,7 +26,7 @@
 #define UMH_MOTION_MAX_PATTERN_SOURCES 8u
 #define UMH_MOTION_PALETTE_SIZE 16u
 #define UMH_MOTION_MIN_RATE_HZ 50u
-#define UMH_MOTION_MAX_RATE_HZ 2000u
+#define UMH_MOTION_MAX_RATE_HZ 4000u
 #define UMH_MOTION_STOP_FADE_MS 20u
 #define UMH_MOTION_COORD_10UM_MAX 32767
 /* palette bit7 marks a zero-transit jump to the next path point.  The low four
@@ -172,7 +172,7 @@ _Static_assert(sizeof(umh_motion_point_wire_t) == 8u, "motion point wire size");
 typedef struct __attribute__((packed)) {
   uint8_t mode;                 /* 0=PATH, 1=LIVE */
   uint8_t flags;                /* UMH_MOTION_FLAG_* */
-  uint16_t output_rate_hz;      /* 50..2000 */
+  uint16_t output_rate_hz;      /* 50..UMH_MOTION_MAX_RATE_HZ */
   uint16_t loop_ms;             /* path traversal period */
   uint16_t max_speed_mm_s;      /* tracker limit, direct mode ignores it */
   uint16_t max_accel_mm_s2;     /* tracker limit, direct mode ignores it */

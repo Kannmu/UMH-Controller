@@ -23,6 +23,17 @@ static uint32_t accum_busy_peak_x100;
 
 static const char *const idle_task_name = "IDLE";
 
+/* The task set is fixed once the scheduler is running, so the one call that
+ * has to enumerate it (uxTaskGetSystemState: it suspends the scheduler and
+ * rescans every task stack) is done once and the handles are kept in
+ * stats.entries[].  Everything afterwards is per-handle bookkeeping. */
+static uint8_t registry_ready;
+/* Round-robin index for the cheap per-task stack watermark refresh. */
+static uint8_t watermark_index;
+/* Scratch for vTaskGetInfo(); a local copy would add 40 bytes to the health
+ * task's 512-byte stack, which only has ~200 bytes of margin. */
+static TaskStatus_t task_info;
+
 static void accumulators_clear(void)
 {
   memset(accum_handle, 0, sizeof(accum_handle));
@@ -62,9 +73,38 @@ void umh_task_stats_update(void)
     accumulators_clear();
   }
 
-  count = uxTaskGetSystemState(stats.entries, (UBaseType_t)UMH_TASK_STATS_MAX, &total);
-  if (count > UMH_TASK_STATS_MAX) count = UMH_TASK_STATS_MAX;
-  window = total - previous_total;
+  if (registry_ready == 0u) {
+    /* One full enumeration at start-up: it is also what fills the handles and
+     * the first stack watermarks. */
+    count = uxTaskGetSystemState(stats.entries, (UBaseType_t)UMH_TASK_STATS_MAX, &total);
+    if (count > UMH_TASK_STATS_MAX) count = UMH_TASK_STATS_MAX;
+    registry_ready = 1u;
+  } else {
+    /* Per-handle refresh.  uxTaskGetSystemState() suspends the scheduler for
+     * ~600 us on this image (nine tasks, every stack rescanned for its
+     * watermark); at the 4 Hz update rate that was the largest latency spike
+     * in the system and cost the motion engine 2..3 frames each time.
+     * vTaskGetInfo() copies the run-time counter under a short critical
+     * section and, with xGetFreeStackSpace = pdFALSE, never walks a stack. */
+    count = stats.count;
+    if (count > UMH_TASK_STATS_MAX) count = UMH_TASK_STATS_MAX;
+    for (i = 0u; i < count; ++i) {
+      vTaskGetInfo(stats.entries[i].xHandle, &task_info, pdFALSE, eInvalid);
+      stats.entries[i].pcTaskName = task_info.pcTaskName;
+      stats.entries[i].eCurrentState = task_info.eCurrentState;
+      stats.entries[i].uxCurrentPriority = task_info.uxCurrentPriority;
+      stats.entries[i].uxBasePriority = task_info.uxBasePriority;
+      stats.entries[i].ulRunTimeCounter = task_info.ulRunTimeCounter;
+      total += task_info.ulRunTimeCounter;
+    }
+    /* One stack watermark per update; the scan is bounded by that task's own
+     * stack and does not stop the scheduler. */
+    if (count != 0u) {
+      stats.entries[watermark_index].usStackHighWaterMark =
+          (uint16_t)uxTaskGetStackHighWaterMark(stats.entries[watermark_index].xHandle);
+      if (++watermark_index >= count) watermark_index = 0u;
+    }
+  }  window = total - previous_total;
 
   for (i = 0u; i < count; ++i) {
     TaskStatus_t *entry = &stats.entries[i];

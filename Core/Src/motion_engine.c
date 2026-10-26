@@ -330,6 +330,19 @@ static int motion_emit_sources(umh_motion_engine_t *engine, umh_spatial_renderer
   if (per_source > 255.0f) per_source = 255.0f;
   if (per_source < 0.0f) per_source = 0.0f;
   memset(frame, 0, sizeof(*frame));
+  if (count == 1u) {
+    /* One source is the entire field, so the direct renderer emits exactly the
+     * bytes the accumulate + finalize round trip produces without the
+     * per-channel CORDIC handshake and the second square root. */
+    umh_spatial_point_t point;
+    point.x_um = (int32_t)lroundf(cx + engine->pattern_offsets[0][0]);
+    point.y_um = (int32_t)lroundf(cy + engine->pattern_offsets[0][1]);
+    point.z_um = (int32_t)lroundf(cz + engine->pattern_offsets[0][2]);
+    point.level = (uint8_t)(per_source + 0.5f);
+    point.phase = engine->pattern_phases[0];
+    point.source_id = 0u;
+    return spatial_renderer_point(renderer, &point, frame) != 0 ? -1 : 0;
+  }
   memset(engine->real_accum, 0, sizeof(engine->real_accum));
   memset(engine->imag_accum, 0, sizeof(engine->imag_accum));
   for (i = 0u; i < count; ++i) {

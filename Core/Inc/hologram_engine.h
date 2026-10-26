@@ -48,7 +48,7 @@
 #define UMH_HOLOGRAM_WIRE_VERSION    1u
 
 #define UMH_HOLOGRAM_MIN_RATE_HZ     10u
-#define UMH_HOLOGRAM_MAX_RATE_HZ     500u
+#define UMH_HOLOGRAM_MAX_RATE_HZ     1000u
 #define UMH_HOLOGRAM_MAX_TRANSITION_MS 60000u
 /* Frames that repeat the previous wire state are suppressed, but the FPGA link
  * watchdog is 25 ms, so a fully static hologram is refreshed well inside that. */
@@ -101,7 +101,7 @@ _Static_assert(sizeof(umh_hologram_upload_wire_t) == 12u, "hologram upload heade
 /* CONFIG: 14 bytes.
  *   uint8  version          must be 1
  *   uint8  flags            UMH_HOLOGRAM_FLAG_*
- *   uint16 output_rate_hz   10..500 submit cadence
+ *   uint16 output_rate_hz   10..UMH_HOLOGRAM_MAX_RATE_HZ submit cadence
  *   uint16 loop_ms          0 = derive the cycle from the transition time
  *   uint16 transition_ms    interpolation time between consecutive keyframes
  *   uint8  level            global amplitude scale, 0..128

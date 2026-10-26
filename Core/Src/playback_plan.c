@@ -58,8 +58,14 @@ void playback_plan_tick(umh_playback_plan_t *plan, uint64_t device_time,
 {
   if (plan == NULL || plan->running == 0u) return;
   plan->output_time = device_time;
-  plan->source_time += ((uint64_t)elapsed_us * plan->wire.rate_numerator) /
-                      plan->wire.rate_denominator;
+  if (plan->wire.rate_numerator == plan->wire.rate_denominator) {
+    /* Unity rate is the normal case and must not pay a 64-bit division on
+     * every render-loop iteration (the render task calls this per frame). */
+    plan->source_time += elapsed_us;
+  } else {
+    plan->source_time += ((uint64_t)elapsed_us * plan->wire.rate_numerator) /
+                        plan->wire.rate_denominator;
+  }
   if (buffered_frames == 0u && plan->current_frame != 0u) {
     if (plan->underrun_active == 0u) {
       plan->underrun_active = 1u;
@@ -86,8 +92,12 @@ uint8_t playback_plan_frame_due(umh_playback_plan_t *plan, uint64_t frame_source
   }
   if (frame_source_time < plan->origin_source_time || plan->wire.rate_numerator == 0u) return 0u;
   elapsed_source = frame_source_time - plan->origin_source_time;
-  elapsed_output = (elapsed_source * plan->wire.rate_denominator) /
-                   plan->wire.rate_numerator;
+  if (plan->wire.rate_numerator == plan->wire.rate_denominator) {
+    elapsed_output = elapsed_source;
+  } else {
+    elapsed_output = (elapsed_source * plan->wire.rate_denominator) /
+                     plan->wire.rate_numerator;
+  }
   if (device_time < plan->origin_output_time) return 0u;
   return device_time - plan->origin_output_time >= elapsed_output ? 1u : 0u;
 }
@@ -102,9 +112,13 @@ uint8_t playback_plan_frame_output_time(const umh_playback_plan_t *plan,
       plan->origin_valid == 0u || plan->wire.rate_numerator == 0u ||
       frame_source_time < plan->origin_source_time) return 0u;
   elapsed_source = frame_source_time - plan->origin_source_time;
-  if (elapsed_source > UINT64_MAX / plan->wire.rate_denominator) return 0u;
-  elapsed_output = (elapsed_source * plan->wire.rate_denominator) /
-                   plan->wire.rate_numerator;
+  if (plan->wire.rate_numerator == plan->wire.rate_denominator) {
+    elapsed_output = elapsed_source;
+  } else {
+    if (elapsed_source > UINT64_MAX / plan->wire.rate_denominator) return 0u;
+    elapsed_output = (elapsed_source * plan->wire.rate_denominator) /
+                     plan->wire.rate_numerator;
+  }
   if (plan->origin_output_time > UINT64_MAX - elapsed_output) return 0u;
   *output_time = plan->origin_output_time + elapsed_output;
   return 1u;

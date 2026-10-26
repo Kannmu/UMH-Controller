@@ -72,10 +72,84 @@ static inline int32_t fir_q15(const int16_t *history, const int16_t *coeff)
 static float dsp_lookahead[USB_AUDIO_DSP_LOOKAHEAD]
     __attribute__((section(".ccmram")));
 
+/* Sliding-window maxima.
+ *
+ * Both dynamic stages need the peak of a ring of recent samples on every
+ * output instant: 96 samples for the limiter, 64 for the AGC, i.e. 160
+ * data-dependent float compares (each with an FPU->APSR transfer and a branch)
+ * per 20 kHz output sample.  That scan was the dominant cost of USB audio
+ * playback.
+ *
+ * The maxima are therefore maintained per 16-sample bucket.  A write only
+ * touches its own bucket, and the bucket is rescanned only when the value it
+ * loses was that bucket's maximum, so the amortised cost is 6+4 compares per
+ * output sample plus a rare 16-entry rescan.  The comparison runs on the
+ * magnitude bit patterns: for IEEE-754 single precision and non-negative
+ * values the bit pattern order equals the numeric order, so the maxima are
+ * bit-identical to the full scans this replaces (the windows are cleared to
+ * +0.0, whose pattern is the minimum). */
+#define DSP_BUCKET_SHIFT 4u
+#define DSP_BUCKET_SIZE (1u << DSP_BUCKET_SHIFT)
+#define DSP_LOOKAHEAD_BUCKETS (USB_AUDIO_DSP_LOOKAHEAD / DSP_BUCKET_SIZE)
+#define DSP_AGC_BUCKETS (USB_AUDIO_DSP_PEAK_WINDOW / DSP_BUCKET_SIZE)
+
+static uint32_t lookahead_max[DSP_LOOKAHEAD_BUCKETS];
+static uint32_t agc_max[DSP_AGC_BUCKETS];
+
+static inline uint32_t magnitude_bits(float value)
+{
+  uint32_t bits;
+  memcpy(&bits, &value, sizeof(bits));
+  return bits & 0x7FFFFFFFu;
+}
+
+static inline float bits_value(uint32_t bits)
+{
+  float value;
+  memcpy(&value, &bits, sizeof(value));
+  return value;
+}
+
+/* window[pos] = value, keeping buckets[] an exact per-bucket magnitude max. */
+static inline void window_write(float *window, uint32_t *buckets,
+                                uint16_t pos, float value)
+{
+  uint16_t bucket = (uint16_t)(pos >> DSP_BUCKET_SHIFT);
+  uint32_t previous = magnitude_bits(window[pos]);
+  uint32_t current = magnitude_bits(value);
+  window[pos] = value;
+  if (current >= buckets[bucket]) {
+    buckets[bucket] = current;
+    return;
+  }
+  if (previous < buckets[bucket]) return;
+  {
+    uint16_t first = (uint16_t)(bucket << DSP_BUCKET_SHIFT);
+    uint16_t i;
+    uint32_t peak = 0u;
+    for (i = 0u; i < DSP_BUCKET_SIZE; ++i) {
+      uint32_t candidate = magnitude_bits(window[first + i]);
+      if (candidate > peak) peak = candidate;
+    }
+    buckets[bucket] = peak;
+  }
+}
+
+static inline uint32_t window_peak(const uint32_t *buckets, uint16_t count)
+{
+  uint16_t i;
+  uint32_t peak = 0u;
+  for (i = 0u; i < count; ++i)
+    if (buckets[i] > peak) peak = buckets[i];
+  return peak;
+}
+
 void usb_audio_dsp_reset(usb_audio_dsp_t *dsp)
 {
   memset(dsp, 0, sizeof(*dsp));
   memset(dsp_lookahead, 0, sizeof(dsp_lookahead));
+  memset(lookahead_max, 0, sizeof(lookahead_max));
+  memset(agc_max, 0, sizeof(agc_max));
   dsp->limiter_gain = 1.0f;
   dsp->agc_gain = 1.0f;
 }
@@ -89,7 +163,6 @@ uint16_t usb_audio_dsp_process(usb_audio_dsp_t *dsp, const int16_t *pcm,
   for (n = 0u; n < input_count; ++n) {
     int32_t fir;
     uint8_t phase;
-    uint16_t i;
     float input, value, delayed, peak, desired, limited, magnitude;
     float peak2, target, am;
 
@@ -122,12 +195,8 @@ uint16_t usb_audio_dsp_process(usb_audio_dsp_t *dsp, const int16_t *pcm,
     /* 5 ms look-ahead limiter: read the oldest slot, overwrite it, measure
      * the new window, then apply the gain to the delayed sample. */
     delayed = dsp_lookahead[dsp->lookahead_pos];
-    dsp_lookahead[dsp->lookahead_pos] = value;
-    peak = 0.0f;
-    for (i = 0u; i < USB_AUDIO_DSP_LOOKAHEAD; ++i) {
-      float a = fabsf(dsp_lookahead[i]);
-      if (a > peak) peak = a;
-    }
+    window_write(dsp_lookahead, lookahead_max, dsp->lookahead_pos, value);
+    peak = bits_value(window_peak(lookahead_max, DSP_LOOKAHEAD_BUCKETS));
     if (++dsp->lookahead_pos == USB_AUDIO_DSP_LOOKAHEAD) dsp->lookahead_pos = 0u;
     desired = peak > DSP_LIMIT_CEILING ? DSP_LIMIT_CEILING / peak : 1.0f;
     if (desired < dsp->limiter_gain) {
@@ -140,14 +209,12 @@ uint16_t usb_audio_dsp_process(usb_audio_dsp_t *dsp, const int16_t *pcm,
     if (limited < -DSP_LIMIT_CEILING) limited = -DSP_LIMIT_CEILING;
     magnitude = fabsf(limited);
 
-    dsp->peak_window[dsp->peak_window_pos] = magnitude;
+    window_write(dsp->peak_window, agc_max, dsp->peak_window_pos, magnitude);
     if (dsp->peak_window_count < USB_AUDIO_DSP_PEAK_WINDOW)
       ++dsp->peak_window_count;
     if (++dsp->peak_window_pos == USB_AUDIO_DSP_PEAK_WINDOW)
       dsp->peak_window_pos = 0u;
-    peak2 = 0.0f;
-    for (i = 0u; i < dsp->peak_window_count; ++i)
-      if (dsp->peak_window[i] > peak2) peak2 = dsp->peak_window[i];
+    peak2 = bits_value(window_peak(agc_max, DSP_AGC_BUCKETS));
     target = dsp->agc_gain;
     if (dsp->peak_window_count >= USB_AUDIO_DSP_PEAK_WINDOW && peak2 > 1e-6f) {
       target = DSP_PROGRAMME_PEAK / peak2;

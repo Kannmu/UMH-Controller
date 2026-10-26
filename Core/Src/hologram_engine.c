@@ -194,8 +194,11 @@ static void hologram_compose(umh_hologram_engine_t *engine, uint16_t index,
     int32_t delta = (int32_t)((uint8_t)(pb[i] - pa[i]));
     if (delta > 127) delta -= 256;
     else if (delta < -128) delta += 256;
+    /* |delta| <= 128 and alpha <= 1000, so this product can never leave 32
+     * bits: the 64-bit divide that used to be here called __aeabi_ldivmod 84
+     * times per frame and was the whole cost of a morph frame. */
     phase_out[i] = (uint8_t)((int32_t)pa[i] +
-                             (int32_t)(((int64_t)delta * (int64_t)alpha_x1000) / 1000));
+                             (int32_t)(((int32_t)delta * (int32_t)alpha_x1000) / 1000));
     {
       uint32_t value = ((uint32_t)la[i] * (1000u - alpha_x1000) +
                         (uint32_t)lb[i] * alpha_x1000) / 1000u;

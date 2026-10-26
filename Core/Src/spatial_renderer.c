@@ -81,15 +81,87 @@ void spatial_renderer_refresh_calibration(umh_spatial_renderer_t *renderer,
   renderer->active_count = active;
 }
 
+/* Single-point synthesis without the complex accumulator.
+ *
+ * A lone spatial point contributes exactly one complex term per channel,
+ *   re[i] = mag[i]*cos(phi[i]),  im[i] = mag[i]*sin(phi[i]),
+ * so the finalize stage's atan2 re-derives phi and its hypot re-derives mag
+ * from numbers that were already known.  That round trip is by far the most
+ * expensive part of a frame (one hardware CORDIC handshake plus a second
+ * VSQRT per channel), and skipping it is exact up to the 1e-4 amplitude
+ * error of the 15-bit sine table, which is two orders of magnitude below the
+ * 1/256-turn phase and level-LSB quantisation the wire format applies anyway.
+ *
+ * Everything else - geometry, calibration phase folding, the level
+ * normalisation to a 50 % duty and the half-window phase-centre fixup - is
+ * bit-identical to the accumulate + finalize pair this replaces. */
 int spatial_renderer_point(umh_spatial_renderer_t *renderer,
                            const umh_spatial_point_t *point,
                            umh_output_frame_t *frame)
 {
-  float real_accum[UMH_DEVICE_CHANNEL_COUNT] = {0.0f};
-  float imag_accum[UMH_DEVICE_CHANNEL_COUNT] = {0.0f};
+  const float *coord_x;
+  const float *coord_y;
+  const float *coord_z;
+  const float *gain_scale;
+  const int32_t *phase_offset_q10;
+  const uint8_t *active_index;
+  uint16_t active_count;
+  uint16_t i;
+  uint16_t k;
+  float phase_scale_q10;
+  float point_x;
+  float point_y;
+  float point_z;
+  float source_level;
+  int32_t phase_rem;
   if (renderer == NULL || point == NULL || frame == NULL) return -1;
-  if (spatial_renderer_accumulate_point(renderer, point, real_accum, imag_accum) != 0) return -1;
-  if (spatial_renderer_finalize(renderer, real_accum, imag_accum, frame) != 0) return -1;
+  if (renderer->profile == NULL || renderer->carrier_hz == 0u) return -1;
+  if ((renderer->profile->capability_flags & UMH_PROFILE_CAP_GEOMETRY_VALID) == 0u) return -2;
+  if (renderer->geometry_valid == 0u) return -3;
+  if (point->level == 0u) {
+    /* Same as an all-zero accumulation: every active channel ends at level 0,
+     * the phases are left as the caller had them. */
+    for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) frame->channels[i].level = 0u;
+    frame->update_flags |= UMH_FRAME_FLAG_ULTRASOUND;
+    return 0;
+  }
+  source_level = (float)point->level * (1.0f / 255.0f);
+  phase_rem = ((int32_t)point->phase * 4) & (int32_t)(UMH_FAST_TRIG_SIZE - 1u);
+  point_x = (float)point->x_um;
+  point_y = (float)point->y_um;
+  point_z = (float)point->z_um;
+  coord_x = renderer->coord_x_um;
+  coord_y = renderer->coord_y_um;
+  coord_z = renderer->coord_z_um;
+  gain_scale = renderer->gain_scale;
+  phase_offset_q10 = renderer->phase_offset_q10;
+  active_index = renderer->active_index;
+  active_count = renderer->active_count;
+  phase_scale_q10 = renderer->phase_scale_q10;
+  for (k = 0u; k < active_count; ++k) {
+    uint16_t c = active_index[k];
+    float dx = point_x - coord_x[c];
+    float dy = point_y - coord_y[c];
+    float dz = point_z - coord_z[c];
+    float distance = umh_sqrtf(fmaf(dx, dx, fmaf(dy, dy, dz * dz)));
+    int32_t phase_q10 = phase_rem + phase_offset_q10[c] -
+                        (int32_t)(distance * phase_scale_q10);
+    float mag = source_level * gain_scale[c];
+    uint8_t level;
+    /* round(phase/4) mod 256, i.e. the same byte the CORDIC atan2 path emits. */
+    uint8_t phase = (uint8_t)(((uint32_t)(phase_q10 + 2) >> 2) & 0xFFu);
+    if (mag > 1.0f) mag = 1.0f;
+    level = (uint8_t)(mag * 128.0f + 0.5f);
+    frame->channels[c].level = level;
+    frame->channels[c].phase = (uint8_t)(phase - (uint8_t)(level >> 1));
+  }
+  /* Disabled channels are never accumulated, so their level must be forced to
+   * zero exactly like the finalize mute pass does. */
+  if (active_count < UMH_DEVICE_CHANNEL_COUNT) {
+    for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
+      if (renderer->calibration[i].enabled == 0u) frame->channels[i].level = 0u;
+    }
+  }
   frame->update_flags |= UMH_FRAME_FLAG_ULTRASOUND;
   return 0;
 }
