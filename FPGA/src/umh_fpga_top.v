@@ -1,9 +1,11 @@
 `timescale 1ns/1ps
 
-/* M: microphone slot 0..3, S: that slot's PDM bit for this sample. */
+/* M: microphone slot 0..3, S: that slot's PDM bit for this sample.
+   Window value is matches-mismatches over 100 samples, accumulated as +-1 so the
+   old 100-2*mismatch subtractor disappears. */
 `define MIC_UPDATE(M,S) \
-    if ((S) ^ mic_lo_i_r) mic_xor_i[M] <= mic_xor_i[M] + 7'd1; \
-    if ((S) ^ mic_lo_q_r) mic_xor_q[M] <= mic_xor_q[M] + 7'd1;
+    mic_acc_i[M] <= ((S) ^ mic_lo_i_r) ? (mic_acc_i[M] - 8'sd1) : (mic_acc_i[M] + 8'sd1); \
+    mic_acc_q[M] <= ((S) ^ mic_lo_q_r) ? (mic_acc_q[M] - 8'sd1) : (mic_acc_q[M] + 8'sd1);
 
 `define MIC_FINISH_GATE \
     mic_gate_active <= 1'b0; \
@@ -128,13 +130,14 @@ module umh_fpga_top (
 
     reg  [7:0]  spi_rx_shift, spi_command, spi_version;
     reg  [2:0]  spi_bit_count;
-    reg  [8:0]  spi_byte_count, spi_expected_length, spi_expected_last;
+    reg  [8:0]  spi_byte_count, spi_expected_last;
+    reg         expected_valid;
     reg  [15:0] spi_update_flags, spi_extension_length;
     reg  [15:0] spi_frame_sequence, accepted_sequence_spi;
     reg  [1:0]  accepted_update_flags_spi;
     reg  [6:0]  spi_channel_index;
-    reg  [1:0]  spi_channel_field;
-    reg  [7:0]  spi_compact_data;
+    reg         spi_channel_page;
+    reg         spi_compact_data;
     reg         mod_level_spi;
     reg         mod_toggle_spi;
     reg  [7:0]  feed_wr_spi;
@@ -151,7 +154,7 @@ module umh_fpga_top (
                                    (spi_byte_count >= HEADER_BYTES) &&
                                    (spi_byte_count < HEADER_BYTES + CHANNEL_BYTES);
     /* Staging page bit: 0 = phase page, 1 = level page. */
-    wire        staging_wr_page = spi_phase_only ? 1'b0 : spi_channel_field[0];
+    wire        staging_wr_page = spi_phase_only ? 1'b0 : spi_channel_page;
     wire [7:0]  staging_wr_addr = {staging_wr_page, spi_channel_index};
     wire [8:0]  spi_rgb_start = HEADER_BYTES[8:0] +
                                 (spi_update_flags[0] ? CHANNEL_BYTES[8:0] : 9'd0);
@@ -162,10 +165,15 @@ module umh_fpga_top (
                                        (spi_rgb_offset != 2'd3);
     wire        spi_compact_cmd = (spi_command == MOD_CMD_FIXED) ||
                                   (spi_command == 8'h16) || (spi_command == 8'h18);
+    /* MOD_FEED is a pure level stream: byte 0 is the opcode, byte 1 the
+     * version, every byte after that is one level.  It must not run through the
+     * 36-byte header parser, otherwise level bytes 18/19 and 34/35 are decoded
+     * as update flags and extension length, which both truncates the block at
+     * 32 levels and flags the frame invalid. */
+    wire        spi_mod_feed = (spi_command == MOD_CMD_FEED);
     wire        spi_audio_read_cmd = (spi_command == 8'h16);
     wire        spi_audio_reset_cmd = (spi_command == 8'h18);
-    wire        feed_we = (spi_bit_count == 3'd7) &&
-                           (spi_command == MOD_CMD_FEED) &&
+    wire        feed_we = (spi_bit_count == 3'd7) && spi_mod_feed &&
                            (spi_byte_count[8:1] != 8'd0);
 
     reg         ws2812_enable;
@@ -222,8 +230,8 @@ module umh_fpga_top (
 
     reg  [6:0]  mic_lo_n;
     reg  [6:0]  mic_window_count;
-    reg  [6:0]  mic_xor_i [0:3];
-    reg  [6:0]  mic_xor_q [0:3];
+    reg  signed [7:0] mic_acc_i [0:3];
+    reg  signed [7:0] mic_acc_q [0:3];
     reg  signed [7:0] mic_win_i [0:3];
     reg  signed [7:0] mic_win_q [0:3];
     reg         mic_bc_valid;
@@ -279,6 +287,9 @@ module umh_fpga_top (
                                   ((mic_cfg_hold_spi[6:0] > 7'd64) ? 7'd64 : mic_cfg_hold_spi[6:0]);
     wire [6:0]  mic_cfg_width_w = (mic_cfg_hold_spi[46:40] == 7'd0) ? 7'd1 :
                                   ((mic_cfg_hold_spi[46:40] > 7'd64) ? 7'd64 : mic_cfg_hold_spi[46:40]);
+    wire        mic_width_one   = (mic_cfg_width[6:1] == 6'd0);
+    /* 17th bit is the borrow of period-width, so the clamp needs no extra comparator. */
+    wire [16:0] mic_cfg_gap_w = {1'b0, mic_cfg_hold_spi[39:24]} - {9'd0, mic_cfg_width_w};
 
     localparam [2:0] EV_IDLE = 3'd0, EV_CLEAR = 3'd1, EV_WAIT = 3'd2,
                      EV_LEVEL = 3'd3, EV_RD = 3'd4, EV_WR = 3'd5;
@@ -440,44 +451,48 @@ module umh_fpga_top (
     wire        no_payload_bytes = !spi_phase_only && !spi_update_flags[0] &&
                                    !spi_update_flags[1] && (ext_len_next == 16'd0);
     wire        header_end = last_header_byte && no_payload_bytes;
-    wire        payload_end = (spi_expected_length > HEADER_BYTES) &&
-                              (spi_byte_count == spi_expected_last);
+    wire        payload_end = expected_valid && (spi_byte_count == spi_expected_last);
     wire        compact_end = spi_compact_cmd && (spi_bit_count == 3'd7) &&
                               ((spi_command == 8'h16) ? (spi_byte_count == pcm_read_end_byte) : (spi_byte_count == COMPACT_BYTES - 16'd1));
     wire [8:0] pcm_read_end_byte = 9'd48;
-    wire        frame_end = spi_compact_cmd ? compact_end : (header_end || payload_end);
+    /* MOD_FEED ends at CS, never at a byte count: the host decides the block
+     * length, the level FIFO bounds it, and there is no header to complete. */
+    wire        frame_end = spi_mod_feed ? 1'b0 :
+                            (spi_compact_cmd ? compact_end : (header_end || payload_end));
 
     always @(posedge spi1_sck or posedge fpga_cs_n) begin
         if (fpga_cs_n) begin
             spi_rx_shift <= 8'd0; spi_bit_count <= 3'd0; spi_byte_count <= 9'd0;
             spi_command <= 8'd0; spi_version <= 8'd0; spi_update_flags <= 16'd0;
             spi_extension_length <= 16'd0; spi_frame_sequence <= 16'd0;
-            spi_expected_length <= HEADER_BYTES; spi_expected_last <= 9'd35;
+            spi_expected_last <= 9'd35; expected_valid <= 1'b0;
             spi_channel_index <= 7'd0;
-            spi_channel_field <= 2'd0; spi_rgb_captured <= 2'd0;
+            spi_channel_page <= 1'b0; spi_rgb_captured <= 2'd0;
         end else begin
             if (spi_bit_count == 3'd7) begin
                 spi_bit_count <= 3'd0;
                 spi_rx_shift  <= spi_rx_byte;
-                case (spi_byte_count)
-                    16'd0:  spi_command  <= spi_rx_byte;
-                    16'd1:  spi_version  <= spi_rx_byte;
-
-                    16'd2: begin
-                        spi_compact_data <= spi_rx_byte;
-                        if (spi_command == 8'h16) pcm_read_count_latched_spi <= pcm_read_count;
-                    end
-                    16'd6:  spi_frame_sequence[7:0]   <= spi_rx_byte;
-                    16'd7:  spi_frame_sequence[15:8]  <= spi_rx_byte;
-                    16'd18: spi_update_flags[7:0]     <= spi_rx_byte;
-                    16'd19: spi_update_flags[15:8]    <= spi_rx_byte;
-                    16'd34: spi_extension_length[7:0] <= spi_rx_byte;
-                    16'd35: begin
-                        spi_extension_length[15:8] <= spi_rx_byte;
-                        spi_expected_length <= expected_next[8:0];
-                        spi_expected_last   <= expected_next[8:0] - 9'd1;
-                    end
-                    default: begin
+                if (spi_byte_count == 16'd0) begin
+                    spi_command <= spi_rx_byte;
+                end else if (spi_byte_count == 16'd1) begin
+                    spi_version <= spi_rx_byte;
+                end else if (!spi_mod_feed) begin
+                    case (spi_byte_count)
+                        16'd2: begin
+                            spi_compact_data <= spi_rx_byte[0];
+                            if (spi_command == 8'h16) pcm_read_count_latched_spi <= pcm_read_count;
+                        end
+                        16'd6:  spi_frame_sequence[7:0]   <= spi_rx_byte;
+                        16'd7:  spi_frame_sequence[15:8]  <= spi_rx_byte;
+                        16'd18: spi_update_flags[7:0]     <= spi_rx_byte;
+                        16'd19: spi_update_flags[15:8]    <= spi_rx_byte;
+                        16'd34: spi_extension_length[7:0] <= spi_rx_byte;
+                        16'd35: begin
+                            spi_extension_length[15:8] <= spi_rx_byte;
+                            spi_expected_last <= expected_next[8:0] - 9'd1;
+                            expected_valid    <= 1'b1;
+                        end
+                        default: begin
 
                         if (spi_command == 8'h14) begin
                             case (spi_byte_count)
@@ -495,14 +510,9 @@ module umh_fpga_top (
                                 if (spi_channel_index != 7'd83)
                                     spi_channel_index <= spi_channel_index + 7'd1;
                             end else begin
-                                case (spi_channel_field)
-                                    2'd0: ;
-                                    2'd1: if (spi_channel_index != 7'd83)
-                                              spi_channel_index <= spi_channel_index + 7'd1;
-                                    default: ;
-                                endcase
-                                spi_channel_field <= (spi_channel_field == 2'd1) ? 2'd0
-                                                                                : spi_channel_field + 2'd1;
+                                if (spi_channel_page && spi_channel_index != 7'd83)
+                                    spi_channel_index <= spi_channel_index + 7'd1;
+                                spi_channel_page <= ~spi_channel_page;
                             end
                         end else if (spi_rgb_payload_byte) begin
 
@@ -516,11 +526,12 @@ module umh_fpga_top (
                         end
                     end
                 endcase
+                end
                 spi_byte_count <= spi_byte_count + 9'd1;
                 if (frame_end) begin
 
                     if (spi_command == MOD_CMD_FIXED && spi_version == 8'h01) begin
-                        mod_level_spi <= spi_compact_data[0];
+                        mod_level_spi <= spi_compact_data;
                         mod_toggle_spi <= ~mod_toggle_spi;
                         accepted_sequence_spi <= spi_frame_sequence;
                         invalid_frame_spi <= 1'b0;
@@ -806,10 +817,10 @@ module umh_fpga_top (
                     mic_lo_i_r         <= 1'b1; mic_lo_q_r <= 1'b1;
                     mic_window_count   <= 7'd0;
                     mic_bc_valid       <= 1'b0;
-                    mic_xor_i[0] <= 7'd0; mic_xor_i[1] <= 7'd0;
-                    mic_xor_i[2] <= 7'd0; mic_xor_i[3] <= 7'd0;
-                    mic_xor_q[0] <= 7'd0; mic_xor_q[1] <= 7'd0;
-                    mic_xor_q[2] <= 7'd0; mic_xor_q[3] <= 7'd0;
+                    mic_acc_i[0] <= 8'sd0; mic_acc_i[1] <= 8'sd0;
+                    mic_acc_i[2] <= 8'sd0; mic_acc_i[3] <= 8'sd0;
+                    mic_acc_q[0] <= 8'sd0; mic_acc_q[1] <= 8'sd0;
+                    mic_acc_q[2] <= 8'sd0; mic_acc_q[3] <= 8'sd0;
                 end
             end else begin
                 mic_warm_half <= mic_warm_half + 8'd1;
@@ -860,22 +871,22 @@ module umh_fpga_top (
                     mic_window_count <= mic_window_count + 7'd1;
             end else if (mic_phase == 4'd13) begin
                 mic_bc_valid <= 1'b0;
-                if (mic_window_count >= 7'd100) begin
+                if (mic_window_count == 7'd100) begin
 
-                    mic_win_i[0] <= 8'sd100 - {mic_xor_i[0], 1'b0};
-                    mic_win_q[0] <= 8'sd100 - {mic_xor_q[0], 1'b0};
-                    mic_win_i[1] <= 8'sd100 - {mic_xor_i[1], 1'b0};
-                    mic_win_q[1] <= 8'sd100 - {mic_xor_q[1], 1'b0};
-                    mic_win_i[2] <= 8'sd100 - {mic_xor_i[2], 1'b0};
-                    mic_win_q[2] <= 8'sd100 - {mic_xor_q[2], 1'b0};
-                    mic_win_i[3] <= 8'sd100 - {mic_xor_i[3], 1'b0};
-                    mic_win_q[3] <= 8'sd100 - {mic_xor_q[3], 1'b0};
+                    mic_win_i[0] <= mic_acc_i[0];
+                    mic_win_q[0] <= mic_acc_q[0];
+                    mic_win_i[1] <= mic_acc_i[1];
+                    mic_win_q[1] <= mic_acc_q[1];
+                    mic_win_i[2] <= mic_acc_i[2];
+                    mic_win_q[2] <= mic_acc_q[2];
+                    mic_win_i[3] <= mic_acc_i[3];
+                    mic_win_q[3] <= mic_acc_q[3];
                     mic_bc_valid    <= 1'b1;
                     mic_window_count <= 7'd0;
-                    mic_xor_i[0] <= 7'd0; mic_xor_i[1] <= 7'd0;
-                    mic_xor_i[2] <= 7'd0; mic_xor_i[3] <= 7'd0;
-                    mic_xor_q[0] <= 7'd0; mic_xor_q[1] <= 7'd0;
-                    mic_xor_q[2] <= 7'd0; mic_xor_q[3] <= 7'd0;
+                    mic_acc_i[0] <= 8'sd0; mic_acc_i[1] <= 8'sd0;
+                    mic_acc_i[2] <= 8'sd0; mic_acc_i[3] <= 8'sd0;
+                    mic_acc_q[0] <= 8'sd0; mic_acc_q[1] <= 8'sd0;
+                    mic_acc_q[2] <= 8'sd0; mic_acc_q[3] <= 8'sd0;
                 end
             end
         end
@@ -892,8 +903,7 @@ module umh_fpga_top (
                 mic_cfg_count   <= mic_cfg_count_w;
                 mic_cfg_width   <= mic_cfg_width_w;
                 mic_cfg_start   <= mic_cfg_hold_spi[23:8];
-                mic_cfg_gap     <= (mic_cfg_hold_spi[39:24] > {9'd0, mic_cfg_width_w})
-                                   ? (mic_cfg_hold_spi[39:24] - {9'd0, mic_cfg_width_w}) : 16'd0;
+                mic_cfg_gap     <= mic_cfg_gap_w[16] ? 16'd0 : mic_cfg_gap_w[15:0];
                 mic_run_state   <= 2'd1;
                 mic_done        <= 1'b0;
                 mic_saturated   <= 1'b0;
@@ -928,10 +938,10 @@ module umh_fpga_top (
             mic_lo_q_r       <= 1'b1;
             mic_window_count <= 7'd0;
             mic_bc_valid     <= 1'b0;
-            mic_xor_i[0] <= 7'd0; mic_xor_i[1] <= 7'd0;
-            mic_xor_i[2] <= 7'd0; mic_xor_i[3] <= 7'd0;
-            mic_xor_q[0] <= 7'd0; mic_xor_q[1] <= 7'd0;
-            mic_xor_q[2] <= 7'd0; mic_xor_q[3] <= 7'd0;
+            mic_acc_i[0] <= 8'sd0; mic_acc_i[1] <= 8'sd0;
+            mic_acc_i[2] <= 8'sd0; mic_acc_i[3] <= 8'sd0;
+            mic_acc_q[0] <= 8'sd0; mic_acc_q[1] <= 8'sd0;
+            mic_acc_q[2] <= 8'sd0; mic_acc_q[3] <= 8'sd0;
         end
 
         if (mic_bc_valid && mic_run_state == 2'd2 && !mic_acc_busy) begin
@@ -945,7 +955,7 @@ module umh_fpga_top (
                     mic_acc_word    <= 3'd0;
                     mic_acc_state   <= 3'd1;
                     mic_acc_busy    <= 1'b1;
-                    mic_acc_last    <= (mic_cfg_width <= 7'd1);
+                    mic_acc_last    <= mic_width_one;
                 end
             end else begin
                 mic_acc_gate  <= mic_gate_index;
@@ -1024,10 +1034,10 @@ module umh_fpga_top (
         spi_rx_shift = 8'd0; spi_bit_count = 3'd0; spi_byte_count = 9'd0;
         spi_command = 8'd0; spi_version = 8'd0; spi_update_flags = 16'd0;
         spi_extension_length = 16'd0; spi_frame_sequence = 16'd0; accepted_update_flags_spi = 2'd0;
-        spi_expected_length = HEADER_BYTES; spi_expected_last = 9'd35;
+        spi_expected_last = 9'd35; expected_valid = 1'b0;
         spi_channel_index = 7'd0;
-        spi_channel_field = 2'd0; spi_rgb_captured = 2'd0;
-        spi_compact_data = 8'd0; mod_level_spi = 1'b0;
+        spi_channel_page = 1'b0; spi_rgb_captured = 2'd0;
+        spi_compact_data = 1'b0; mod_level_spi = 1'b0;
         mod_toggle_spi = 1'b0; feed_wr_spi = 8'd0;
         frame_toggle_spi = 1'b0; stop_toggle_spi = 1'b0; invalid_frame_spi = 1'b0;
         ws2812_toggle_spi = 1'b0;
@@ -1072,10 +1082,10 @@ module umh_fpga_top (
 
         mic_lo_n = 7'd99; mic_window_count = 7'd0; mic_bc_valid = 1'b0;
         mic_lo_i_r = 1'b1; mic_lo_q_r = 1'b1;
-        mic_xor_i[0] = 7'd0; mic_xor_i[1] = 7'd0;
-        mic_xor_i[2] = 7'd0; mic_xor_i[3] = 7'd0;
-        mic_xor_q[0] = 7'd0; mic_xor_q[1] = 7'd0;
-        mic_xor_q[2] = 7'd0; mic_xor_q[3] = 7'd0;
+        mic_acc_i[0] = 8'sd0; mic_acc_i[1] = 8'sd0;
+        mic_acc_i[2] = 8'sd0; mic_acc_i[3] = 8'sd0;
+        mic_acc_q[0] = 8'sd0; mic_acc_q[1] = 8'sd0;
+        mic_acc_q[2] = 8'sd0; mic_acc_q[3] = 8'sd0;
         mic_win_i[0] = 8'sd0; mic_win_i[1] = 8'sd0;
         mic_win_i[2] = 8'sd0; mic_win_i[3] = 8'sd0;
         mic_win_q[0] = 8'sd0; mic_win_q[1] = 8'sd0;

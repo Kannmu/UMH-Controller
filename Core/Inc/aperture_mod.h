@@ -40,10 +40,19 @@
 #define UMH_MOD_RING_MASK (UMH_MOD_RING_SIZE - 1u)
 #define UMH_MOD_MIN_RATE_HZ 8000u
 #define UMH_MOD_MAX_RATE_HZ 20000u
-#define UMH_MOD_MAX_PREBUFFER UMH_MOD_RING_SIZE
-/* FIFO fill kept ahead of the FPGA (9.6 ms at 20 kHz): several missed 1 ms
- * service ticks cannot drain it, and fill + one block stays below 256. */
-#define UMH_MOD_FIFO_TARGET 192u
+/* The level FIFO in front of the FPGA is part of the same pipe, so the usable
+ * ring depth is one FIFO behind the requested prebuffer.  Reserving it here
+ * (a) makes the clock servo's zero-error point coincide with the fill that the
+ * stream actually settles at, instead of biasing the playback rate by
+ * FIFO_TARGET * UMH_MOD_FILL_GAIN_PPM forever, and (b) stops a prebuffer that
+ * leaves no room for one FPGA block from overflowing the ring. */
+#define UMH_MOD_MAX_PREBUFFER (UMH_MOD_RING_SIZE - 2u * FPGA_MOD_BLOCK_MAX)
+/* FIFO fill kept ahead of the FPGA (11.2 ms at 20 kHz).  Refills happen only
+ * when a whole block fits below the target, so the steady state is one
+ * transaction every FIFO_TARGET / block_max output samples instead of one per
+ * service tick: 156 transactions/s at 128 levels, and the FIFO never drops
+ * below one block (6.4 ms) before the next refill is due. */
+#define UMH_MOD_FIFO_TARGET 224u
 /* Gain ramp (Q7) used for start, underrun, refill and stop, so every
  * transition is a smooth fade instead of a step in the common amplitude. */
 #define UMH_MOD_GAIN_ONE 128u
@@ -55,23 +64,40 @@
  * fill deviates from the prebuffer target. */
 #define UMH_MOD_MAX_CORRECTION_PPM 3000
 /* The fill arrives in 256-sample packets, so the raw fill is a ~78 Hz
- * sawtooth.  It is low-passed with tau = 2^SHIFT ticks (102 ms at 20 kHz)
- * before it steers the clock; the unfiltered servo swung the playback rate
- * by several hundred ppm per packet, which is a slow periodic warble. */
+ * sawtooth.  It is low-passed with tau = 2^SHIFT output samples (102 ms at
+ * 20 kHz) before it steers the clock; the unfiltered servo swung the playback
+ * rate by several hundred ppm per packet, which is a slow periodic warble.
+ * The error is accumulated at the full sample rate but the filter and the
+ * Q16 step are only recomputed every UMH_MOD_FILL_GROUP samples, which is the
+ * same time constant (alpha * GROUP == 2^-8) at one eighth of the cost. */
 #define UMH_MOD_FILL_FILTER_SHIFT 11u
-#define UMH_MOD_FILL_GAIN_PPM 4
+#define UMH_MOD_FILL_GROUP 8u
+#define UMH_MOD_FILL_FILTER_STEP (UMH_MOD_FILL_FILTER_SHIFT - 3u)
+#define UMH_MOD_FILL_GAIN_PPM 8
 /* Host USB scheduling can leave a short gap between packets.  Hold the last
  * envelope sample for up to 25 ms (output samples at 20 kHz) before fading out
  * as a real underrun; ordinary Windows/USB jitter never inserts an audible
  * zero. */
 #define UMH_MOD_UNDERRUN_HOLD_TICKS 500u
+/* Room a packet needs before the CDC OUT endpoint is re-armed.  Bulk NAK is
+ * backpressure the host can see: a browser that burst-sends after a stall
+ * waits in its own write() call instead of losing samples inside the ring. */
+#define UMH_MOD_RX_HEADROOM 768u
 
 _Static_assert((UMH_MOD_RING_SIZE & (UMH_MOD_RING_SIZE - 1u)) == 0u,
                "envelope ring size must be a power of two");
-_Static_assert(UMH_MOD_FIFO_TARGET + FPGA_MOD_BLOCK_MAX < FPGA_MOD_FIFO_DEPTH,
-               "level FIFO target leaves no room for one block");
+_Static_assert(UMH_MOD_RX_HEADROOM < UMH_MOD_RING_SIZE,
+               "RX headroom must fit inside the envelope ring");
+/* Refills are only issued when a whole block fits below the target, so the
+ * FIFO fill itself never exceeds it; that is the only bound the RTL needs. */
+_Static_assert(UMH_MOD_FIFO_TARGET <= FPGA_MOD_FIFO_DEPTH,
+               "level FIFO target must fit in the FPGA level FIFO");
+_Static_assert(FPGA_MOD_BLOCK_MAX <= UMH_MOD_FIFO_TARGET,
+               "one block must fit below the level FIFO target");
 _Static_assert(UMH_MOD_GAIN_ONE % UMH_MOD_GAIN_STEP == 0u,
                "gain ramp must land exactly on 0 and UMH_MOD_GAIN_ONE");
+_Static_assert(UMH_MOD_FILL_GROUP == 8u,
+               "servo decimation is baked into UMH_MOD_FILL_FILTER_STEP");
 
 typedef enum {
   UMH_MOD_OFF = 0u,
@@ -162,13 +188,14 @@ typedef struct {
   volatile uint16_t ring_head;
   volatile uint16_t ring_tail;
   uint16_t prebuffer_samples;
+  uint16_t fill_target;         /* ring occupancy the clock servo regulates to */
   uint8_t envelope_ceiling;
   uint32_t base_step_q16;       /* host rate / FPGA output rate, Q16 */
 
   /* Per-session state from here to the end is cleared by configure. */
   uint32_t frac_q16;
   uint32_t step_q16;
-  int32_t fill_error_q12;       /* low-passed (fill - prebuffer), Q12 */
+  int32_t fill_error_q12;       /* low-passed (fill - fill_target), Q12 */
   int32_t clock_correction_ppm;
   uint32_t underrun_count;
   uint32_t overrun_count;
@@ -176,13 +203,19 @@ typedef struct {
   uint32_t rendered_samples;
   uint32_t max_service_cycles;
   uint32_t expected_sequence;
+  uint32_t fill_sum;            /* sum of ring fill over one servo group */
   uint16_t underrun_grace;
+  int16_t level_fill;           /* reconstructed FPGA level FIFO fill */
   uint8_t current_sample;
   uint8_t next_sample;
   uint8_t gain;                 /* Q7 output fade, 0..UMH_MOD_GAIN_ONE */
   uint8_t waiting_refill;
   uint8_t sequence_valid;
   uint8_t poll_tick;            /* full status poll every 16 service calls */
+  uint8_t servo_tick;           /* decimates the fill servo to 2.5 kHz */
+  uint8_t pending_count;        /* levels rendered but not yet accepted */
+  uint8_t pending_block[FPGA_MOD_BLOCK_MAX];
+  uint32_t last_service_us;     /* drain baseline for the FIFO estimate */
 } umh_aperture_mod_t;
 
 void aperture_mod_init(umh_aperture_mod_t *engine);
@@ -197,6 +230,10 @@ int aperture_mod_feed(umh_aperture_mod_t *engine, const uint8_t *samples,
 void aperture_mod_request_stop(umh_aperture_mod_t *engine);
 void aperture_mod_abort(umh_aperture_mod_t *engine);
 uint8_t aperture_mod_owns_output(const umh_aperture_mod_t *engine);
+/* 1 while another received packet still fits in the envelope ring.  The CDC
+ * OUT endpoint is only re-armed when this holds, so a host that runs ahead is
+ * NAKed by the USB hardware instead of losing samples at the ring. */
+uint8_t aperture_mod_rx_ready(const umh_aperture_mod_t *engine);
 /* Call about once per millisecond: tops the FPGA level FIFO up to
  * UMH_MOD_FIFO_TARGET and finishes a requested stop once it has drained. */
 void aperture_mod_service(umh_aperture_mod_t *engine);

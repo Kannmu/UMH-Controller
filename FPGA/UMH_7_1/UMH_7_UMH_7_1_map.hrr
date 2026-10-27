@@ -3,21 +3,23 @@ Report for cell umh_fpga_top
    Instance path: umh_fpga_top
                      Cell usage:
                                   cell	      count    Res Usage(%)
-                                  SLIC	     886.00        100.0
-                                  LUT4	    1283.00        100.0
+                                  SLIC	     796.00        100.0
+                                 IOLGC	       1.00        100.0
+                                  LUT4	    1073.00        100.0
                                DISTRAM	      24.00        100.0
+                                 IOREG	          1        100.0
                                  IOBUF	         96        100.0
-                                PFUREG	       1332        100.0
-                                RIPPLE	        210        100.0
+                                PFUREG	       1339        100.0
+                                RIPPLE	        227        100.0
                                    EBR	          8        100.0
 SUB MODULES
                                   cell	      count    SLC Usage(%)
-                         ws2812_stream	          1         4.0
+                         ws2812_stream	          1         4.8
                         umh_mic_iq_ram	          1         0.0
                       umh_toggle_ram84	          1         0.0
                         umh_level_fifo	          1         0.5
-                     umh_channel_ram18	          1         0.3
-                        spi_mic_stream	          1         5.2
+                     umh_channel_ram18	          1         0.4
+                        spi_mic_stream	          1         5.8
 ---------------------------------------------------
 Report for cell umh_level_fifo
    Instance path: umh_fpga_top/level_fifo
@@ -37,9 +39,21 @@ Report for cell spi_mic_stream
    Instance path: umh_fpga_top/mic_stream_i
                      Cell usage:
                                   cell	      count    Res Usage(%)
-                                  SLIC	      45.67         5.2
-                                  LUT4	      58.00         4.5
+                                  SLIC	      46.07         5.8
+                                  LUT4	      59.00         5.5
                                 PFUREG	         72         5.4
+                                RIPPLE	          4         1.8
+---------------------------------------------------
+Report for cell ws2812_stream
+   Instance path: umh_fpga_top/ws2812_i
+                     Cell usage:
+                                  cell	      count    Res Usage(%)
+                                  SLIC	      38.53         4.8
+                                 IOLGC	       1.00        100.0
+                                  LUT4	      67.00         6.2
+                                 IOREG	          1        100.0
+                                PFUREG	         55         4.1
+                                RIPPLE	         12         5.3
 ---------------------------------------------------
 Report for cell umh_mic_iq_ram
    Instance path: umh_fpga_top/mic_iq_ram
@@ -47,19 +61,10 @@ Report for cell umh_mic_iq_ram
                                   cell	      count    Res Usage(%)
                                    EBR	          1        12.5
 ---------------------------------------------------
-Report for cell ws2812_stream
-   Instance path: umh_fpga_top/ws2812_i
-                     Cell usage:
-                                  cell	      count    Res Usage(%)
-                                  SLIC	      35.17         4.0
-                                  LUT4	      66.00         5.1
-                                PFUREG	         55         4.1
-                                RIPPLE	          8         3.8
----------------------------------------------------
 Report for cell umh_channel_ram18
    Instance path: umh_fpga_top/staging_ram
                      Cell usage:
                                   cell	      count    Res Usage(%)
-                                  SLIC	       3.08         0.3
-                                  LUT4	      10.33         0.8
+                                  SLIC	       2.83         0.4
+                                  LUT4	       9.67         0.9
                                    EBR	          1        12.5

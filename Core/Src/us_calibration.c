@@ -40,7 +40,13 @@
 #define CAL_MICS      UMH_DEVICE_MIC_COUNT
 
 /* ---- Shared measurement constants --------------------------------------- */
-#define CAL_SETTLE_US             3000u  /* LC + room ring-down before next frame */
+/* Ring-down margin between two bursts.  Every caller measures a 0/180 phase
+ * difference, so the part of the previous burst's residual that is identical
+ * in both captures cancels; what this covers is the decay over one block.  The
+ * LC/transducer decay is well under 1 ms on this array, so 1.5 ms of margin is
+ * twice the ring-down time and the motion of the residual inside one block.
+ * Was 3 ms. */
+#define CAL_SETTLE_US             1500u
 #define CAL_GATE_WIDTH             16u   /* 400 us gate, matches legacy records   */
 #define CAL_GATE_TAIL               8u   /* 200 us margin after the gate          */
 #define CAL_GATE_START_MIN         20u   /* 500 us fallback minimum               */
@@ -205,7 +211,11 @@ static void cal_delay_us(uint32_t us)
   wait = us * cycles_per_us;
   start = DWT->CYCCNT;
   if (us >= 2000u) {
-    uint32_t sleep_ms = (us - 1000u) / 1000u;
+    /* osDelay(n) wakes between n-1 and n ticks after the call, so sleeping the
+     * whole floor(us/1000) can never push the total past the deadline and it
+     * shortens the cycle-burning tail by up to half a millisecond per call.
+     * The measured wall time is unchanged: the DWT loop still enforces us. */
+    uint32_t sleep_ms = us / 1000u;
     if (sleep_ms != 0u) osDelay(sleep_ms);
   }
   while ((DWT->CYCCNT - start) < wait) { }
@@ -760,7 +770,8 @@ static int cal_early_run(fpga_link_t *link, const umh_device_profile_t *profile,
     for (i = 0u; i < CAL_CHANNELS; ++i) {
       float zr = cal_z_re[m][i];
       float zi = cal_z_im[m][i];
-      cal_pair_mark(m, (uint8_t)i, umh_sqrtf(zr * zr + zi * zi) < CAL_EARLY_MIN_MAG ? 0u : 1u);
+      cal_pair_mark(m, (uint8_t)i,
+                    (zr * zr + zi * zi) < (CAL_EARLY_MIN_MAG * CAL_EARLY_MIN_MAG) ? 0u : 1u);
     }
   }
 
@@ -1015,7 +1026,15 @@ float *us_calibration_scratch(uint32_t *bytes)
  * ========================================================================== */
 #define CAL_ECHO_LEVEL             16u   /* single channel, linear echo regime  */
 #define CAL_ECHO_REPEATS            8u
-#define CAL_ECHO_SETTLE_US      20000u   /* table/array reverberation decay     */
+/* Per-block reverberation margin.  The measured quantity is a double
+ * difference (0/180 phase cycle and echo-minus-preecho gate difference), so a
+ * residual of the previous burst that is constant across the gate window
+ * cancels exactly; what must decay is only the part that changes between the
+ * pre-echo and the echo gate.  The mirror-image path is at most
+ * 2*(2*250 mm + 7 mm) = 1014 mm, i.e. 2.96 ms of flight time, so 10 ms covers
+ * three round trips of the deepest allowed table position and 25 of a typical
+ * 100 mm one.  Was 20 ms, which double-counted the margin. */
+#define CAL_ECHO_SETTLE_US      10000u
 #define CAL_ECHO_BURST_TAIL_US   2500u   /* event-table swap margin             */
 #define CAL_ECHO_A_START            8u   /* A profile: 200 .. 1775 us           */
 #define CAL_ECHO_A_GATES           64u
@@ -1384,18 +1403,21 @@ static int cal_echo_run(fpga_link_t *link, const umh_device_profile_t *profile,
   for (m = 0u; m < CAL_MICS; ++m) {
     float *cr = cal_scratch.rotated.d_re[m];
     float *sr = cal_scratch.rotated.d_im[m];
-    for (i = 0u; i < CAL_CHANNELS; ++i)
-      cr[i] = cal_k_wave_mm * cal_echo_path_mm(cal_hdist_mm(m, i), v_mm);
+    uint32_t ok_bits[3] = {0u, 0u, 0u};
+    for (i = 0u; i < CAL_CHANNELS; ++i) {
+      float h = cal_hdist_mm(m, i);
+      cr[i] = cal_k_wave_mm * cal_echo_path_mm(h, v_mm);
+      if (h < CAL_ECHO_CONE_H_MM && cal_echo_dead[i] == 0u &&
+          cal_direct_path_mm(m, i) > CAL_ECHO_MIN_RD_MM && cal_pair_valid(m, i) != 0u)
+        ok_bits[i >> 5u] |= 1u << (i & 31u);
+    }
     cal_sincos_batch(cr, sr, cr, CAL_CHANNELS);
     for (i = 0u; i < CAL_CHANNELS; ++i) {
       float zr = cal_z_re[m][i], zi = cal_z_im[m][i];
       float c = cr[i], s = sr[i];
       float ur = zr * c + zi * s;      /* z * exp(-j k r_e) */
       float ui = zi * c - zr * s;
-      uint8_t ok = cal_pair_valid(m, i);
-      if (cal_hdist_mm(m, i) >= CAL_ECHO_CONE_H_MM) ok = 0u;
-      if (cal_direct_path_mm(m, i) <= CAL_ECHO_MIN_RD_MM) ok = 0u;
-      if (cal_echo_dead[i] != 0u) ok = 0u;
+      uint8_t ok = (uint8_t)((ok_bits[i >> 5u] >> (i & 31u)) & 1u);
       cal_normalize_phasor(&ur, &ui);
       cr[i] = ur;
       sr[i] = ui;
@@ -1448,8 +1470,13 @@ static int cal_echo_run(fpga_link_t *link, const umh_device_profile_t *profile,
       cal_a_im[i] = si;
     }
   }
-  for (i = 0u; i < CAL_CHANNELS; ++i)
-    ph[i] = (cal_echo_n[i] != 0u) ? cal_atan2_rad(cal_a_re[i], cal_a_im[i]) : 0.0f;
+  if (umh_cordic_phase_batch(cal_a_re, cal_a_im, ph, CAL_CHANNELS) != 0) {
+    for (i = 0u; i < CAL_CHANNELS; ++i)
+      ph[i] = cal_atan2_rad(cal_a_re[i], cal_a_im[i]);
+  }
+  for (i = 0u; i < CAL_CHANNELS; ++i) {
+    if (cal_echo_n[i] == 0u) ph[i] = 0.0f;
+  }
   /* Pair residual against the fit itself (before the gauge). */
   for (m = 0u; m < CAL_MICS; ++m) {
     for (i = 0u; i < CAL_CHANNELS; ++i) {
@@ -1825,7 +1852,7 @@ static int cal_self_test_eval(fpga_link_t *link,
     umh_output_frame_t subset;
     umh_output_frame_t control;
     float y0[CAL_MICS], y1[CAL_MICS], c0[CAL_MICS], c1[CAL_MICS];
-    float sum_h = 0.0f, sum_h2 = 0.0f;
+    float sum_h2 = 0.0f;
     float pred_re = 0.0f, pred_im = 0.0f;
     float predfull_re = 0.0f, predfull_im = 0.0f;
     float act, ctrl, pred_mag, predfull_mag;
@@ -1862,24 +1889,30 @@ static int cal_self_test_eval(fpga_link_t *link,
                                c0, c1) != 0) return -4;
 
     /* Predicted subset focus (H measured at `level`) and full-array linear
-     * focus prediction.  The measured command-phase convention is +p. */
-    for (k = 0u; k < CAL_FOCUS_SUBSET_COUNT; ++k) {
-      float hr, hi, ph, cr, ci;
-      i = cal_focus_subset[k];
-      hr = cal_z_re[m][i]; hi = cal_z_im[m][i];
-      ph = UMH_TWO_PI * (float)subset.channels[i].phase / 256.0f;
-      cr = cosf(ph); ci = sinf(ph);
-      pred_re += hr * cr - hi * ci;
-      pred_im += hr * ci + hi * cr;
-      sum_h += umh_sqrtf(hr * hr + hi * hi);
-    }
-    for (i = 0u; i < CAL_CHANNELS; ++i) {
-      float hr = cal_z_re[m][i], hi = cal_z_im[m][i];
-      float ph = UMH_TWO_PI * (float)full.channels[i].phase / 256.0f;
-      float cr = cosf(ph), ci = sinf(ph);
-      predfull_re += hr * cr - hi * ci;
-      predfull_im += hr * ci + hi * cr;
-      sum_h2 += hr * hr + hi * hi;
+     * focus prediction.  The measured command-phase convention is +p.  The
+     * subset and the full image share the phase bytes, so one CORDIC batch
+     * per microphone feeds both projections.  cg[] is the capture staging
+     * union and is not live during the self-test. */
+    {
+      float *ang = cal_scratch.cg[0];
+      float *sn = cal_scratch.cg[1];
+      float *cs = cal_scratch.cg[2];
+      for (i = 0u; i < CAL_CHANNELS; ++i)
+        ang[i] = UMH_TWO_PI * (float)full.channels[i].phase * (1.0f / 256.0f);
+      cal_sincos_batch(ang, sn, cs, CAL_CHANNELS);
+      for (k = 0u; k < CAL_FOCUS_SUBSET_COUNT; ++k) {
+        float hr, hi;
+        i = cal_focus_subset[k];
+        hr = cal_z_re[m][i]; hi = cal_z_im[m][i];
+        pred_re += hr * cs[i] - hi * sn[i];
+        pred_im += hr * sn[i] + hi * cs[i];
+      }
+      for (i = 0u; i < CAL_CHANNELS; ++i) {
+        float hr = cal_z_re[m][i], hi = cal_z_im[m][i];
+        predfull_re += hr * cs[i] - hi * sn[i];
+        predfull_im += hr * sn[i] + hi * cs[i];
+        sum_h2 += hr * hr + hi * hi;
+      }
     }
 
     act = umh_sqrtf(y0[m] * y0[m] + y1[m] * y1[m]);

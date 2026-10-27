@@ -24,11 +24,14 @@
 #define FPGA_STATUS_MOD_MODE      (1u << 15)
 /* Bit 12: this FPGA image has the MOD_FEED (0x1A) common-level FIFO. */
 #define FPGA_STATUS_MOD_FEED      (1u << 12)
-/* MOD_FEED: [0]=0x1A [1]=version [2..]=levels.  The reply's byte 1 is the FIFO
- * fill before the transaction.  More than 32 levels would reach header byte 35
- * and flag the frame invalid; the FIFO holds 256 levels, consumed at one per
- * two carrier periods (20 kHz). */
-#define FPGA_MOD_BLOCK_MAX      32u
+/* MOD_FEED: [0]=0x1A [1]=version [2..]=levels, no header.  The RTL ends the
+ * frame at CS and pushes every byte after the version into the level FIFO, so
+ * the block length is bounded only by the FIFO (256) and the wire counter
+ * (509).  128 levels is the largest block that still leaves the FIFO one full
+ * block of drain margin below its 256-entry depth.  The reply's byte 1 is the
+ * FIFO fill before the transaction, consumed at one level per two carrier
+ * periods (20 kHz). */
+#define FPGA_MOD_BLOCK_MAX      128u
 #define FPGA_MOD_FIFO_DEPTH     256u
 #define FPGA_MOD_OUTPUT_RATE_HZ 20000u
 
@@ -93,6 +96,11 @@ _Static_assert(sizeof(fpga_status_wire_t) == 16u, "FPGA status wire size");
 typedef struct {
   SPI_HandleTypeDef *spi;
   uint8_t tx[FPGA_TX_BUFFER_SIZE];
+  /* Second frame buffer: the frame transaction is left running on DMA while the
+   * caller does other work, and alternating buffers means the source of an
+   * in-flight transfer is never the one being packed.  Command traffic keeps
+   * using tx[] and always reaps the pending frame first. */
+  uint8_t tx_frame[FPGA_TX_BUFFER_SIZE];
   uint8_t rx[FPGA_TX_BUFFER_SIZE];
   volatile uint8_t dma_done;
   volatile uint8_t dma_error;
@@ -104,14 +112,23 @@ typedef struct {
   umh_rgb_value_t hold_rgb[UMH_DEVICE_RGB_COUNT];
   uint8_t hold_valid;
   uint32_t hold_last_tx_tick;
-  uint8_t hold_phases[UMH_DEVICE_CHANNEL_COUNT];
+  /* Channel bytes of the last frame handed to the FPGA, two channels per 32-bit
+   * word.  RAM-identical to the phase/level byte arrays it replaces, but the
+   * phase-only test becomes two masked compares per four channels and the hold
+   * test a word compare that covers phases and levels together. */
+  uint32_t prev_channels[UMH_DEVICE_CHANNEL_COUNT / 2u];
   uint8_t phase_header[FPGA_PHASE_HEADER_BYTES];
   osMutexId_t mutex;
   StaticSemaphore_t mutex_memory;
   uint32_t full_frames;
   uint32_t phase_frames;
-  uint8_t levels[UMH_DEVICE_CHANNEL_COUNT];
   uint8_t levels_valid;
+  /* Deferred frame transmit: kind is FPGA_XFER_* and lets any later link call
+   * complete the bookkeeping of a frame that another task armed. */
+  uint8_t xfer_pending;
+  uint8_t xfer_kind;
+  uint8_t frame_buf;
+  uint8_t *xfer_buf;
 } fpga_link_t;
 
 /* Runtime logical-channel -> us_tx bit permutation.  Initialized to identity

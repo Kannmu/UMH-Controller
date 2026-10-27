@@ -115,6 +115,13 @@ void umh_usb_tx_service(void);
 uint8_t *umh_usb_tx_acquire(void);
 uint8_t umh_usb_tx_commit(uint8_t *slot, uint16_t length);
 
+/* Receive flow control.  When the consumer behind the CDC pipe is full the
+ * OUT endpoint stays unarmed, so the USB core NAKs the host's bulk writes
+ * instead of the firmware dropping bytes.  Call umh_cdc_rx_resume() once the
+ * consumer has made room; it is a no-op while the endpoint is armed. */
+void umh_cdc_rx_resume(void);
+uint8_t umh_cdc_rx_paused(void);
+
 /* USER CODE BEGIN EXPORTED_FUNCTIONS */
 
 /* USER CODE END EXPORTED_FUNCTIONS */

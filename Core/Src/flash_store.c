@@ -67,9 +67,13 @@ static union {
   uint8_t bytes[FLASH_SNAPSHOT_BYTES];
 } flash_snapshot;
 
+/* Page staging for the two streaming paths (mount-time object verification and
+ * bank compaction).  Both run only in the storage task and neither calls the
+ * other, so one page is enough for both. */
+static uint8_t flash_page_buf[FLASH_NOR_PAGE_SIZE];
+
 static int object_data_valid(const flash_store_record_t *record)
 {
-  static uint8_t buffer[FLASH_NOR_PAGE_SIZE];
   uint32_t address;
   uint32_t remaining;
   uint32_t chunk;
@@ -89,9 +93,9 @@ static int object_data_valid(const flash_store_record_t *record)
   {
     uint32_t crc = 0xFFFFFFFFu;
     while (remaining != 0u) {
-      chunk = remaining > sizeof(buffer) ? sizeof(buffer) : remaining;
-      if (flash_nor_read_dma(address, buffer, chunk) != FLASH_NOR_OK) return 0;
-      crc = umh_crc32_update(crc, buffer, chunk);
+      chunk = remaining > sizeof(flash_page_buf) ? sizeof(flash_page_buf) : remaining;
+      if (flash_nor_read_dma(address, flash_page_buf, chunk) != FLASH_NOR_OK) return 0;
+      crc = umh_crc32_update(crc, flash_page_buf, chunk);
       address += chunk;
       remaining -= chunk;
     }
@@ -135,7 +139,6 @@ static int rotate_metadata(flash_store_t *store)
 
 static int compact_data(flash_store_t *store)
 {
-  static uint8_t buffer[FLASH_NOR_PAGE_SIZE];
   uint32_t source;
   uint32_t target;
   uint32_t remaining;
@@ -162,9 +165,9 @@ static int compact_data(flash_store_t *store)
     remaining = flash_snapshot.records[i].length;
     flash_snapshot.records[i].address = target;
     while (remaining != 0u) {
-      chunk = remaining > sizeof(buffer) ? sizeof(buffer) : remaining;
-      if (flash_nor_read_dma(source, buffer, chunk) != FLASH_NOR_OK ||
-          flash_nor_page_program(target, buffer, chunk) != FLASH_NOR_OK)
+      chunk = remaining > sizeof(flash_page_buf) ? sizeof(flash_page_buf) : remaining;
+      if (flash_nor_read_dma(source, flash_page_buf, chunk) != FLASH_NOR_OK ||
+          flash_nor_page_program(target, flash_page_buf, chunk) != FLASH_NOR_OK)
         return -3;
       source += chunk;
       target += chunk;

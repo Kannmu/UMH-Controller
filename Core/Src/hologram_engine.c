@@ -232,16 +232,52 @@ static uint32_t hologram_fade_gain_x1000(const umh_hologram_engine_t *engine)
   return (uint32_t)(scale * 1000.0f + 0.5f);
 }
 
+/* Per-segment cache of "this keyframe's level row is one value for the whole
+ * aperture".  Hologram amplitude is normally a global ceiling, and in that
+ * case the 84 level interpolations reduce to one scalar per frame.  The cache
+ * is keyed on the segment so a re-upload or a keyframe change recomputes it. */
+static uint8_t hologram_uniform_level[2];
+static uint32_t hologram_uniform_key;
+
+static uint8_t hologram_uniform_row(const uint8_t *row)
+{
+  uint8_t value = row[0];
+  uint16_t i;
+  if (value > UMH_HOLOGRAM_LEVEL_FULL) return 0xFFu;
+  for (i = 1u; i < UMH_HOLOGRAM_CHANNELS; ++i) {
+    if (row[i] != value) return 0xFFu;
+  }
+  return value;
+}
+
+static uint8_t hologram_level_scale(uint32_t value, uint32_t scale, uint32_t fade_x1000)
+{
+  value = (value * scale) / 128u;
+  value = (value * fade_x1000) / 1000u;
+  return (uint8_t)(value > 255u ? 255u : value);
+}
+
+static uint8_t hologram_level_apply(const umh_hologram_engine_t *engine,
+                                    uint32_t interpolated, uint32_t scale,
+                                    uint32_t fade_x1000)
+{
+  if ((engine->flags & UMH_HOLOGRAM_FLAG_GAMMA) != 0u)
+    interpolated = hologram_level_from_gain(interpolated);
+  return hologram_level_scale(interpolated, scale, fade_x1000);
+}
+
 static void hologram_compose(umh_hologram_engine_t *engine, uint16_t index,
                              uint32_t alpha_x1000, uint32_t fade_x1000,
-                             uint8_t *phase_out, uint8_t *level_out)
+                             umh_output_frame_t *frame)
 {
   const uint8_t *pa = engine->phase[index];
   const uint8_t *la = engine->level_table[index];
   const uint8_t *pb;
   const uint8_t *lb;
-  uint32_t scale = (uint32_t)engine->level;
+  const uint32_t scale = (uint32_t)engine->level;
+  uint32_t beta;
   uint32_t i;
+  uint32_t segment;
   if (index + 1u < engine->keyframes && alpha_x1000 > 0u) {
     pb = engine->phase[index + 1u];
     lb = engine->level_table[index + 1u];
@@ -250,31 +286,56 @@ static void hologram_compose(umh_hologram_engine_t *engine, uint16_t index,
     lb = la;
     alpha_x1000 = 0u;
   }
+  beta = 1000u - alpha_x1000;
+  segment = (uint32_t)index | ((uint32_t)engine->keyframes << 16);
+  if (segment != hologram_uniform_key) {
+    hologram_uniform_key = segment;
+    hologram_uniform_level[0] = hologram_uniform_row(la);
+    hologram_uniform_level[1] = (lb == la) ? hologram_uniform_level[0] :
+                                              hologram_uniform_row(lb);
+  }
+  if (hologram_uniform_level[0] != 0xFFu && hologram_uniform_level[1] != 0xFFu) {
+    /* Both keyframes emit one level for the whole aperture, so the level
+     * interpolation, gamma, ceiling and fade collapse into one byte.  The
+     * phase is still per channel. */
+    uint8_t level = hologram_level_apply(
+        engine,
+        ((uint32_t)hologram_uniform_level[0] * beta +
+         (uint32_t)hologram_uniform_level[1] * alpha_x1000) / 1000u,
+        scale, fade_x1000);
+    for (i = 0u; i < UMH_HOLOGRAM_CHANNELS; ++i) {
+      int32_t delta = (int32_t)((uint8_t)(pb[i] - pa[i]));
+      if (delta > 127) delta -= 256;
+      else if (delta < -128) delta += 256;
+      frame->channels[i].phase = (uint8_t)((int32_t)pa[i] +
+          (int32_t)(((int32_t)delta * (int32_t)alpha_x1000) / 1000) -
+          (uint8_t)(level >> 1));
+      frame->channels[i].level = level;
+    }
+    return;
+  }
   for (i = 0u; i < UMH_HOLOGRAM_CHANNELS; ++i) {
     /* Shortest 8-bit wrap path, exactly like the block parser's DELTA rule. */
     int32_t delta = (int32_t)((uint8_t)(pb[i] - pa[i]));
+    uint8_t level;
     if (delta > 127) delta -= 256;
     else if (delta < -128) delta += 256;
     /* |delta| <= 128 and alpha <= 1000, so this product can never leave 32
      * bits: the 64-bit divide that used to be here called __aeabi_ldivmod 84
      * times per frame and was the whole cost of a morph frame. */
-    phase_out[i] = (uint8_t)((int32_t)pa[i] +
-                             (int32_t)(((int32_t)delta * (int32_t)alpha_x1000) / 1000));
-    {
-      uint32_t value = ((uint32_t)la[i] * (1000u - alpha_x1000) +
-                        (uint32_t)lb[i] * alpha_x1000) / 1000u;
-      if ((engine->flags & UMH_HOLOGRAM_FLAG_GAMMA) != 0u)
-        value = hologram_level_from_gain(value);
-      value = (value * scale) / 128u;
-      value = (value * fade_x1000) / 1000u;
-      if (value > 255u) value = 255u;
-      level_out[i] = (uint8_t)value;
-    }
+    frame->channels[i].phase = (uint8_t)((int32_t)pa[i] +
+        (int32_t)(((int32_t)delta * (int32_t)alpha_x1000) / 1000));
+    level = hologram_level_apply(
+        engine,
+        ((uint32_t)la[i] * beta + (uint32_t)lb[i] * alpha_x1000) / 1000u,
+        scale, fade_x1000);
+    frame->channels[i].level = level;
+    frame->channels[i].phase = (uint8_t)(frame->channels[i].phase - (uint8_t)(level >> 1));
   }
 }
 
 static uint8_t hologram_needs_submit(const umh_hologram_engine_t *engine,
-                                     const uint8_t *phase, const uint8_t *level,
+                                     const umh_output_frame_t *frame,
                                      uint64_t now_us)
 {
   uint32_t i;
@@ -283,16 +344,20 @@ static uint8_t hologram_needs_submit(const umh_hologram_engine_t *engine,
   if (now_us - engine->last_submit_us >=
       (uint64_t)UMH_HOLOGRAM_REFRESH_MS * 1000ull) return 1u;
   for (i = 0u; i < UMH_HOLOGRAM_CHANNELS; ++i) {
-    if (phase[i] != engine->last_phase[i] || level[i] != engine->last_level[i]) return 1u;
+    if (frame->channels[i].phase != engine->last_phase[i] ||
+        frame->channels[i].level != engine->last_level[i]) return 1u;
   }
   return 0u;
 }
 
-static void hologram_store_last(umh_hologram_engine_t *engine, const uint8_t *phase,
-                                const uint8_t *level, uint64_t now_us)
+static void hologram_store_last(umh_hologram_engine_t *engine,
+                                const umh_output_frame_t *frame, uint64_t now_us)
 {
-  memcpy(engine->last_phase, phase, UMH_HOLOGRAM_CHANNELS);
-  memcpy(engine->last_level, level, UMH_HOLOGRAM_CHANNELS);
+  uint32_t i;
+  for (i = 0u; i < UMH_HOLOGRAM_CHANNELS; ++i) {
+    engine->last_phase[i] = frame->channels[i].phase;
+    engine->last_level[i] = frame->channels[i].level;
+  }
   engine->have_last = 1u;
   engine->last_submit_us = now_us;
 }
@@ -362,6 +427,7 @@ int hologram_engine_upload(umh_hologram_engine_t *engine, const uint8_t *payload
     engine->keyframes = first + count;
   }
   if (engine->state == UMH_HOLOGRAM_STATE_OFF) engine->state = UMH_HOLOGRAM_STATE_READY;
+  hologram_uniform_key = 0u;
   hologram_unlock(engine);
   return 0;
 }
@@ -398,6 +464,10 @@ int hologram_engine_configure(umh_hologram_engine_t *engine, const uint8_t *payl
   if (engine->keyframes <= 1u) engine->flags |= UMH_HOLOGRAM_FLAG_STATIC;
   else engine->flags &= (uint8_t)~UMH_HOLOGRAM_FLAG_STATIC;
   engine->period_us = hologram_period_us(engine);
+  /* A CONFIG can switch a running engine to a single-keyframe image; drop the
+   * hold cache so the next service composes and publishes it immediately
+   * instead of waiting out the 100 ms keep-alive. */
+  engine->have_last = 0u;
   if (engine->state == UMH_HOLOGRAM_STATE_OFF) engine->state = UMH_HOLOGRAM_STATE_READY;
   hologram_unlock(engine);
   return 0;
@@ -495,9 +565,7 @@ static uint32_t hologram_advance_due(umh_hologram_engine_t *engine, uint64_t now
 uint32_t hologram_engine_service(umh_hologram_engine_t *engine, fpga_link_t *link,
                                  uint64_t now_us, uint32_t *wait_us)
 {
-  umh_output_frame_t frame;
-  uint8_t phase[UMH_HOLOGRAM_CHANNELS];
-  uint8_t level[UMH_HOLOGRAM_CHANNELS];
+  umh_output_frame_t frame __attribute__((aligned(4)));
   uint16_t index = 0u;
   uint32_t alpha = 0u;
   uint32_t fade;
@@ -550,14 +618,26 @@ uint32_t hologram_engine_service(umh_hologram_engine_t *engine, fpga_link_t *lin
   }
 
   fade = hologram_fade_gain_x1000(engine);
+  if ((engine->flags & UMH_HOLOGRAM_FLAG_STATIC) != 0u && engine->have_last != 0u &&
+      engine->state == UMH_HOLOGRAM_STATE_RUNNING && fade == 1000u &&
+      now_us - engine->last_submit_us <
+          (uint64_t)UMH_HOLOGRAM_REFRESH_MS * 1000ull) {
+    /* A single keyframe with a settled ceiling and fade cannot change, so the
+     * 84 channel bytes are provably identical: skip the recomposition until
+     * the keep-alive refresh is due. */
+    engine->frames_skipped++;
+    *wait_us = hologram_advance_due(engine, now_us, period);
+    hologram_unlock(engine);
+    return 0u;
+  }
   {
     uint32_t service_start_cycles = DWT->CYCCNT;
     uint32_t render_start_cycles = DWT->CYCCNT;
     index = hologram_keyframe_index(engine, now_us - engine->run_origin_us, &alpha);
-    hologram_compose(engine, index, alpha, fade, phase, level);
+    hologram_compose(engine, index, alpha, fade, &frame);
     hologram_record_render(engine, DWT->CYCCNT - render_start_cycles);
 
-    if (hologram_needs_submit(engine, phase, level, now_us) == 0u) {
+    if (hologram_needs_submit(engine, &frame, now_us) == 0u) {
       engine->frames_skipped++;
       hologram_record_service(engine, service_start_cycles);
       *wait_us = hologram_advance_due(engine, now_us, period);
@@ -565,22 +645,12 @@ uint32_t hologram_engine_service(umh_hologram_engine_t *engine, fpga_link_t *lin
       return 0u;
     }
 
-    memset(&frame, 0, sizeof(frame));
     frame.sequence = engine->frame_sequence++;
     frame.deadline = now_us;
     frame.update_flags = UMH_FRAME_FLAG_ULTRASOUND;
     frame.digital_mask = 0u;
     frame.digital_state = 0u;
     frame.extension_length = 0u;
-    {
-      uint16_t i;
-      for (i = 0u; i < UMH_HOLOGRAM_CHANNELS; ++i) {
-        /* The frame builder marks the rising edge of the high window, so the
-         * fundamental trails it by level/2 slots; carry the window centre. */
-        frame.channels[i].phase = (uint8_t)(phase[i] - (uint8_t)(level[i] >> 1));
-        frame.channels[i].level = level[i];
-      }
-    }
     {
       uint32_t submit_start_cycles = DWT->CYCCNT;
       result = fpga_link_submit_allow_hold(link, &frame, 1u);
@@ -594,7 +664,12 @@ uint32_t hologram_engine_service(umh_hologram_engine_t *engine, fpga_link_t *lin
       hologram_unlock(engine);
       return 0u;
     }
-    hologram_store_last(engine, phase, level, now_us);
+    if (engine->keyframes <= 1u)
+      hologram_store_last(engine, &frame, now_us);
+    else {
+      engine->have_last = 1u;
+      engine->last_submit_us = now_us;
+    }
     engine->frames_submitted++;
     engine->fps_frames++;
     if (engine->fps_window_start_us == 0u) engine->fps_window_start_us = now_us;

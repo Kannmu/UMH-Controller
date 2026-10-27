@@ -52,38 +52,53 @@ static void prime_interpolator(umh_aperture_mod_t *engine)
 
 static uint8_t fetch_interpolated(const umh_aperture_mod_t *engine)
 {
-  /* frac < 2^16 keeps the result between the two samples, so no clamp. */
-  int32_t delta = (int32_t)engine->next_sample - (int32_t)engine->current_sample;
+  /* frac == 0 is the whole stream whenever the host rate equals the FPGA
+   * rate: the current sample already is the exact output value, so the
+   * two-sample interpolation collapses to a load. */
+  int32_t delta;
+  if (engine->frac_q16 == 0u) return engine->current_sample;
+  delta = (int32_t)engine->next_sample - (int32_t)engine->current_sample;
   return (uint8_t)((int32_t)engine->current_sample +
                    ((delta * (int32_t)engine->frac_q16) >> 16));
 }
 
 static void commit_interpolated(umh_aperture_mod_t *engine)
 {
-  engine->frac_q16 += engine->step_q16;
-  while (engine->frac_q16 >= 65536u) {
-    engine->frac_q16 -= 65536u;
+  /* A step at or below one sample per output sample - the whole documented
+   * host range - advances at most one entry, so the loop body runs once and
+   * the branch below is the only extra work.  A step above 1.0 (positive
+   * servo correction) still needs the loop. */
+  uint32_t frac = engine->frac_q16 + engine->step_q16;
+  if (frac < 65536u) {
+    engine->frac_q16 = frac;
+    return;
+  }
+  for (;;) {
+    frac -= 65536u;
     engine->current_sample = engine->next_sample;
     if (ring_count_locked(engine) == 0u) {
       /* Hold the last sample (next == current); render_level() turns a
        * lasting gap into a faded underrun. */
       engine->frac_q16 = 0u;
-      break;
+      return;
     }
     engine->next_sample = ring_pop_locked(engine);
+    if (frac < 65536u) break;
   }
+  engine->frac_q16 = frac;
 }
 
-static void update_clock_correction(umh_aperture_mod_t *engine)
+static void update_clock_correction(umh_aperture_mod_t *engine, uint16_t count)
 {
   /* One-pole low-pass of the fill error (Q12, tau 2^11 output samples)
    * removes the 256-sample packet sawtooth, so the playback rate only
-   * follows the real host/device clock difference. */
-  int32_t error_q12 = ((int32_t)ring_count_locked(engine) -
-                       (int32_t)engine->prebuffer_samples) * 4096;
+   * follows the real host/device clock difference.  The regulator target is
+   * the occupancy the pipe really settles at: the requested prebuffer minus
+   * the FPGA level FIFO that sits in front of the ring. */
+  int32_t error_q12 = ((int32_t)count - (int32_t)engine->fill_target) * 4096;
   int32_t correction;
   engine->fill_error_q12 += (error_q12 - engine->fill_error_q12) >>
-                            UMH_MOD_FILL_FILTER_SHIFT;
+                            UMH_MOD_FILL_FILTER_STEP;
   correction = (engine->fill_error_q12 / 4096) * UMH_MOD_FILL_GAIN_PPM;
   if (correction > (int32_t)UMH_MOD_MAX_CORRECTION_PPM)
     correction = (int32_t)UMH_MOD_MAX_CORRECTION_PPM;
@@ -99,19 +114,19 @@ static void update_clock_correction(umh_aperture_mod_t *engine)
  * refill and stop - is the same Q7 gain ramp over the held or live level. */
 static uint8_t render_level(umh_aperture_mod_t *engine)
 {
+  uint16_t count = ring_count_locked(engine);
   uint8_t live = 0u;
   uint8_t raw;
   if (engine->state == UMH_MOD_RUNNING) {
     if (engine->waiting_refill != 0u) {
       /* Restart at the new data only once fully faded out. */
-      if (engine->gain == 0u && ring_count_locked(engine) >= engine->prebuffer_samples) {
+      if (engine->gain == 0u && count >= engine->prebuffer_samples) {
         prime_interpolator(engine);
         engine->waiting_refill = 0u;
         live = 1u;
       }
-    } else if (ring_count_locked(engine) != 0u) {
+    } else if (count != 0u) {
       engine->underrun_grace = 0u;
-      update_clock_correction(engine);
       live = 1u;
     } else if (engine->underrun_grace == 0u) {
       engine->underrun_grace = UMH_MOD_UNDERRUN_HOLD_TICKS;
@@ -127,6 +142,15 @@ static uint8_t render_level(umh_aperture_mod_t *engine)
   }
   if (live != 0u) {
     if (engine->gain < UMH_MOD_GAIN_ONE) engine->gain += UMH_MOD_GAIN_STEP;
+    /* The fill is integrated at the full output rate: sampling it once per
+     * group aliases against the host packet cadence and biases the mean by a
+     * whole packet.  Only the filter and the Q16 step are decimated. */
+    engine->fill_sum += count;
+    if (++engine->servo_tick >= UMH_MOD_FILL_GROUP) {
+      engine->servo_tick = 0u;
+      update_clock_correction(engine, (uint16_t)(engine->fill_sum / UMH_MOD_FILL_GROUP));
+      engine->fill_sum = 0u;
+    }
   } else if (engine->gain != 0u) {
     engine->gain -= UMH_MOD_GAIN_STEP;
   }
@@ -191,7 +215,11 @@ int aperture_mod_configure(umh_aperture_mod_t *engine,
   rate = config->envelope_rate_hz;
   prebuffer = config->prebuffer_samples;
   if (rate < UMH_MOD_MIN_RATE_HZ || rate > UMH_MOD_MAX_RATE_HZ) return -2;
-  if (prebuffer == 0u || prebuffer > UMH_MOD_MAX_PREBUFFER) return -3;
+  if (prebuffer == 0u) return -3;
+  /* A prebuffer that fills the ring leaves no room for one host burst; the
+   * effective value is reported back in MOD_STATUS so the host can show what
+   * the pipe really gives it. */
+  if (prebuffer > UMH_MOD_MAX_PREBUFFER) prebuffer = UMH_MOD_MAX_PREBUFFER;
   if (mod_lock(engine) != 0) return -4;
   if (engine->state != UMH_MOD_OFF) {
     mod_unlock(engine);
@@ -267,6 +295,9 @@ int aperture_mod_configure(umh_aperture_mod_t *engine,
   engine->renderer = renderer;
   engine->link = link;
   engine->prebuffer_samples = (uint16_t)prebuffer;
+  engine->fill_target = (uint16_t)(prebuffer > UMH_MOD_FIFO_TARGET
+                                       ? prebuffer - UMH_MOD_FIFO_TARGET
+                                       : prebuffer / 2u);
   engine->envelope_ceiling =
       (uint8_t)(((uint32_t)config->level * UMH_MOD_MAX_LEVEL + 127u) / 255u);
   engine->base_step_q16 = (rate << 16) / FPGA_MOD_OUTPUT_RATE_HZ;
@@ -356,11 +387,23 @@ uint8_t aperture_mod_owns_output(const umh_aperture_mod_t *engine)
   return engine->state != UMH_MOD_OFF ? 1u : 0u;
 }
 
+uint8_t aperture_mod_rx_ready(const umh_aperture_mod_t *engine)
+{
+  /* Deliberately lock-free: this runs in the USB interrupt, and the only
+   * writers are the protocol task (head) and the render task (tail), so a
+   * torn head/tail pair can only make the answer more conservative. */
+  uint16_t count;
+  if (engine == NULL) return 1u;
+  if (engine->state != UMH_MOD_RUNNING && engine->state != UMH_MOD_PRIMING) return 1u;
+  count = (uint16_t)(engine->ring_head - engine->ring_tail);
+  return (uint16_t)(count + UMH_MOD_RX_HEADROOM) <= UMH_MOD_RING_SIZE ? 1u : 0u;
+}
+
 void aperture_mod_service(umh_aperture_mod_t *engine)
 {
-  uint8_t block[FPGA_MOD_BLOCK_MAX];
   uint32_t start_cycles;
   uint32_t elapsed;
+  uint32_t now_us;
   int fill;
   if (engine == NULL || mod_lock(engine) != 0) return;
   if (engine->state == UMH_MOD_OFF || engine->link == NULL) {
@@ -384,23 +427,55 @@ void aperture_mod_service(umh_aperture_mod_t *engine)
     finish_stop_locked(engine);
     system_status_fault(UMH_FAULT_FPGA_OUTPUT, 22u, UMH_FAULT_WARNING);
   }
-  fill = fpga_link_mod_feed(engine->link, NULL, 0u);
-  /* Top the FIFO up while playing or while a stop fade is still audible.
-   * Each reply reports the real fill before that block. */
-  while (fill >= 0 && fill < (int)UMH_MOD_FIFO_TARGET &&
-         (engine->state == UMH_MOD_RUNNING ||
-          (engine->state == UMH_MOD_STOPPING && engine->gain != 0u))) {
-    uint8_t count = (uint8_t)((int)UMH_MOD_FIFO_TARGET - fill);
-    uint8_t i;
-    if (count > FPGA_MOD_BLOCK_MAX) count = FPGA_MOD_BLOCK_MAX;
-    for (i = 0u; i < count; ++i) block[i] = render_level(engine);
-    fill = fpga_link_mod_feed(engine->link, block, count);
-    if (fill >= 0) fill += count;
+  /* The FPGA drains one level per 50 us from its own clock, so the fill
+   * reported by the previous transaction is aged by wall time.  Every accepted
+   * block reports the true fill again, so the estimate cannot drift. */
+  now_us = (uint32_t)system_time_us();
+  fill = engine->level_fill;
+  if (fill != 0) {
+    int32_t drained = (int32_t)(((uint32_t)(now_us - engine->last_service_us) *
+                                 (uint32_t)FPGA_MOD_OUTPUT_RATE_HZ) / 1000000u);
+    fill -= drained;
+    if (fill < 0) fill = 0;
   }
+  engine->last_service_us = now_us;
+
+  if (engine->state == UMH_MOD_RUNNING ||
+      (engine->state == UMH_MOD_STOPPING && engine->gain != 0u)) {
+    /* A block the link refused is retried before anything new is rendered:
+     * the ring samples behind it are already consumed. */
+    if (engine->pending_count != 0u) {
+      int reply = fpga_link_mod_feed(engine->link, engine->pending_block,
+                                     engine->pending_count);
+      if (reply < 0) goto service_done;
+      fill = reply + engine->pending_count;
+      engine->pending_count = 0u;
+    }
+    /* Refill only when a whole block still fits below the target.  Feeding
+     * every tick would cost one transaction per millisecond; this way the
+     * steady state is FIFO_TARGET / block_max output samples per transaction,
+     * and the hysteresis keeps the fill inside one block of the target. */
+    while (fill + (int)FPGA_MOD_BLOCK_MAX <= (int)UMH_MOD_FIFO_TARGET) {
+      uint8_t count = (uint8_t)((int)UMH_MOD_FIFO_TARGET - fill);
+      uint8_t i;
+      if (count > FPGA_MOD_BLOCK_MAX) count = FPGA_MOD_BLOCK_MAX;
+      for (i = 0u; i < count; ++i) engine->pending_block[i] = render_level(engine);
+      {
+        int reply = fpga_link_mod_feed(engine->link, engine->pending_block, count);
+        if (reply < 0) {
+          engine->pending_count = count;
+          break;
+        }
+        fill = reply + count;
+      }
+    }
+  }
+service_done:
+  if (fill < 0) fill = 0;
+  engine->level_fill = (int16_t)fill;
   /* A stop completes once faded out and drained; a dead link cannot drain,
    * so it ends the stop at once instead of hanging in STOPPING. */
-  if (engine->state == UMH_MOD_STOPPING &&
-      (fill < 0 || (engine->gain == 0u && fill == 0)))
+  if (engine->state == UMH_MOD_STOPPING && engine->gain == 0u && fill == 0)
     finish_stop_locked(engine);
   elapsed = DWT->CYCCNT - start_cycles;
   if (elapsed > engine->max_service_cycles) engine->max_service_cycles = elapsed;

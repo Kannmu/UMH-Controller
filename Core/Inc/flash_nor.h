@@ -8,6 +8,10 @@
 #define FLASH_NOR_SECTOR_SIZE     4096u
 #define FLASH_NOR_BLOCK_SIZE      65536u
 #define FLASH_NOR_TOTAL_SIZE      (16u * 1024u * 1024u)
+/* Largest single FAST_READ DMA burst.  1 KiB keeps one descriptor, one CS
+ * frame and one completion wait for 4x more bytes than a page-sized chunk;
+ * the SPI wire time is unchanged, only the per-chunk CPU goes away. */
+#define FLASH_NOR_DMA_CHUNK       1024u
 
 typedef enum {
   FLASH_NOR_OK = 0,

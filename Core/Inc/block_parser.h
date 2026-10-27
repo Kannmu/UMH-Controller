@@ -6,15 +6,12 @@
 #include "spatial_renderer.h"
 #include "frame_ring.h"
 
-#define UMH_BLOCK_PARSER_INPUT_SIZE 512u
 #define UMH_BLOCK_PARSER_MAX_RECORD_BYTES 512u
 
 typedef struct {
   umh_block_context_t block;
   umh_spatial_renderer_t *renderer;
   umh_frame_ring_t *frames;
-  uint8_t input[UMH_BLOCK_PARSER_INPUT_SIZE];
-  uint16_t input_length;
   uint8_t record[UMH_BLOCK_PARSER_MAX_RECORD_BYTES];
   uint16_t record_length;
   uint16_t record_expected;

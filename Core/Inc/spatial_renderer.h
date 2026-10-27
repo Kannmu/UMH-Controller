@@ -8,6 +8,10 @@
 #include "spatiotemporal_block.h"
 #include "umh_fast_math.h"
 
+/* Upper bound for the channel-outer multi-source accumulate.  Sources beyond
+ * this fall back to one accumulate_point() call each, which is exact. */
+#define UMH_SPATIAL_MAX_BATCH_SOURCES 8u
+
 typedef struct {
   const umh_device_profile_t *profile;
   umh_channel_calibration_t calibration[UMH_DEVICE_CHANNEL_COUNT];
@@ -33,7 +37,11 @@ typedef struct {
    * the phase in 1/1024 carrier turn. */
   float phase_scale_q10;
   uint8_t geometry_valid;
-  uint8_t reserved[3];
+  /* Planar element grid: every element shares one z coordinate, so dz*dz is
+   * invariant across the aperture and the single-point synthesis hoists it.
+   * Pure refresh-time fact. */
+  uint8_t planar;
+  uint8_t reserved[2];
   uint8_t rgb_gain[UMH_DEVICE_RGB_COUNT][3];
   uint32_t carrier_hz;
   uint32_t sound_speed_um_per_s;
@@ -70,6 +78,20 @@ int spatial_renderer_point(umh_spatial_renderer_t *renderer,
 int spatial_renderer_accumulate_point(const umh_spatial_renderer_t *renderer,
                                       const umh_spatial_point_t *point,
                                       float *real_accum, float *imag_accum);
+/* Multi-source accumulation, channel-outer.
+ *
+ * accumulate_point() walks the aperture once per source, so an eight-source
+ * frame reloads the element geometry, calibration phase and gain eight times
+ * and round-trips both accumulators through memory for every channel/source
+ * pair.  This variant keeps one channel's geometry and accumulators in
+ * registers and walks the sources inside, which removes 7/8 of those loads
+ * and stores.  The per-source phase/level conversions are hoisted too.  The
+ * complex sum is formed in the same source order, so the result is identical
+ * to calling accumulate_point() once per source. */
+int spatial_renderer_accumulate_points(const umh_spatial_renderer_t *renderer,
+                                       const umh_spatial_point_t *points,
+                                       uint16_t count,
+                                       float *real_accum, float *imag_accum);
 int spatial_renderer_finalize(const umh_spatial_renderer_t *renderer,
                               const float *real_accum, const float *imag_accum,
                               umh_output_frame_t *frame);

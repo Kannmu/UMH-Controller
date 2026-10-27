@@ -14,14 +14,18 @@ static void spatial_renderer_refresh_derived(umh_spatial_renderer_t *renderer)
 {
   uint16_t i;
   float wavelength;
+  uint8_t planar = 1u;
   renderer->geometry_valid = 0u;
+  renderer->planar = 0u;
   renderer->phase_scale_q10 = 0.0f;
   if (renderer->profile == NULL) return;
   for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
     renderer->coord_x_um[i] = (float)renderer->profile->coordinates[i].x_um;
     renderer->coord_y_um[i] = (float)renderer->profile->coordinates[i].y_um;
     renderer->coord_z_um[i] = (float)renderer->profile->coordinates[i].z_um;
+    if (renderer->coord_z_um[i] != renderer->coord_z_um[0]) planar = 0u;
   }
+  renderer->planar = planar;
   if (renderer->carrier_hz == 0u) return;
   wavelength = (float)renderer->sound_speed_um_per_s / (float)renderer->carrier_hz;
   renderer->phase_scale_q10 = 1024.0f / wavelength;
@@ -121,7 +125,10 @@ int spatial_renderer_point(umh_spatial_renderer_t *renderer,
   if (point->level == 0u) {
     /* Same as an all-zero accumulation: every active channel ends at level 0,
      * the phases are left as the caller had them. */
-    for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) frame->channels[i].level = 0u;
+    for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
+      frame->channels[i].level = 0u;
+      frame->channels[i].phase = 0u;
+    }
     frame->update_flags |= UMH_FRAME_FLAG_ULTRASOUND;
     return 0;
   }
@@ -138,28 +145,93 @@ int spatial_renderer_point(umh_spatial_renderer_t *renderer,
   active_index = renderer->active_index;
   active_count = renderer->active_count;
   phase_scale_q10 = renderer->phase_scale_q10;
-  for (k = 0u; k < active_count; ++k) {
-    uint16_t c = active_index[k];
-    float dx = point_x - coord_x[c];
-    float dy = point_y - coord_y[c];
-    float dz = point_z - coord_z[c];
-    float distance = umh_sqrtf(fmaf(dx, dx, fmaf(dy, dy, dz * dz)));
-    int32_t phase_q10 = phase_rem + phase_offset_q10[c] -
-                        (int32_t)(distance * phase_scale_q10);
-    float mag = source_level * gain_scale[c];
-    uint8_t level;
-    /* round(phase/4) mod 256, i.e. the same byte the CORDIC atan2 path emits. */
-    uint8_t phase = (uint8_t)(((uint32_t)(phase_q10 + 2) >> 2) & 0xFFu);
-    if (mag > 1.0f) mag = 1.0f;
-    level = (uint8_t)(mag * 128.0f + 0.5f);
-    frame->channels[c].level = level;
-    frame->channels[c].phase = (uint8_t)(phase - (uint8_t)(level >> 1));
+  /* Planar element grid: dz is the same for every element, so dz*dz is hoisted
+   * out of the per-channel loop and the four-channel unroll lets the FPU
+   * overlap the three-cycle add/multiply latency and the fourteen-cycle VSQRT
+   * of one channel with the independent work of the other three.  The
+   * arithmetic per channel is the same expression in the same order as the
+   * general loop, so the emitted bytes are unchanged.  Channels are taken
+   * through active_index exactly like the general loop, so a partially
+   * calibrated aperture produces the same bytes too. */
+  if (renderer->planar != 0u) {
+    float dz = point_z - coord_z[0];
+    float dz2 = dz * dz;
+    for (k = 0u; k + 4u <= active_count; k = (uint16_t)(k + 4u)) {
+      uint16_t a = active_index[k];
+      uint16_t b = active_index[k + 1u];
+      uint16_t c = active_index[k + 2u];
+      uint16_t d = active_index[k + 3u];
+      float ax = point_x - coord_x[a];
+      float ay = point_y - coord_y[a];
+      float bx = point_x - coord_x[b];
+      float by = point_y - coord_y[b];
+      float cx = point_x - coord_x[c];
+      float cy = point_y - coord_y[c];
+      float ex = point_x - coord_x[d];
+      float ey = point_y - coord_y[d];
+      float da = umh_sqrtf(fmaf(ax, ax, fmaf(ay, ay, dz2))) * phase_scale_q10;
+      float db = umh_sqrtf(fmaf(bx, bx, fmaf(by, by, dz2))) * phase_scale_q10;
+      float dc = umh_sqrtf(fmaf(cx, cx, fmaf(cy, cy, dz2))) * phase_scale_q10;
+      float de = umh_sqrtf(fmaf(ex, ex, fmaf(ey, ey, dz2))) * phase_scale_q10;
+      uint32_t qa = (uint32_t)(phase_rem + phase_offset_q10[a] - (int32_t)da + 2) >> 2;
+      uint32_t qb = (uint32_t)(phase_rem + phase_offset_q10[b] - (int32_t)db + 2) >> 2;
+      uint32_t qc = (uint32_t)(phase_rem + phase_offset_q10[c] - (int32_t)dc + 2) >> 2;
+      uint32_t qd = (uint32_t)(phase_rem + phase_offset_q10[d] - (int32_t)de + 2) >> 2;
+      uint32_t la = (uint32_t)((source_level * gain_scale[a]) * 128.0f + 0.5f);
+      uint32_t lb = (uint32_t)((source_level * gain_scale[b]) * 128.0f + 0.5f);
+      uint32_t lc = (uint32_t)((source_level * gain_scale[c]) * 128.0f + 0.5f);
+      uint32_t ld = (uint32_t)((source_level * gain_scale[d]) * 128.0f + 0.5f);
+      frame->channels[a].level = (uint8_t)la;
+      frame->channels[a].phase = (uint8_t)((uint8_t)(qa & 0xFFu) - (uint8_t)(la >> 1));
+      frame->channels[b].level = (uint8_t)lb;
+      frame->channels[b].phase = (uint8_t)((uint8_t)(qb & 0xFFu) - (uint8_t)(lb >> 1));
+      frame->channels[c].level = (uint8_t)lc;
+      frame->channels[c].phase = (uint8_t)((uint8_t)(qc & 0xFFu) - (uint8_t)(lc >> 1));
+      frame->channels[d].level = (uint8_t)ld;
+      frame->channels[d].phase = (uint8_t)((uint8_t)(qd & 0xFFu) - (uint8_t)(ld >> 1));
+    }
+    for (; k < active_count; ++k) {
+      uint16_t c = active_index[k];
+      float dx = point_x - coord_x[c];
+      float dy = point_y - coord_y[c];
+      float distance = umh_sqrtf(fmaf(dx, dx, fmaf(dy, dy, dz2)));
+      int32_t phase_q10 = phase_rem + phase_offset_q10[c] -
+                          (int32_t)(distance * phase_scale_q10);
+      float mag = source_level * gain_scale[c];
+      uint8_t level = (uint8_t)(mag * 128.0f + 0.5f);
+      uint8_t phase = (uint8_t)(((uint32_t)(phase_q10 + 2) >> 2) & 0xFFu);
+      frame->channels[c].level = level;
+      frame->channels[c].phase = (uint8_t)(phase - (uint8_t)(level >> 1));
+    }
+  } else {
+    for (k = 0u; k < active_count; ++k) {
+      uint16_t c = active_index[k];
+      float dx = point_x - coord_x[c];
+      float dy = point_y - coord_y[c];
+      float dz = point_z - coord_z[c];
+      float distance = umh_sqrtf(fmaf(dx, dx, fmaf(dy, dy, dz * dz)));
+      int32_t phase_q10 = phase_rem + phase_offset_q10[c] -
+                          (int32_t)(distance * phase_scale_q10);
+      float mag = source_level * gain_scale[c];
+      uint8_t level;
+      /* round(phase/4) mod 256, i.e. the same byte the CORDIC atan2 path emits. */
+      uint8_t phase = (uint8_t)(((uint32_t)(phase_q10 + 2) >> 2) & 0xFFu);
+      if (mag > 1.0f) mag = 1.0f;
+      level = (uint8_t)(mag * 128.0f + 0.5f);
+      frame->channels[c].level = level;
+      frame->channels[c].phase = (uint8_t)(phase - (uint8_t)(level >> 1));
+    }
   }
   /* Disabled channels are never accumulated, so their level must be forced to
-   * zero exactly like the finalize mute pass does. */
+   * zero exactly like the finalize mute pass does.  The phase byte is zeroed
+   * with it: the frame link compares every channel byte against its held image,
+   * and a channel that is off must still be a defined, stable byte. */
   if (active_count < UMH_DEVICE_CHANNEL_COUNT) {
     for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
-      if (renderer->calibration[i].enabled == 0u) frame->channels[i].level = 0u;
+      if (renderer->calibration[i].enabled == 0u) {
+        frame->channels[i].level = 0u;
+        frame->channels[i].phase = 0u;
+      }
     }
   }
   frame->update_flags |= UMH_FRAME_FLAG_ULTRASOUND;
@@ -236,6 +308,88 @@ int spatial_renderer_accumulate_point(const umh_spatial_renderer_t *renderer,
   return 0;
 }
 
+int spatial_renderer_accumulate_points(const umh_spatial_renderer_t *renderer,
+                                       const umh_spatial_point_t *points,
+                                       uint16_t count,
+                                       float *real_accum, float *imag_accum)
+{
+  float px[UMH_SPATIAL_MAX_BATCH_SOURCES];
+  float py[UMH_SPATIAL_MAX_BATCH_SOURCES];
+  float pz[UMH_SPATIAL_MAX_BATCH_SOURCES];
+  float plev[UMH_SPATIAL_MAX_BATCH_SOURCES];
+  int32_t prem[UMH_SPATIAL_MAX_BATCH_SOURCES];
+  const float *coord_x;
+  const float *coord_y;
+  const float *coord_z;
+  const float *gain_scale;
+  const int32_t *phase_offset_q10;
+  const uint8_t *active_index;
+  uint16_t active_count;
+  uint16_t s;
+  uint16_t k;
+  float phase_scale_q10;
+  if (renderer == NULL || points == NULL || real_accum == NULL ||
+      imag_accum == NULL || renderer->carrier_hz == 0u) return -1;
+  if (renderer->profile == NULL) return -1;
+  if ((renderer->profile->capability_flags & UMH_PROFILE_CAP_GEOMETRY_VALID) == 0u) return -2;
+  if (renderer->geometry_valid == 0u) return -3;
+  if (count == 0u) return 0;
+  if (count > UMH_SPATIAL_MAX_BATCH_SOURCES) {
+    for (s = 0u; s < count; ++s) {
+      if (spatial_renderer_accumulate_point(renderer, &points[s],
+                                            real_accum, imag_accum) != 0) return -4;
+    }
+    return 0;
+  }
+  /* Everything that depends on the source but not on the channel is folded
+   * once here instead of once per channel. */
+  for (s = 0u; s < count; ++s) {
+    px[s] = (float)points[s].x_um;
+    py[s] = (float)points[s].y_um;
+    pz[s] = (float)points[s].z_um;
+    plev[s] = (float)points[s].level * (1.0f / 255.0f);
+    prem[s] = ((int32_t)points[s].phase * 4) & (int32_t)(UMH_FAST_TRIG_SIZE - 1u);
+  }
+  coord_x = renderer->coord_x_um;
+  coord_y = renderer->coord_y_um;
+  coord_z = renderer->coord_z_um;
+  gain_scale = renderer->gain_scale;
+  phase_offset_q10 = renderer->phase_offset_q10;
+  active_index = renderer->active_index;
+  active_count = renderer->active_count;
+  phase_scale_q10 = renderer->phase_scale_q10;
+  for (k = 0u; k < active_count; ++k) {
+    uint16_t c = active_index[k];
+    float cx = coord_x[c];
+    float cy = coord_y[c];
+    float cz = coord_z[c];
+    float gain = gain_scale[c];
+    int32_t offset = phase_offset_q10[c];
+    float re = 0.0f;
+    float im = 0.0f;
+    for (s = 0u; s < count; ++s) {
+      float dx;
+      float dy;
+      float dz;
+      float distance;
+      float mag;
+      int32_t phase_q10;
+      if (plev[s] == 0.0f) continue;
+      dx = px[s] - cx;
+      dy = py[s] - cy;
+      dz = pz[s] - cz;
+      distance = umh_sqrtf(fmaf(dx, dx, fmaf(dy, dy, dz * dz)));
+      phase_q10 = prem[s] + offset - (int32_t)(distance * phase_scale_q10);
+      mag = plev[s] * gain;
+      re = fmaf(mag, umh_fast_cos_q10(phase_q10), re);
+      im = fmaf(mag, umh_fast_sin_q10(phase_q10), im);
+    }
+    real_accum[c] = re;
+    imag_accum[c] = im;
+  }
+  return 0;
+}
+
 int spatial_renderer_finalize(const umh_spatial_renderer_t *renderer,
                               const float *real_accum, const float *imag_accum,
                               umh_output_frame_t *frame)
@@ -292,9 +446,13 @@ int spatial_renderer_finalize(const umh_spatial_renderer_t *renderer,
   }
   /* Channels outside the calibrated set keep the phase the caller left in the
    * frame and are muted, which is exactly what the previous per-channel enable
-   * test inside the loop produced. */
+   * test inside the loop produced.  The mute zeroes the phase byte too so the
+   * frame link's byte-exact hold comparison sees a defined value. */
   for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
-    if (renderer->calibration[i].enabled == 0u) frame->channels[i].level = 0u;
+    if (renderer->calibration[i].enabled == 0u) {
+      frame->channels[i].level = 0u;
+      frame->channels[i].phase = 0u;
+    }
   }
   frame->update_flags |= UMH_FRAME_FLAG_ULTRASOUND;
   return 0;

@@ -108,6 +108,30 @@ static void motion_clamp_position(float *x, float *y, float *z)
   if (*z < (float)UMH_SAFE_Z_MIN_UM) *z = (float)UMH_SAFE_Z_MIN_UM;
 }
 
+/* Reset the frame header fields the producers do not otherwise write.
+ *
+ * newlib-nano's memset() is a byte loop (four instructions per byte); zeroing
+ * the whole 232-byte frame every output period cost 900+ cycles at 1000 fps.
+ * Every renderer path writes all 84 phase/level bytes (active channels from
+ * the synthesis, disabled ones from the mute pass), and rgb[]/extension[] are
+ * only transmitted when their update flags are set, so the channels and the
+ * variable-length tails never need clearing. */
+static void motion_frame_begin(umh_output_frame_t *frame)
+{
+  frame->update_flags = 0u;
+  frame->reserved = 0u;
+  frame->digital_state = 0u;
+  frame->digital_mask = 0u;
+  frame->extension_length = 0u;
+}
+
+/* lroundf() is a libc call per coordinate; the emitted coordinates are
+ * micrometres and always well inside int32. */
+static inline int32_t motion_round_um(float value)
+{
+  return (int32_t)(value + (value >= 0.0f ? 0.5f : -0.5f));
+}
+
 static void motion_rebuild_pattern(umh_motion_engine_t *engine)
 {
   uint8_t i;
@@ -344,7 +368,9 @@ static void motion_palette_color(const umh_motion_engine_t *engine, float palett
   if (count == 0u) { *r = 255u; *g = 255u; *b = 255u; return; }
   if (count == 1u) { *r = engine->palette[0][0]; *g = engine->palette[0][1]; *b = engine->palette[0][2]; return; }
   pos = palette_pos;
-  base = (int32_t)floorf(pos);
+  /* floorf() is a libc call; the palette position is non-negative here. */
+  base = (int32_t)pos;
+  if ((float)base > pos) --base;
   frac = pos - (float)base;
   base %= (int32_t)count;
   if (base < 0) base += (int32_t)count;
@@ -366,33 +392,36 @@ static int motion_emit_sources(umh_motion_engine_t *engine, umh_spatial_renderer
   uint8_t i;
   if (per_source > 255.0f) per_source = 255.0f;
   if (per_source < 0.0f) per_source = 0.0f;
-  memset(frame, 0, sizeof(*frame));
+  motion_frame_begin(frame);
   if (count == 1u) {
     /* One source is the entire field, so the direct renderer emits exactly the
      * bytes the accumulate + finalize round trip produces without the
      * per-channel CORDIC handshake and the second square root. */
     umh_spatial_point_t point;
-    point.x_um = (int32_t)lroundf(cx + engine->pattern_offsets[0][0]);
-    point.y_um = (int32_t)lroundf(cy + engine->pattern_offsets[0][1]);
-    point.z_um = (int32_t)lroundf(cz + engine->pattern_offsets[0][2]);
+    point.x_um = motion_round_um(cx + engine->pattern_offsets[0][0]);
+    point.y_um = motion_round_um(cy + engine->pattern_offsets[0][1]);
+    point.z_um = motion_round_um(cz + engine->pattern_offsets[0][2]);
     point.level = (uint8_t)(per_source + 0.5f);
     point.phase = engine->pattern_phases[0];
     point.source_id = 0u;
     return spatial_renderer_point(renderer, &point, frame) != 0 ? -1 : 0;
   }
-  memset(engine->real_accum, 0, sizeof(engine->real_accum));
-  memset(engine->imag_accum, 0, sizeof(engine->imag_accum));
-  for (i = 0u; i < count; ++i) {
-    umh_spatial_point_t point;
-    point.x_um = (int32_t)lroundf(cx + engine->pattern_offsets[i][0]);
-    point.y_um = (int32_t)lroundf(cy + engine->pattern_offsets[i][1]);
-    point.z_um = (int32_t)lroundf(cz + engine->pattern_offsets[i][2]);
-    point.level = (uint8_t)(per_source + 0.5f);
-    point.phase = engine->pattern_phases[i];
-    point.source_id = i;
-    if (spatial_renderer_accumulate_point(renderer, &point,
-                                          engine->real_accum,
-                                          engine->imag_accum) != 0) return -1;
+  {
+    /* One channel-outer accumulation covers all sources: the element geometry,
+     * phase offset and gain are loaded once per channel instead of once per
+     * channel and source, and both accumulators stay in registers. */
+    umh_spatial_point_t points[UMH_MOTION_MAX_PATTERN_SOURCES];
+    for (i = 0u; i < count; ++i) {
+      points[i].x_um = motion_round_um(cx + engine->pattern_offsets[i][0]);
+      points[i].y_um = motion_round_um(cy + engine->pattern_offsets[i][1]);
+      points[i].z_um = motion_round_um(cz + engine->pattern_offsets[i][2]);
+      points[i].level = (uint8_t)(per_source + 0.5f);
+      points[i].phase = engine->pattern_phases[i];
+      points[i].source_id = i;
+    }
+    if (spatial_renderer_accumulate_points(renderer, points, count,
+                                           engine->real_accum,
+                                           engine->imag_accum) != 0) return -1;
   }
   if (spatial_renderer_finalize(renderer, engine->real_accum,
                                 engine->imag_accum, frame) != 0) return -2;
@@ -820,7 +849,7 @@ uint32_t motion_engine_service(umh_motion_engine_t *engine,
                                fpga_link_t *link, uint64_t now_us,
                                uint32_t *wait_us)
 {
-  umh_output_frame_t frame;
+  umh_output_frame_t frame __attribute__((aligned(4)));
   float dt = 0.0f;
   float desired_x, desired_y, desired_z;
   float desired_level, desired_palette;
@@ -843,8 +872,11 @@ uint32_t motion_engine_service(umh_motion_engine_t *engine,
     return 0u;
   }
   if (engine->last_service_us != 0u && now_us > engine->last_service_us) {
-    dt = (float)(now_us - engine->last_service_us) / 1000000.0f;
-    if (dt > 0.05f) dt = 0.05f;
+    uint64_t delta_us = now_us - engine->last_service_us;
+    /* dt is clamped to 50 ms, so the 64-bit -> float libcall (__aeabi_ul2f)
+     * that a direct cast emits is never needed: a 32-bit value below the clamp
+     * converts with the hardware VCVT. */
+    dt = delta_us > 50000u ? 0.05f : (float)(uint32_t)delta_us * (1.0f / 1000000.0f);
   }
   engine->last_service_us = now_us;
   if (dt > 0.0f && engine->ulm_frequency_hz != 0u) {
@@ -987,8 +1019,12 @@ uint32_t motion_engine_service(umh_motion_engine_t *engine,
         if (ulm_axis == 1u) emit_x += ulm_off;
         else emit_y += ulm_off;
       } else {
-        float ulm_off = sinf(UMH_TWO_PI * engine->ulm_phase) * ulm_amp;
-        float ulm_off_q = cosf(UMH_TWO_PI * engine->ulm_phase) * ulm_amp;
+        /* Table lookup instead of sinf()+cosf(): the ULM offset is a spatial
+         * dither of at most 50 mm, so the 15-bit table's 1e-4 relative error
+         * is five orders of magnitude below the 1/1024-turn phase grid. */
+        int32_t ulm_q10 = (int32_t)(engine->ulm_phase * (float)UMH_FAST_TRIG_SIZE);
+        float ulm_off = umh_fast_sin_q10(ulm_q10) * ulm_amp;
+        float ulm_off_q = umh_fast_cos_q10(ulm_q10) * ulm_amp;
         if (ulm_axis == 1u) emit_x += ulm_off;
         else if (ulm_axis == 2u) emit_y += ulm_off;
         else { emit_x += ulm_off; emit_y += ulm_off_q; }

@@ -24,7 +24,7 @@
 /* Phase-domain constants. */
 #define UMH_GUN_Q10_PER_TURN 1024.0f
 #define UMH_GUN_DEG_TO_RAD   0.01745329252f
-#define UMH_GUN_BUILD_ID 0x474E0023u
+#define UMH_GUN_BUILD_ID 0x474E0024u
 volatile uint32_t gun_trigger_build_id(void)
 {
   return UMH_GUN_BUILD_ID;

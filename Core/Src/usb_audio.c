@@ -9,6 +9,9 @@ extern osThreadId_t umh_protocol_task_handle;
 
 volatile umh_usb_audio_stats_t umh_usb_audio_stats;
 volatile uint8_t umh_usb_audio_debug_inhibit;
+/* Sum of umh_usb_audio_receive() cycles over `packets`; max_isr_cycles alone is
+ * a preemption/cold-cache outlier and cannot size the ISR. */
+volatile uint32_t umh_usb_audio_isr_cycles_sum;
 
 static int16_t pcm_ring[UMH_USB_AUDIO_RING_SAMPLES] __attribute__((aligned(4)));
 static volatile uint32_t head, tail, generation, last_packet_ms;
@@ -110,6 +113,7 @@ void umh_usb_audio_receive(const uint8_t *data, uint16_t length)
   umh_usb_audio_stats.samples += count;
   umh_usb_audio_stats.queued_samples = (uint16_t)(head - tail);
   start = DWT->CYCCNT - start;
+  umh_usb_audio_isr_cycles_sum += start;
   if (start > umh_usb_audio_stats.max_isr_cycles)
     umh_usb_audio_stats.max_isr_cycles = start;
   notify_protocol_from_isr();

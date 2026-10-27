@@ -19,7 +19,7 @@
 
 static SPI_HandleTypeDef *flash_spi;
 static uint8_t flash_present;
-static uint8_t flash_dummy[FLASH_NOR_PAGE_SIZE];
+static const uint8_t flash_dummy_byte = 0xFFu;
 static SemaphoreHandle_t flash_dma_sem;
 static StaticSemaphore_t flash_dma_sem_mem;
 
@@ -77,17 +77,22 @@ static void address_bytes(uint8_t *buffer, uint32_t address)
 static flash_nor_status_t wait_ready(uint32_t timeout)
 {
   uint32_t start = HAL_GetTick();
-  uint8_t command = CMD_READ_STATUS;
-  uint8_t status = 0u;
+  uint8_t exchange[2];
+  uint8_t status;
   if (flash_spi == NULL) return FLASH_NOR_IO;
   do {
+    /* One full-duplex transaction per poll instead of a separate transmit and
+     * receive: a 4 MiB upload issues one poll every few microseconds of SPI
+     * time, so the second HAL call is a measurable slice of the write path. */
+    exchange[0] = CMD_READ_STATUS;
+    exchange[1] = 0u;
     cs_low();
-    if (HAL_SPI_Transmit(flash_spi, &command, 1u, 10u) != HAL_OK ||
-        HAL_SPI_Receive(flash_spi, &status, 1u, 10u) != HAL_OK) {
+    if (HAL_SPI_TransmitReceive(flash_spi, exchange, exchange, 2u, 10u) != HAL_OK) {
       cs_high();
       return FLASH_NOR_IO;
     }
     cs_high();
+    status = exchange[1];
     if ((status & 0x01u) == 0u) return FLASH_NOR_OK;
   } while ((HAL_GetTick() - start) < timeout);
   return FLASH_NOR_TIMEOUT;
@@ -111,7 +116,6 @@ void flash_nor_init(SPI_HandleTypeDef *spi)
   flash_present = (spi != NULL) ? 1u : 0u;
   flash_dma_sem_init();
   cs_high();
-  memset(flash_dummy, 0xFF, sizeof(flash_dummy));
 }
 
 flash_nor_status_t flash_nor_read_jedec(uint8_t id[3])
@@ -194,13 +198,13 @@ flash_nor_status_t flash_nor_read_dma(uint32_t address, void *data, uint32_t len
   if (flash_spi == NULL || data == NULL || length == 0u || address >= FLASH_NOR_TOTAL_SIZE ||
       length > FLASH_NOR_TOTAL_SIZE - address) return FLASH_NOR_PARAM;
   while (length != 0u) {
-    chunk = length > FLASH_NOR_PAGE_SIZE ? FLASH_NOR_PAGE_SIZE : length;
+    chunk = length > FLASH_NOR_DMA_CHUNK ? FLASH_NOR_DMA_CHUNK : length;
     command[0] = CMD_FAST_READ;
     address_bytes(&command[1], address);
     flash_dma_sem_drain();
     cs_low();
     if (HAL_SPI_Transmit(flash_spi, command, sizeof(command), 20u) != HAL_OK ||
-        HAL_SPI_Transmit(flash_spi, flash_dummy, 1u, 10u) != HAL_OK ||
+        HAL_SPI_Transmit(flash_spi, &flash_dummy_byte, 1u, 10u) != HAL_OK ||
         HAL_SPI_Receive_DMA(flash_spi, dst, chunk) != HAL_OK) {
       cs_high();
       return FLASH_NOR_IO;

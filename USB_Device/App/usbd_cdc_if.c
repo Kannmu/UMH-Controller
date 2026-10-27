@@ -103,6 +103,13 @@ uint8_t UserTxBufferFS[APP_TX_DATA_SIZE];
 /* USER CODE BEGIN PRIVATE_VARIABLES */
 
 extern umh_rx_ring_t umh_usb_rx_ring;
+/* Implemented by the protocol layer: 1 while the stream consumer can take
+ * another packet.  Keeping it a predicate leaves this file free of the audio
+ * engine's details. */
+extern uint8_t umh_stream_ingest_space(void);
+
+static volatile uint8_t rx_hold_off;
+static uint8_t *umh_cdc_rx_buffer;
 
 #define UMH_USB_TX_SLOTS 2u
 #define UMH_USB_TX_SLOT_SIZE (UMH_PROTOCOL_HEADER_SIZE + UMH_PROTOCOL_MAX_PAYLOAD)
@@ -292,12 +299,31 @@ static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
                              &higher_priority_task_woken);
     }
   }
-  USBD_CDC_SetRxBuffer(&hUsbDeviceFS, &Buf[0]);
-  USBD_CDC_ReceivePacket(&hUsbDeviceFS);
+  /* Re-arming the OUT endpoint is the flow-control decision.  Leaving it
+   * unarmed makes the peripheral NAK the host's next bulk packet, which is
+   * backpressure the sender can observe, rather than a drop here. */
+  if (umh_stream_ingest_space() != 0u) {
+    USBD_CDC_SetRxBuffer(&hUsbDeviceFS, &Buf[0]);
+    USBD_CDC_ReceivePacket(&hUsbDeviceFS);
+  } else {
+    umh_cdc_rx_buffer = Buf;
+    rx_hold_off = 1u;
+  }
   portYIELD_FROM_ISR(higher_priority_task_woken);
   return (USBD_OK);
   /* USER CODE END 6 */
 }
+
+void umh_cdc_rx_resume(void)
+{
+  if (rx_hold_off == 0u) return;
+  if (umh_stream_ingest_space() == 0u) return;
+  rx_hold_off = 0u;
+  USBD_CDC_SetRxBuffer(&hUsbDeviceFS, umh_cdc_rx_buffer);
+  (void)USBD_CDC_ReceivePacket(&hUsbDeviceFS);
+}
+
+uint8_t umh_cdc_rx_paused(void) { return rx_hold_off; }
 
 /**
   * @brief  CDC_Transmit_FS

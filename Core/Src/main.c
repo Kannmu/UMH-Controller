@@ -175,6 +175,10 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+  /* 170 MHz needs 4 wait states; the ART prefetch buffer is independent of the
+   * latency setting and keeps the flash pipe fed across the render loop's
+   * branchy control flow. */
+  __HAL_FLASH_PREFETCH_BUFFER_ENABLE();
   /* PA8 drives the FPGA PLL with the clean 8 MHz HSE reference. */
   HAL_RCC_MCOConfig(RCC_MCO1, RCC_MCO1SOURCE_HSE, RCC_MCODIV_1);
 

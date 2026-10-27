@@ -4,8 +4,8 @@
 #include <stddef.h>
 #include <string.h>
 
-#define VOICE_FFT 128u
-#define VOICE_HOP (VOICE_FFT / 2u)
+#define VOICE_HOP GUN_VOICE_HOP
+#define VOICE_FFT (2u * GUN_VOICE_HOP)
 #define VOICE_BINS (VOICE_FFT / 2u)
 #define VOICE_MIN_RMS 8u
 #define VOICE_MIN_SPEECH_FRAMES 6u
@@ -54,7 +54,7 @@ static const float voice_window[128] = {
 /* Only the 128-point CMSIS real FFT tables are linked. */
 extern arm_status arm_rfft_128_fast_init_f32(arm_rfft_fast_instance_f32 *instance);
 
-enum { VOICE_HISTOGRAM, VOICE_NOISE, VOICE_DENOISE, VOICE_ENVELOPE,
+enum { VOICE_HISTOGRAM, VOICE_NOISE, VOICE_DENOISE,
        VOICE_DONE, VOICE_REJECTED };
 
 /* may_alias permits reusing the inactive aperture's byte ring as this aligned
@@ -89,6 +89,132 @@ int16_t gun_voice_decode(uint8_t code)
   return voice_decode[code];
 }
 
+#if GUN_VOICE_CODEC != GUN_VOICE_CODEC_MULAW8
+/* IMA ADPCM generalised from the three magnitude bits of the canonical form to
+ * GUN_VOICE_ADPCM_MAG_BITS.  The encoder reconstructs with exactly the
+ * decoder's increment, so the two state machines never drift apart. */
+#define GUN_VOICE_ADPCM_MAG_BITS (GUN_VOICE_BITS_PER_SAMPLE - 1u)
+#define GUN_VOICE_ADPCM_STEP_MAX 88u
+
+static const int16_t adpcm_step_table[GUN_VOICE_ADPCM_STEP_MAX + 1u] = {
+      7,     8,     9,    10,    11,    12,    13,    14,    16,    17,
+     19,    21,    23,    25,    28,    31,    34,    37,    41,    45,
+     50,    55,    60,    66,    73,    80,    88,    97,   107,   118,
+    130,   143,   157,   173,   190,   209,   230,   253,   279,   307,
+    337,   371,   408,   449,   494,   544,   598,   658,   724,   796,
+    876,   963,  1060,  1166,  1282,  1411,  1552,  1707,  1878,  2066,
+   2272,  2499,  2749,  3024,  3327,  3660,  4026,  4428,  4871,  5358,
+   5894,  6484,  7132,  7845,  8630,  9493, 10442, 11487, 12635, 13899,
+  15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794, 32767
+};
+
+#if GUN_VOICE_ADPCM_MAG_BITS == 3u
+static const int8_t adpcm_index_delta[8] = { -1, -1, -1, -1, 2, 4, 6, 8 };
+#else
+static const int8_t adpcm_index_delta[16] = {
+  -1, -1, -1, -1, -1, -1, -1, -1, 1, 2, 3, 4, 5, 6, 7, 8
+};
+#endif
+
+static void adpcm_apply(gun_voice_codec_t *codec, int32_t step, uint32_t code)
+{
+  int32_t increment = step >> GUN_VOICE_ADPCM_MAG_BITS;
+  int32_t predict;
+  uint8_t bit;
+  for (bit = 0u; bit < GUN_VOICE_ADPCM_MAG_BITS; ++bit) {
+    if ((code & (1u << bit)) != 0u)
+      increment += step >> (GUN_VOICE_ADPCM_MAG_BITS - 1u - bit);
+  }
+  if ((code & (1u << GUN_VOICE_ADPCM_MAG_BITS)) != 0u) increment = -increment;
+  predict = (int32_t)codec->predict + increment;
+  if (predict > 32767) predict = 32767;
+  else if (predict < -32768) predict = -32768;
+  codec->predict = (int16_t)predict;
+  codec->index = (int8_t)((int32_t)codec->index +
+      (int32_t)adpcm_index_delta[code & ((1u << GUN_VOICE_ADPCM_MAG_BITS) - 1u)]);
+  if (codec->index < 0) codec->index = 0;
+  else if ((uint8_t)codec->index > GUN_VOICE_ADPCM_STEP_MAX)
+    codec->index = (int8_t)GUN_VOICE_ADPCM_STEP_MAX;
+}
+
+static uint32_t adpcm_encode(gun_voice_codec_t *codec, int32_t sample)
+{
+  int32_t step = adpcm_step_table[(uint8_t)codec->index];
+  int32_t diff = sample - (int32_t)codec->predict;
+  int32_t threshold = step;
+  uint32_t code = 0u;
+  uint8_t bit;
+  if (diff < 0) {
+    code = 1u << GUN_VOICE_ADPCM_MAG_BITS;
+    diff = -diff;
+  }
+  for (bit = GUN_VOICE_ADPCM_MAG_BITS; bit-- > 0u; ) {
+    if (diff >= threshold) {
+      code |= 1u << bit;
+      diff -= threshold;
+    }
+    threshold >>= 1;
+  }
+  adpcm_apply(codec, step, code);
+  return code;
+}
+#endif
+
+void gun_voice_codec_reset(gun_voice_codec_t *codec)
+{
+  if (codec == NULL) return;
+  memset(codec, 0, sizeof(*codec));
+}
+
+void gun_voice_codec_push(gun_voice_codec_t *codec, uint8_t *buffer, int32_t pcm)
+{
+  uint32_t code;
+  if (codec == NULL || buffer == NULL) return;
+  if (pcm > 32767) pcm = 32767;
+  else if (pcm < -32768) pcm = -32768;
+#if GUN_VOICE_CODEC == GUN_VOICE_CODEC_MULAW8
+  code = gun_voice_encode(pcm);
+#else
+  code = adpcm_encode(codec, pcm);
+#endif
+  codec->acc |= code << codec->bits;
+  codec->bits = (uint8_t)(codec->bits + GUN_VOICE_BITS_PER_SAMPLE);
+  if (codec->bits >= 8u) {
+    buffer[codec->byte_pos++] = (uint8_t)codec->acc;
+    codec->acc >>= 8;
+    codec->bits = (uint8_t)(codec->bits - 8u);
+  }
+}
+
+void gun_voice_codec_flush(gun_voice_codec_t *codec, uint8_t *buffer)
+{
+  if (codec == NULL || buffer == NULL || codec->bits == 0u) return;
+  buffer[codec->byte_pos++] = (uint8_t)codec->acc;
+  codec->acc = 0u;
+  codec->bits = 0u;
+}
+
+int16_t gun_voice_codec_pull(gun_voice_codec_t *codec, const uint8_t *buffer,
+                             uint16_t byte_limit)
+{
+  uint32_t code;
+  if (codec == NULL || buffer == NULL) return 0;
+  while (codec->bits < GUN_VOICE_BITS_PER_SAMPLE) {
+    if (codec->byte_pos >= byte_limit) return 0;
+    codec->acc |= (uint32_t)buffer[codec->byte_pos++] << codec->bits;
+    codec->bits = (uint8_t)(codec->bits + 8u);
+  }
+  code = codec->acc & ((1u << GUN_VOICE_BITS_PER_SAMPLE) - 1u);
+  codec->acc >>= GUN_VOICE_BITS_PER_SAMPLE;
+  codec->bits = (uint8_t)(codec->bits - GUN_VOICE_BITS_PER_SAMPLE);
+#if GUN_VOICE_CODEC == GUN_VOICE_CODEC_MULAW8
+  return gun_voice_decode((uint8_t)code);
+#else
+  adpcm_apply(codec, adpcm_step_table[(uint8_t)codec->index], code);
+  return codec->predict;
+#endif
+}
+
 static uint8_t rms_bin(uint32_t rms)
 {
   uint32_t exponent;
@@ -104,6 +230,24 @@ static uint32_t bin_rms(uint32_t bin)
   return ((4u + (bin & 3u)) << (bin >> 2)) >> 2;
 }
 
+static void stream_rewind(gun_voice_processor_t *p)
+{
+  gun_voice_codec_reset(&p->dec);
+}
+
+/* Next stored sample.  Past the end it returns silence without consuming
+ * bits, which reproduces the original zero-filled random-access reads. */
+static int16_t stream_next(gun_voice_processor_t *p)
+{
+  return gun_voice_codec_pull(&p->dec, p->samples, p->byte_limit);
+}
+
+static void hop_read(gun_voice_processor_t *p)
+{
+  uint32_t i;
+  for (i = 0u; i < GUN_VOICE_HOP; ++i) p->fresh[i] = stream_next(p);
+}
+
 void gun_voice_process_begin(gun_voice_processor_t *p, uint8_t *samples,
                              uint16_t count, void *workspace)
 {
@@ -113,8 +257,12 @@ void gun_voice_process_begin(gun_voice_processor_t *p, uint8_t *samples,
   p->samples = samples;
   p->workspace = workspace;
   p->count = count;
+  p->byte_limit = (uint16_t)(((uint32_t)count * GUN_VOICE_BITS_PER_SAMPLE + 7u) / 8u);
+  p->codec_version = (uint8_t)GUN_VOICE_CODEC_VERSION;
   p->fallback_power = 1.0e30f;
-  if (count < VOICE_HOP * VOICE_MIN_SPEECH_FRAMES ||
+  gun_voice_codec_reset(&p->dec);
+  gun_voice_codec_reset(&p->enc);
+  if (count < GUN_VOICE_HOP * VOICE_MIN_SPEECH_FRAMES ||
       arm_rfft_128_fast_init_f32(&w->fft) != ARM_MATH_SUCCESS)
     p->stage = VOICE_REJECTED;
 }
@@ -122,20 +270,20 @@ void gun_voice_process_begin(gun_voice_processor_t *p, uint8_t *samples,
 static void histogram_step(gun_voice_processor_t *p, voice_workspace_t *w)
 {
   uint32_t i;
-  uint32_t end = (uint32_t)p->position + VOICE_HOP;
+  uint32_t end = (uint32_t)p->position + GUN_VOICE_HOP;
   uint32_t square_sum = 0u;
   uint32_t rms;
   if (end > p->count) end = p->count;
   for (i = (uint32_t)p->position; i < end; ++i) {
     /* Divide by 8 before squaring: all 64 samples then fit in uint32_t. */
-    int32_t x = (int32_t)voice_decode[p->samples[i]] / 8;
+    int32_t x = (int32_t)stream_next(p) / 8;
     square_sum += (uint32_t)(x * x);
   }
   rms = (uint32_t)(sqrtf((float)square_sum / (float)(end - p->position)) * 8.0f);
   ++w->histogram[rms_bin(rms)];
   p->position = (int32_t)end;
   if (end == p->count) {
-    uint32_t frames = (p->count + VOICE_HOP - 1u) / VOICE_HOP;
+    uint32_t frames = ((uint32_t)p->count + GUN_VOICE_HOP - 1u) / GUN_VOICE_HOP;
     uint32_t percentile = (frames + 4u) / 5u;
     uint32_t accumulated = 0u;
     for (i = 0u; i < 64u; ++i) {
@@ -147,8 +295,9 @@ static void histogram_step(gun_voice_processor_t *p, voice_workspace_t *w)
     /* Upper edge of the quantile bucket, with margin for noise variance. */
     p->noise_ceiling = (bin_rms(i + 1u) * 3u) / 2u;
     if (p->noise_ceiling < VOICE_MIN_RMS) p->noise_ceiling = VOICE_MIN_RMS;
-    p->position = -(int32_t)VOICE_HOP;
+    p->position = -(int32_t)GUN_VOICE_HOP;
     p->stage = VOICE_NOISE;
+    stream_rewind(p);
   }
 }
 
@@ -156,14 +305,20 @@ static float transform(gun_voice_processor_t *p, voice_workspace_t *w)
 {
   uint32_t i;
   float square_sum = 0.0f;
-  for (i = 0u; i < VOICE_FFT; ++i) {
-    int32_t index = p->position + (int32_t)i;
-    float x = index < 0 || index >= p->count ? 0.0f : voice_decode[p->samples[index]];
+  hop_read(p);
+  for (i = 0u; i < GUN_VOICE_HOP; ++i) {
+    float x = (float)p->window[i];
     square_sum += x * x;
     w->time[i] = x * voice_window[i];
   }
+  for (i = 0u; i < GUN_VOICE_HOP; ++i) {
+    float x = (float)p->fresh[i];
+    square_sum += x * x;
+    w->time[GUN_VOICE_HOP + i] = x * voice_window[GUN_VOICE_HOP + i];
+  }
+  memcpy(p->window, p->fresh, sizeof(p->window));
   arm_rfft_fast_f32(&w->fft, w->time, w->spectrum, 0u);
-  return square_sum * (1.0f / VOICE_FFT);
+  return square_sum * (1.0f / (float)VOICE_FFT);
 }
 
 static float bin_power(const voice_workspace_t *w, uint32_t bin)
@@ -210,15 +365,15 @@ static void noise_step(gun_voice_processor_t *p, voice_workspace_t *w)
   }
   if (p->position >= 0 && p->position + (int32_t)VOICE_FFT <= p->count &&
       trimmed_count >= 16u) {
-    float floor = trimmed / (float)trimmed_count;
-    if (floor < p->fallback_power) p->fallback_power = floor;
+    float floor_power = trimmed / (float)trimmed_count;
+    if (floor_power < p->fallback_power) p->fallback_power = floor_power;
   }
-  p->position += (int32_t)VOICE_HOP;
+  p->position += (int32_t)GUN_VOICE_HOP;
   if (p->position >= p->count) {
     float scale = p->noise_frames != 0u ? 1.0f / (float)p->noise_frames : 0.0f;
     /* A sine window has sum(w*w)=64.  This floor prevents silence quantization
      * and the low-power tails of tones from requesting unbounded gain. */
-    float minimum = (float)(VOICE_MIN_RMS * VOICE_MIN_RMS * VOICE_HOP);
+    float minimum = (float)(VOICE_MIN_RMS * VOICE_MIN_RMS * GUN_VOICE_HOP);
     if (p->fallback_power > 1.0e29f) p->fallback_power = minimum;
     if (p->fallback_power < minimum) p->fallback_power = minimum;
     p->noise_power = 0.0f;
@@ -229,9 +384,10 @@ static void noise_step(gun_voice_processor_t *p, voice_workspace_t *w)
       w->gain[k] = VOICE_GAIN_FLOOR;
       if (k >= 2u && k <= 55u) p->noise_power += noise;
     }
-    p->noise_rms = (uint32_t)sqrtf(p->noise_power / (54.0f * (float)VOICE_HOP));
-    p->position = -(int32_t)VOICE_HOP;
+    p->noise_rms = (uint32_t)sqrtf(p->noise_power / (54.0f * (float)GUN_VOICE_HOP));
+    p->position = -(int32_t)GUN_VOICE_HOP;
     p->stage = VOICE_DENOISE;
+    stream_rewind(p);
   }
 }
 
@@ -272,7 +428,7 @@ static void denoise_step(gun_voice_processor_t *p, voice_workspace_t *w)
         p->noise_power = 0.0f;
         for (k = 1u; k < VOICE_BINS; ++k) {
           float noise = w->noise[k] * scale;
-          float minimum = (float)(VOICE_MIN_RMS * VOICE_MIN_RMS * VOICE_HOP);
+          float minimum = (float)(VOICE_MIN_RMS * VOICE_MIN_RMS * GUN_VOICE_HOP);
           if (noise < minimum) noise = minimum;
           w->noise[k] = noise;
           if (k >= 2u && k <= 55u) p->noise_power += noise;
@@ -314,17 +470,20 @@ static void denoise_step(gun_voice_processor_t *p, voice_workspace_t *w)
     int32_t index = p->position + (int32_t)k;
     float x = w->overlap[k] + w->time[k] * voice_window[k];
     w->overlap[k] = w->time[k + VOICE_HOP] * voice_window[k + VOICE_HOP];
-    if (index >= 0 && index < p->count) {
+    if (index >= 0 && index < (int32_t)p->count) {
       int32_t pcm = (int32_t)(x + (x >= 0.0f ? 0.5f : -0.5f));
-      p->samples[index] = gun_voice_encode(pcm);
+      /* The rewrite trails the read cursor by one hop, so the encoder never
+       * touches a sample this pass has not decoded yet. */
+      gun_voice_codec_push(&p->enc, p->samples, pcm);
       if (target >= 0.75f) {
         p->speech_square_sum += x * x;
         ++p->active_samples;
       }
     }
   }
-  p->position += (int32_t)VOICE_HOP;
-  if (p->position >= p->count) {
+  p->position += (int32_t)GUN_VOICE_HOP;
+  if (p->position >= (int32_t)p->count) {
+    gun_voice_codec_flush(&p->enc, p->samples);
     if (p->speech_frames < VOICE_MIN_SPEECH_FRAMES || p->speech_run_max < 3u ||
         p->active_samples == 0u) {
       p->stage = VOICE_REJECTED;
@@ -335,27 +494,8 @@ static void denoise_step(gun_voice_processor_t *p, voice_workspace_t *w)
     p->playback_gain = VOICE_RMS_TARGET / p->speech_rms;
     if (p->playback_gain > VOICE_GAIN_MAX) p->playback_gain = VOICE_GAIN_MAX;
     p->position = 0;
-    p->stage = VOICE_ENVELOPE;
+    p->stage = VOICE_DONE;
   }
-}
-
-static void envelope_step(gun_voice_processor_t *p)
-{
-  uint32_t i;
-  uint32_t end = (uint32_t)p->position + VOICE_HOP;
-  if (end > p->count) end = p->count;
-  for (i = (uint32_t)p->position; i < end; ++i) {
-    float x = (float)voice_decode[p->samples[i]] * p->playback_gain;
-    float magnitude = fabsf(x);
-    /* A soft knee preserves headroom without severe hard-clipping harmonics. */
-    if (magnitude > 48.0f) {
-      magnitude = 48.0f + 16.0f * (magnitude - 48.0f) / (magnitude - 32.0f);
-      x = x < 0.0f ? -magnitude : magnitude;
-    }
-    p->samples[i] = (uint8_t)(int32_t)(64.0f + x + 0.5f);
-  }
-  p->position = (int32_t)end;
-  if (end == p->count) p->stage = VOICE_DONE;
 }
 
 int gun_voice_process_service(gun_voice_processor_t *p)
@@ -367,10 +507,41 @@ int gun_voice_process_service(gun_voice_processor_t *p)
       case VOICE_HISTOGRAM: histogram_step(p, w); break;
       case VOICE_NOISE: noise_step(p, w); break;
       case VOICE_DENOISE: denoise_step(p, w); break;
-      case VOICE_ENVELOPE: envelope_step(p); break;
       case VOICE_DONE: return 1;
       default: return -1;
     }
   }
   return p->stage == VOICE_DONE ? 1 : p->stage == VOICE_REJECTED ? -1 : 0;
+}
+
+void gun_voice_player_open(gun_voice_player_t *player, const uint8_t *data,
+                           uint16_t samples, float gain)
+{
+  if (player == NULL) return;
+  memset(player, 0, sizeof(*player));
+  player->data = data;
+  player->total = samples;
+  player->byte_limit = (uint16_t)(((uint32_t)samples * GUN_VOICE_BITS_PER_SAMPLE + 7u) / 8u);
+  player->gain = gain;
+  gun_voice_codec_reset(&player->codec);
+}
+
+uint16_t gun_voice_player_read(gun_voice_player_t *player, uint8_t *out,
+                               uint16_t capacity)
+{
+  uint16_t count = 0u;
+  if (player == NULL || out == NULL) return 0u;
+  while (count < capacity && player->position < player->total) {
+    float x = (float)gun_voice_codec_pull(&player->codec, player->data,
+                                          player->byte_limit) * player->gain;
+    float magnitude = fabsf(x);
+    /* A soft knee preserves headroom without severe hard-clipping harmonics. */
+    if (magnitude > 48.0f) {
+      magnitude = 48.0f + 16.0f * (magnitude - 48.0f) / (magnitude - 32.0f);
+      x = x < 0.0f ? -magnitude : magnitude;
+    }
+    out[count++] = (uint8_t)(int32_t)(64.0f + x + 0.5f);
+    ++player->position;
+  }
+  return count;
 }

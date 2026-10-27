@@ -3,6 +3,8 @@
 - 四颗 WS2812 并联在同一根 DI 线上，FPGA 发送一组 24 位 GRB 数据，四颗灯始终显示相同颜色和亮度。
 - `motion_engine` 是实时焦点运动生产者：只允许在 render task 中 service，路径点/配置在协议任务中用互斥锁写入；它必须继续使用 `spatial_renderer` 和 `fpga_link_submit`，不要另写一套相位、载波或 SPI 逻辑。运动输出与块播放、Demo、校准和聚焦 AM 互斥；`MOTION_START` 可以清理普通计划后接管，其他生产者看到 `motion_engine_owns_output` 必须返回 BUSY。
 - `frame_ring` 的 LOOP_RAM 快照就地复用同一个 slots 池（`loop_start_index` + `loop_iteration_last`），不要再恢复第二份 `loop_slots` 拷贝；生产者由 plan.running 和 BLOCK_BEGIN 检查锁在外面。
+- 调制孔径（`aperture_mod`）的音频流有三条不可回退的约束：① 时钟伺服的零点必须是 `prebuffer − UMH_MOD_FIFO_TARGET(224)`（FPGA 电平 FIFO 也算在管道里），稳态填充偏差 = 主从时钟差 / `UMH_MOD_FILL_GAIN_PPM`，填充按每个输出样本累加、每 8 个样本做一次滤波，**不能改成每 8 个样本只采样一次**（会和 256 样本包络包对拍，均值偏一整个包）；② CDC OUT 端点由 `aperture_mod_rx_ready()` 决定是否重挂（`usbd_cdc_if.c`），环快满时不重挂、主机 bulk 写被 USB NAK 阻塞——这是唯一的背压手段，**不要改回"先收再丢"**，协议任务在暂停时用 2 ms 超时重试 `umh_cdc_rx_resume()`；③ MOD_FEED 只在 `fill + FPGA_MOD_BLOCK_MAX ≤ 224` 时补块（128 级/块，稳态约 156 次 SPI/s），失败的块留在 `pending_block` 下次重试，不能丢弃。
+- **MOD_FEED（0x1A）在 RTL 里是独立帧格式，不经过 36 字节帧头解析器**：`umh_fpga_top.v` 用 `spi_mod_feed` 把 `feed_we`、帧头字段捕获（字节 2/6/7/18/19/34/35）和 `frame_end` 全部旁路，字节 0/1 才当命令/版本，其余每字节直接进电平 FIFO，事务长度由 CS 结束。**不要**把 0x1A 改回走 `frame_end`：那样第 33 级会写到帧头扩展长度字段、第 36 字节会置 `invalid_frame`（固件按 CRITICAL 报 `UMH_FAULT_FPGA_INVALID_FRAME`），块长会被卡回 32。块长上限 = FIFO 深度（256）与 `FPGA_TX_BUFFER_SIZE`（256，即 254 级）中更小者。
 - _RGB_DATA 就是 RGB_DATA，在两块板之间通过排针连接到了一起。
 - 只维护可运行的开发调试工程，不创建额外指南文件。
 - 不要使用Computer Use，全部通过CLI命令行工具来进行。

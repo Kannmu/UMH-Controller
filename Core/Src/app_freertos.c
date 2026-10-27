@@ -36,6 +36,7 @@
 #include "i2c.h"
 #include "i2c_bus.h"
 #include "umh_utils.h"
+#include <stdint.h>
 #include <string.h>
 #include <math.h>
 
@@ -44,8 +45,15 @@ static void abort_aperture_output(void);
 umh_rx_ring_t umh_usb_rx_ring;
 
 static umh_device_profile_t device_profile;
-static umh_spatial_renderer_t renderer;
-static umh_frame_ring_t frame_ring;
+/* CPU-only render data in the zero-wait CCM block: the frame ring is walked by
+ * every producer and by the render task, and the renderer's geometry and
+ * calibration tables are touched per channel per frame.  Neither is ever a DMA
+ * source or destination on this part, and both are fully memset by their init
+ * function, so the NOLOAD section needs no reset-time copy. */
+static umh_spatial_renderer_t renderer
+    __attribute__((section(".ccmram"), aligned(4)));
+static umh_frame_ring_t frame_ring
+    __attribute__((section(".ccmram"), aligned(4)));
 static umh_block_parser_t block_parser;
 static umh_playback_plan_t playback_plan;
 static umh_aperture_mod_t aperture_mod;
@@ -113,10 +121,13 @@ _Static_assert(sizeof(umh_cal_probe_request_t) == 184u, "cal probe request size"
 static umh_cal_probe_request_t calibration_probe_request;
 static uint32_t calibration_probe_tid;
 static volatile uint8_t gun_voice_state;
-static uint16_t gun_voice_feed_index;
-static volatile uint16_t gun_voice_sample_count; /* CCM buffer follows; keep 0x20018000 alias free in RAM */
-static uint8_t gun_voice_buffer[UMH_GUN_VOICE_MAX_SAMPLES]
-    __attribute__((section(".ccmram"), aligned(4)));
+static volatile uint16_t gun_voice_sample_count;
+/* The recording lives in SRAM1, packed by the codec selected in
+ * gun_voice_dsp.h.  CCM is left to the render path. */
+static uint8_t gun_voice_buffer[GUN_VOICE_BUFFER_BYTES]
+    __attribute__((aligned(4)));
+static gun_voice_codec_t gun_voice_capture;
+static gun_voice_player_t gun_voice_player;
 static uint32_t gun_voice_feed_sequence;
 /* Capture keeps one fixed companded scale; playback processing borrows the
  * inactive aperture ring and never allocates a second recording. */
@@ -129,8 +140,25 @@ static gun_voice_processor_t gun_voice_processor;
 static uint32_t gun_voice_capture_max_cycles;
 static uint32_t gun_voice_process_max_cycles;
 static uint32_t gun_voice_raw_invalid;
-_Static_assert(UMH_GUN_VOICE_MAX_SAMPLES <= CCMSRAM_SIZE,
-               "voice buffer must fit in STM32G491 CCMSRAM");
+/* CCM accounting: the render ring and renderer above, plus the USB-audio
+ * lookahead window that already lives there. */
+#define GUN_VOICE_CCM_RESIDENT_BYTES 384u
+_Static_assert(sizeof(umh_frame_ring_t) + sizeof(umh_spatial_renderer_t) +
+               GUN_VOICE_CCM_RESIDENT_BYTES <= 16384u,
+               "CCM: frame ring + renderer + audio lookahead must fit 16 KiB");
+_Static_assert(sizeof(gun_voice_buffer) == GUN_VOICE_BUFFER_BYTES,
+               "voice storage must match the codec's packed size");
+_Static_assert(GUN_VOICE_BUFFER_BYTES <= 12000u,
+               "voice storage must stay within the SRAM1 budget");
+#if GUN_VOICE_CODEC != GUN_VOICE_CODEC_MULAW8
+_Static_assert(GUN_VOICE_STORAGE_SAMPLES == UMH_GUN_VOICE_MAX_SAMPLES,
+               "compressed voice must keep the full two-second shot");
+#else
+_Static_assert(GUN_VOICE_STORAGE_SAMPLES * 2u == UMH_GUN_VOICE_MAX_SAMPLES,
+               "uncompressed fallback stores half the duration");
+#endif
+_Static_assert(GUN_VOICE_CODEC_VERSION == GUN_VOICE_CODEC,
+               "voice codec version tag must follow the selected codec");
 _Static_assert(GUN_VOICE_WORK_BYTES <= UMH_MOD_RING_SIZE,
                "voice processing must fit the inactive aperture ring");
 _Static_assert(offsetof(umh_aperture_mod_t, envelope_ring) % 4u == 0u,
@@ -146,6 +174,20 @@ enum {
 };
 #define GUN_VOICE_PRIME_SAMPLES 32u
 
+/* The recording must sit in SRAM1: CCM is CPU-only and is now reserved for the
+ * render path, and the address is a link-time property that C cannot check in a
+ * static assertion.  One check at the first voice shot catches a future section
+ * attribute regression instead of silently moving the buffer back into CCM. */
+static void gun_voice_storage_check(void)
+{
+  static uint8_t checked;
+  uintptr_t address = (uintptr_t)gun_voice_buffer;
+  if (checked != 0u) return;
+  checked = 1u;
+  if (address < 0x20000000u || address >= 0x20018000u)
+    system_status_fault(UMH_FAULT_HAL_INIT, 31u, UMH_FAULT_CRITICAL);
+}
+
 static void gun_voice_chain_reset(void)
 {
   gun_voice_dc_q8 = 0;
@@ -157,6 +199,9 @@ static void gun_voice_chain_reset(void)
   gun_voice_raw_invalid = 0u;
   memset(&gun_voice_processor, 0, sizeof(gun_voice_processor));
   memset(gun_voice_fir_hist, 0, sizeof(gun_voice_fir_hist));
+  gun_voice_codec_reset(&gun_voice_capture);
+  gun_voice_codec_reset(&gun_voice_player.codec);
+  gun_voice_storage_check();
 }
 
 /* 16 kHz input -> DC removal -> M4 dual-MAC anti-alias FIR -> 8 kHz.
@@ -196,11 +241,12 @@ static void gun_voice_store_sample(int16_t pcm)
     }
   }
   if (gun_voice_prime_count != 0u) { --gun_voice_prime_count; return; }
-  if (gun_voice_sample_count < UMH_GUN_VOICE_MAX_SAMPLES) {
-    gun_voice_buffer[gun_voice_sample_count++] =
-        gun_voice_encode(__SSAT((filtered + 16384) >> 15, 16));
+  if (gun_voice_sample_count < GUN_VOICE_STORAGE_SAMPLES) {
+    gun_voice_codec_push(&gun_voice_capture, gun_voice_buffer,
+                         __SSAT((filtered + 16384) >> 15, 16));
+    ++gun_voice_sample_count;
     if (gun_voice_state == GUN_VOICE_RECORDING &&
-        gun_voice_sample_count >= UMH_GUN_VOICE_MAX_SAMPLES)
+        gun_voice_sample_count >= GUN_VOICE_STORAGE_SAMPLES)
       gun_voice_state = GUN_VOICE_FULL;
   }
 }
@@ -242,6 +288,9 @@ static int gun_voice_prepare_service(void)
     result = -1;
   else {
     if (gun_voice_processor.samples == NULL) {
+      /* Release only changes the state; the last packed byte is completed here,
+       * in the task that owns the capture DSP, before anything decodes it. */
+      gun_voice_codec_flush(&gun_voice_capture, gun_voice_buffer);
       gun_voice_process_begin(&gun_voice_processor, gun_voice_buffer,
                               gun_voice_sample_count, aperture_mod.envelope_ring);
     }
@@ -295,12 +344,11 @@ static int gun_voice_start_playback(void)
   rc = aperture_mod_configure(&aperture_mod, &renderer, &fpga_link,
                               (const uint8_t *)&config, sizeof(config));
   if (rc != 0) goto fail;
-  first = gun_voice_sample_count > sizeof(initial) ? (uint16_t)sizeof(initial)
-                                                   : gun_voice_sample_count;
-  memcpy(initial, gun_voice_buffer, first);
+  gun_voice_player_open(&gun_voice_player, gun_voice_buffer, gun_voice_sample_count,
+                        gun_voice_processor.playback_gain);
+  first = gun_voice_player_read(&gun_voice_player, initial, (uint16_t)sizeof(initial));
   if (aperture_mod_feed(&aperture_mod, initial, first, gun_voice_feed_sequence++) != 0 ||
       aperture_mod_start(&aperture_mod) != 0) goto fail;
-  gun_voice_feed_index = first;
   gun_voice_state = GUN_VOICE_PLAYBACK;
   system_status_set(UMH_SYSTEM_PLAYING);
   return 0;
@@ -360,15 +408,21 @@ static void gun_voice_playback_service(void)
     return;
   }
   if (status.ring_fill >= GUN_VOICE_RING_TARGET) return;
-  count = (uint16_t)(gun_voice_sample_count - gun_voice_feed_index);
+  count = (uint16_t)(gun_voice_player.total - gun_voice_player.position);
   if (count > GUN_VOICE_RING_TARGET - status.ring_fill)
     count = (uint16_t)(GUN_VOICE_RING_TARGET - status.ring_fill);
   if (count > sizeof(block)) count = (uint16_t)sizeof(block);
-  memcpy(block, &gun_voice_buffer[gun_voice_feed_index], count);
-  if (count != 0u && aperture_mod_feed(&aperture_mod, block, count,
-                                     gun_voice_feed_sequence++) == 0)
-    gun_voice_feed_index = (uint16_t)(gun_voice_feed_index + count);
-  if (gun_voice_feed_index >= gun_voice_sample_count) {
+  {
+    /* Decode and only commit the stream on a successful feed, so a failed push
+     * cannot drop samples out of the recording. */
+    gun_voice_player_t saved = gun_voice_player;
+    count = gun_voice_player_read(&gun_voice_player, block, count);
+    if (count == 0u ||
+        aperture_mod_feed(&aperture_mod, block, count,
+                          gun_voice_feed_sequence++) != 0)
+      gun_voice_player = saved;
+  }
+  if (gun_voice_player.position >= gun_voice_player.total) {
     /* Fade modulation to silence in the source domain before requesting STOP.
      * This tail is short, bounded and only appended once. */
     uint8_t last = count != 0u ? block[count - 1u] : (uint8_t)UMH_GUN_VOICE_BIAS;
@@ -494,6 +548,7 @@ static uint8_t block_stream_active;
 static uint32_t block_stream_expected_sequence;
 static volatile uint8_t demo_building;
 static TaskHandle_t render_task_handle;
+static TaskHandle_t ui_task_handle;
 static volatile uint8_t render_waiting_for_work;
 
 static void render_wake(void)
@@ -524,13 +579,29 @@ static umh_fault_code_t fault_code_for_status(umh_status_t status, uint8_t messa
   return UMH_FAULT_PROTOCOL_NACK;
 }
 
+/* Scheduled priorities.  Numeric FreeRTOS priorities are only compared with
+ * each other, so the table is compact instead of the 8-level CMSIS spacing.
+ * input and cal stay equal, as do ui and disp.  The highest value is below the
+ * 32 levels that a port optimised selection could address; the kernel keeps
+ * configMAX_PRIORITIES at 56 because the CMSIS-RTOS2 wrapper requires it and
+ * selects with the ready mask in tasks.c. */
+enum {
+  UMH_PRIO_IDLE = 0,
+  UMH_PRIO_HEALTH = 4,
+  UMH_PRIO_UI = 8,
+  UMH_PRIO_INPUT = 12,
+  UMH_PRIO_STORAGE = 16,
+  UMH_PRIO_PROTOCOL = 20,
+  UMH_PRIO_RENDER = 24
+};
+
 static StaticTask_t protocol_task_cb, render_task_cb, storage_task_cb, ui_task_cb, health_task_cb;
 static StaticTask_t input_task_cb, display_task_cb;
 static StackType_t input_task_stack[128];
 static const osThreadAttr_t input_task_attributes = {
   .name = "input", .cb_mem = &input_task_cb, .cb_size = sizeof(input_task_cb),
   .stack_mem = input_task_stack, .stack_size = sizeof(input_task_stack),
-  .priority = osPriorityNormal
+  .priority = (osPriority_t)UMH_PRIO_INPUT
 };
 /* Task stacks.
  *
@@ -553,18 +624,20 @@ static const osThreadAttr_t input_task_attributes = {
  *   storage          376 B    960     796 B   the measured 164 B use never runs
  *                                            the flash/EEPROM chain, so the
  *                                            static chain is what sizes it
- *   ui               n/a     3072    2684 B   GUI callbacks arrive through
+ *   ui               n/a     2048    2684 B   GUI callbacks arrive through
  *                                            device_gui function pointers, which
- *                                            static analysis cannot follow
+ *                                            static analysis cannot follow; the
+ *                                            measured use is 388 B and the
+ *                                            device_gui_render frame is 128 B
  *   input            132 B    512     356 B
  *   health           124 B    512     220 B
  *   cal             3708 B   5120    4936 B   (deepest chain in the image)
  */
-static StackType_t protocol_task_stack[640], render_task_stack[640], storage_task_stack[320], ui_task_stack[768], health_task_stack[128];
+static StackType_t protocol_task_stack[640], render_task_stack[640], storage_task_stack[320], ui_task_stack[512], health_task_stack[128];
 static const osThreadAttr_t protocol_task_attributes = {
   .name = "protocol", .cb_mem = &protocol_task_cb, .cb_size = sizeof(protocol_task_cb),
   .stack_mem = protocol_task_stack, .stack_size = sizeof(protocol_task_stack),
-  .priority = osPriorityHigh
+  .priority = (osPriority_t)UMH_PRIO_PROTOCOL
 };
 static const osThreadAttr_t render_task_attributes = {
   .name = "render", .cb_mem = &render_task_cb, .cb_size = sizeof(render_task_cb),
@@ -572,27 +645,27 @@ static const osThreadAttr_t render_task_attributes = {
   /* Focused-AM needs a deterministic 50 us service cadence.  Keep the render
    * task above the USB protocol task; ring/queue decoupling means the
    * protocol task can still drain USB bursts when render sleeps. */
-  .priority = osPriorityRealtime
+  .priority = (osPriority_t)UMH_PRIO_RENDER
 };
 static const osThreadAttr_t storage_task_attributes = {
   .name = "storage", .cb_mem = &storage_task_cb, .cb_size = sizeof(storage_task_cb),
   .stack_mem = storage_task_stack, .stack_size = sizeof(storage_task_stack),
-  .priority = osPriorityAboveNormal
+  .priority = (osPriority_t)UMH_PRIO_STORAGE
 };
 static const osThreadAttr_t ui_task_attributes = {
   .name = "ui", .cb_mem = &ui_task_cb, .cb_size = sizeof(ui_task_cb),
   .stack_mem = ui_task_stack, .stack_size = sizeof(ui_task_stack),
-  .priority = osPriorityBelowNormal
+  .priority = (osPriority_t)UMH_PRIO_UI
 };
 /* The panel task is deliberately at the same priority as the UI: it only has to
  * keep the 30 ms refresh cadence, and a display fault must never outrank input
  * handling.  Its stack is the GUI render chain (104 B) plus the HAL I2C call;
- * 1536 B leaves 1276 B free at the measured watermark. */
-static StackType_t display_task_stack[384];
+ * 1024 B still leaves 764 B free at the measured watermark. */
+static StackType_t display_task_stack[256];
 static const osThreadAttr_t display_task_attributes = {
   .name = "disp", .cb_mem = &display_task_cb, .cb_size = sizeof(display_task_cb),
   .stack_mem = display_task_stack, .stack_size = sizeof(display_task_stack),
-  .priority = osPriorityBelowNormal
+  .priority = (osPriority_t)UMH_PRIO_UI
 };
 static StaticTask_t calibration_task_cb;
 /* Deepest chain in the image: 3708 B measured from -fstack-usage plus the
@@ -608,12 +681,12 @@ static StackType_t calibration_task_stack[1280];
 static const osThreadAttr_t calibration_task_attributes = {
   .name = "cal", .cb_mem = &calibration_task_cb, .cb_size = sizeof(calibration_task_cb),
   .stack_mem = calibration_task_stack, .stack_size = sizeof(calibration_task_stack),
-  .priority = osPriorityNormal
+  .priority = (osPriority_t)UMH_PRIO_INPUT
 };
 static const osThreadAttr_t health_task_attributes = {
   .name = "health", .cb_mem = &health_task_cb, .cb_size = sizeof(health_task_cb),
   .stack_mem = health_task_stack, .stack_size = sizeof(health_task_stack),
-  .priority = osPriorityLow
+  .priority = (osPriority_t)UMH_PRIO_HEALTH
 };
 
 static void send_response(const umh_protocol_frame_t *request, uint8_t type,
@@ -1113,6 +1186,7 @@ static int gui_demo(void *context)
   result = demo_engine_build(device_gui.selected_demo, &renderer, &frame_ring,
                              system_time_us(), &playback_plan);
   demo_building = 0u;
+  if (result == 0) render_wake();
   return result == 0 ? 0 : -1;
 }
 
@@ -1169,7 +1243,6 @@ static int gun_shot_fire(void)
       return -1;
     }
     gun_voice_sample_count = 0u;
-    gun_voice_feed_index = 0u;
     gun_voice_feed_sequence = 0u;
     gun_voice_chain_reset();
     gun_voice_state = GUN_VOICE_RECORDING;
@@ -1303,6 +1376,17 @@ static void send_result(const umh_protocol_frame_t *request, umh_status_t status
   }
 }
 
+/* Wake the protocol task for a response queued by another task (the storage
+ * task's ACK path, for instance); the protocol task is the only umh_usb_tx
+ * consumer and otherwise blocks indefinitely. */
+static void protocol_wake(void)
+{
+  TaskHandle_t current = xTaskGetCurrentTaskHandle();
+  if (umh_protocol_task_handle != NULL &&
+      (TaskHandle_t)umh_protocol_task_handle != current)
+    (void)xTaskNotifyGive((TaskHandle_t)umh_protocol_task_handle);
+}
+
 static void send_response(const umh_protocol_frame_t *request, uint8_t type,
                           const void *payload, uint16_t length)
 {
@@ -1323,6 +1407,8 @@ static void send_response(const umh_protocol_frame_t *request, uint8_t type,
   if (encoded == 0u || umh_usb_tx_commit(output, encoded) == 0u) {
     system_status_get()->usb_dropped++;
     system_status_fault(UMH_FAULT_USB_TX_DROP, system_status_get()->usb_dropped, UMH_FAULT_WARNING);
+  } else {
+    protocol_wake();
   }
 }
 
@@ -1790,6 +1876,7 @@ static void usb_audio_service(void)
       ++umh_usb_audio_stats.starts;
       umh_usb_audio_stats.owns_output = 1u;
       system_status_set(UMH_SYSTEM_USB_AUDIO);
+      render_wake();
     }
     if (output != 0u) {
       if ((uint32_t)usb_audio_env_count + output > sizeof(usb_audio_env_block)) {
@@ -1833,11 +1920,13 @@ static int ramp_burst_start(uint8_t channel, uint8_t level, uint8_t ramp_ticks)
 {
   uint8_t phases[UMH_DEVICE_CHANNEL_COUNT];
   uint8_t enables[UMH_DEVICE_CHANNEL_COUNT];
-  uint8_t levels[FPGA_MOD_BLOCK_MAX];
+  /* The wire contract documents ramp_ticks as 0..31; keeping the buffer at
+   * that bound keeps this bench command off the protocol task's stack budget. */
+  uint8_t levels[32];
   uint8_t count;
   uint16_t i;
   if (channel >= UMH_DEVICE_CHANNEL_COUNT || level == 0u ||
-      ramp_ticks >= FPGA_MOD_BLOCK_MAX) return -1;
+      ramp_ticks >= sizeof(levels)) return -1;
   memset(phases, 0, sizeof(phases));
   memset(enables, 0, sizeof(enables));
   enables[channel] = 1u;
@@ -2381,6 +2470,15 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
   send_result(frame, status, NULL, 0u);
 }
 
+/* Receive-side flow control for the CDC OUT endpoint (USB interrupt context).
+ * The modulator is the only consumer that can be outrun by a host, so its ring
+ * decides whether another packet may be accepted; every other mode always
+ * accepts, exactly as before. */
+uint8_t umh_stream_ingest_space(void)
+{
+  return aperture_mod_rx_ready(&aperture_mod);
+}
+
 static void protocol_task(void *argument)
 {
   uint8_t data[256];
@@ -2397,9 +2495,24 @@ static void protocol_task(void *argument)
     uint8_t gun_owns_before;
     count = umh_rx_ring_read(&umh_usb_rx_ring, data, sizeof(data));
     if (count != 0u) umh_protocol_parser_feed(&protocol_parser, data, count);
-    else if (umh_usb_audio_stats.queued_samples == 0u)
-      (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(
-          umh_usb_audio_streaming() != 0u ? 2u : 10u));
+    else {
+      /* Every producer already notifies this task from interrupt or task
+       * context: CDC OUT and IN-complete ISRs, the UAC packet ISR, the PA9
+       * edge in the input task, and ACKs queued by the storage task.  While
+       * the UAC stream is open the block stays bounded so the 40 ms
+       * last-packet timeout still releases the output when the host stops
+       * sending without closing the interface.  A held-off CDC endpoint also
+       * bounds the block: this task is the only one that can re-arm it. */
+      TickType_t wait = (umh_usb_audio_streaming() != 0u || umh_cdc_rx_paused() != 0u)
+                            ? pdMS_TO_TICKS(2u)
+                            : portMAX_DELAY;
+      (void)ulTaskNotifyTake(pdTRUE, wait);
+      count = umh_rx_ring_read(&umh_usb_rx_ring, data, sizeof(data));
+      if (count != 0u) umh_protocol_parser_feed(&protocol_parser, data, count);
+    }
+    /* Hand the endpoint back once the consumer behind it has room again; a
+     * no-op while it is already armed. */
+    umh_cdc_rx_resume();
     /* Hardware fire button.  Sampling happens in the input task; the edges are
      * handled here, next to every other output takeover, and the 10 ms notify
      * timeout above bounds the press-to-emission latency when USB is idle. */
@@ -2492,12 +2605,11 @@ static void render_wait_until_us(uint64_t target_us)
       continue;
     }
     /* A 1 us request would program ARR = 0, which blocks the STM32 basic
-     * timer: no update event, so the task only woke on the 2 ms notify
- * timeout.  At 20 kHz that stalled the envelope stream for 1-2 ms and then
-     * replayed the backlog in a burst (measured p99 lag 1.8 ms), heard as
-     * noise and smeared/slowed sound.  Spin out spans too short to be worth
-     * a context switch instead. */
-    if (delta < 4u) continue;
+     * timer: no update event, so the task would only wake on the 2 ms notify
+     * timeout.  Spans below the timer granularity are armed with the 4 us
+     * minimum and the task blocks once instead of spinning through the loop
+     * prefix. */
+    if (delta < 4u) delta = 4u;
     render_timer_arm_us((uint32_t)delta);
     (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(2u));
   }
@@ -2524,15 +2636,59 @@ void TIM7_IRQHandler(void)
 volatile uint32_t umh_render_profile[8];
 volatile uint32_t umh_render_burst_yields;
 
+static uint16_t render_previous_fpga_flags;
+static uint32_t render_status_ms;
+
+static void render_fpga_fault_update(void)
+{
+  uint16_t flags = (uint16_t)(fpga_link_status(&fpga_link)->status_flags &
+                              (FPGA_STATUS_UNDERRUN | FPGA_STATUS_OVERFLOW |
+                               FPGA_STATUS_INVALID_FRAME | FPGA_STATUS_OUTPUT_FAULT));
+  if (flags != 0u) system_status_set(UMH_SYSTEM_ERROR);
+  if (flags != 0u && flags != render_previous_fpga_flags) {
+    umh_fault_code_t code = (flags & FPGA_STATUS_OUTPUT_FAULT) != 0u ? UMH_FAULT_FPGA_OUTPUT :
+                             (flags & FPGA_STATUS_INVALID_FRAME) != 0u ? UMH_FAULT_FPGA_INVALID_FRAME :
+                             (flags & FPGA_STATUS_OVERFLOW) != 0u ? UMH_FAULT_FPGA_OVERFLOW :
+                             UMH_FAULT_FPGA_UNDERRUN;
+    system_status_fault(code, flags, UMH_FAULT_CRITICAL);
+  }
+  render_previous_fpga_flags = flags;
+}
+
+static void render_status_tail(uint64_t now_us)
+{
+  /* Voice playback leaves its own PLAYING flag in place; this tail belongs to
+   * the frame-plan path, and a voice shot that has not drained yet must not
+   * have its flag cleared underneath it by a plan that is not running. */
+  if (gun_voice_state == GUN_VOICE_PLAYBACK || gun_voice_state == GUN_VOICE_DRAINING) {
+  } else if (playback_plan.running != 0u) system_status_set(UMH_SYSTEM_PLAYING);
+  else system_status_clear(UMH_SYSTEM_PLAYING);
+  if (playback_plan.underrun_reported != 0u) {
+    system_status_set(UMH_SYSTEM_UNDERRUN);
+    system_status_get()->underruns++;
+    system_status_fault(UMH_FAULT_FPGA_UNDERRUN, system_status_get()->underruns, UMH_FAULT_WARNING);
+    playback_plan.underrun_reported = 0u;
+    if (playback_plan.running == 0u && playback_plan.wire.underrun_policy == UMH_UNDERRUN_DISABLE)
+      (void)fpga_link_safe_stop(&fpga_link);
+  }
+  render_fpga_fault_update();
+  system_status_get()->fpga_credit = fpga_link_status(&fpga_link)->fifo_credit;
+  system_status_get()->fpga_depth = fpga_link_status(&fpga_link)->fifo_depth;
+  system_status_get()->frame_count = frame_ring_count(&frame_ring);
+  system_status_get()->frame_free = frame_ring_free(&frame_ring);
+  system_status_get()->device_time = (uint32_t)now_us;
+  system_status_get()->frame_dropped = frame_ring.dropped;
+}
+
 static void render_task(void *argument)
 {
   umh_output_frame_t *frame;
   uint64_t last_time_us = system_time_us();
   uint64_t now_us;
   uint64_t elapsed_us;
-  uint16_t previous_fpga_flags = 0u;
   uint8_t render_burst = 0u;
   uint32_t render_idle_poll_ms = 0u;
+  uint32_t last_credit_yield = 0u;
   (void)argument;
   render_task_handle = xTaskGetCurrentTaskHandle();
   for (;;) {
@@ -2683,36 +2839,77 @@ static void render_task(void *argument)
           umh_render_profile[5] += t_pre + t_submit;
           if ((t_pre + t_submit) > umh_render_profile[6])
             umh_render_profile[6] = t_pre + t_submit;
-          if (submit_result == 0) {
-            (void)frame_ring_release_read(&frame_ring);
-            if (flash_play_active != 0u &&
-                frame_ring_count(&frame_ring) < UMH_FLASH_PLAY_HIGH_WATER &&
-                storage_wake_sem != NULL)
-              (void)xSemaphoreGive(storage_wake_sem);
-            playback_plan_frame_submitted(&playback_plan);
-            if (++render_burst >= 16u) {
-              render_burst = 0u;
-              ++umh_render_burst_yields;
-              taskYIELD();
+          /* -1 is the FPGA event builder reporting no credit right now, not a
+           * link failure: keep the frame in the ring and retry after a fresh
+           * status read, without charging a fault. */
+          if (submit_result == -1) {
+            /* The render task may not run uninterrupted for more than two
+             * ticks: the protocol and UI tasks are below it, and a host that
+             * outruns the builder must never be able to starve USB into a
+             * suspend.  Between yields the retry loop still runs at full rate,
+             * so a genuinely transient busy costs no frame cadence. */
+            uint32_t now_tick = xTaskGetTickCount();
+            (void)fpga_link_poll_status(&fpga_link);
+            if ((uint32_t)(now_tick - last_credit_yield) >= 2u) {
+              last_credit_yield = now_tick;
+              osDelay(1u);
             }
-            system_status_get()->frame_count = frame_ring_count(&frame_ring);
-            system_status_get()->frame_free = frame_ring_free(&frame_ring);
-            if (frame_ring_count(&frame_ring) == 0u) {
-              int loop_result = playback_plan_prepare_loop(&playback_plan, &frame_ring, now_us);
-              if (loop_result == 0 && playback_plan.running != 0u &&
-                  playback_plan.wire.repeat_mode != UMH_PLAN_LOOP_STREAM) {
-                playback_plan_stop(&playback_plan);
-                /* ONCE and HOLD_LAST intentionally leave the last committed
-                 * device state active. Only an explicit STOP plan disables output. */
-                if (playback_plan.wire.repeat_mode == UMH_PLAN_STOP)
-                  (void)fpga_link_safe_stop(&fpga_link);
-              }
-            }
-          } else {
+            continue;
+          }
+          if (submit_result != 0) {
             ++system_status_get()->fpga_errors;
             system_status_fault(UMH_FAULT_FPGA_OUTPUT, (uint32_t)(-submit_result), UMH_FAULT_CRITICAL);
+            render_status_tail(now_us);
             osDelay(1u);
+            continue;
           }
+          (void)frame_ring_release_read(&frame_ring);
+          if (flash_play_active != 0u &&
+              frame_ring_count(&frame_ring) < UMH_FLASH_PLAY_HIGH_WATER &&
+              storage_wake_sem != NULL)
+            (void)xSemaphoreGive(storage_wake_sem);
+          playback_plan_frame_submitted(&playback_plan);
+          if (++render_burst >= 16u) {
+            render_burst = 0u;
+            ++umh_render_burst_yields;
+            taskYIELD();
+          }
+          if (frame_ring_count(&frame_ring) == 0u) {
+            int loop_result = playback_plan_prepare_loop(&playback_plan, &frame_ring, now_us);
+            if (loop_result == 0 && playback_plan.running != 0u &&
+                playback_plan.wire.repeat_mode != UMH_PLAN_LOOP_STREAM) {
+              playback_plan_stop(&playback_plan);
+              /* ONCE and HOLD_LAST intentionally leave the last committed
+               * device state active. Only an explicit STOP plan disables output. */
+              if (playback_plan.wire.repeat_mode == UMH_PLAN_STOP)
+                (void)fpga_link_safe_stop(&fpga_link);
+            }
+          }
+          /* The status words only feed the GUI and the diagnostics pages, so
+           * they run on a 1 ms cadence (one pass in five at 4.8 kHz).  The
+           * FPGA fault bits come from the transaction that just completed and
+           * are still checked on every submitted frame. */
+          render_fpga_fault_update();
+          {
+            uint32_t tail_ms = HAL_GetTick();
+            if ((uint32_t)(tail_ms - render_status_ms) >= 1u) {
+              render_status_ms = tail_ms;
+              render_status_tail(now_us);
+            }
+          }
+          /* One pass per frame: wait for the successor's own output time here
+           * instead of returning to the loop top just to discover it is not
+           * due, which cost a second copy of the whole prefix per frame. */
+          {
+            umh_output_frame_t *next = frame_ring_peek_read(&frame_ring);
+            uint64_t next_due_us = 0u;
+            if (next != NULL && playback_plan.running != 0u &&
+                playback_plan_frame_output_time(&playback_plan, next->deadline,
+                                                &next_due_us) != 0u &&
+                next_due_us > system_time_us())
+              render_wait_until_us(next_due_us);
+          }
+          continue;
         } else {
           /* link->status.fifo_credit is sampled from MISO at the start of the
            * previous SPI transaction, so it is one transaction stale.  Poll
@@ -2735,7 +2932,25 @@ static void render_task(void *argument)
         }
         (void)fpga_link_poll_status(&fpga_link);
         render_burst = 0u;
-        osDelay(1u);
+        if (playback_plan.running == 0u) {
+          /* Frames left in the ring from a stopped plan cannot become due
+           * again until a host/UI action starts a new plan, and every such
+           * action notifies through render_wake().  Block instead of polling
+           * the whole loop every millisecond. */
+          render_waiting_for_work = 1u;
+          if (frame_ring_count(&frame_ring) == 0u) {
+            render_waiting_for_work = 0u;
+            continue;
+          }
+          if ((fpga_link_status(&fpga_link)->status_flags & FPGA_STATUS_RUNNING) != 0u)
+            (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(8u));
+          else
+            (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+          render_waiting_for_work = 0u;
+          now_us = system_time_us();
+        } else {
+          osDelay(1u);
+        }
       }
     } else {
       render_burst = 0u;
@@ -2752,53 +2967,20 @@ static void render_task(void *argument)
       if (flash_play_active != 0u) {
         render_wait_until_us(system_time_us() + 200u);
       } else if (render_task_handle != NULL) {
-        (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(8u));
+        /* A held ONCE/HOLD_LAST image leaves the FPGA running, so the link
+         * still needs a transaction inside its ~30 ms watchdog.  A truly idle
+         * link has nothing to keep alive and waits for render_wake(). */
+        if ((fpga_link_status(&fpga_link)->status_flags & FPGA_STATUS_RUNNING) != 0u)
+          (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(8u));
+        else
+          (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
       } else {
         osDelay(8u);
       }
       render_waiting_for_work = 0u;
+      now_us = system_time_us();
     }
-    /* Voice playback leaves its own PLAYING flag in place; this tail belongs to
-     * the frame-plan path, and a voice shot that has not drained yet must not
-     * have its flag cleared underneath it by a plan that is not running. */
-    if (gun_voice_state == GUN_VOICE_PLAYBACK || gun_voice_state == GUN_VOICE_DRAINING) {
-      /* serviced in the aperture branch above */
-    } else if (playback_plan.running != 0u) system_status_set(UMH_SYSTEM_PLAYING);
-    else system_status_clear(UMH_SYSTEM_PLAYING);
-    if (playback_plan.underrun_reported != 0u) {
-      system_status_set(UMH_SYSTEM_UNDERRUN);
-      system_status_get()->underruns++;
-      system_status_fault(UMH_FAULT_FPGA_UNDERRUN, system_status_get()->underruns, UMH_FAULT_WARNING);
-      playback_plan.underrun_reported = 0u;
-      if (playback_plan.running == 0u && playback_plan.wire.underrun_policy == UMH_UNDERRUN_DISABLE)
-        (void)fpga_link_safe_stop(&fpga_link);
-    }
-    {
-      uint16_t fpga_flags = fpga_link_status(&fpga_link)->status_flags;
-      /* Bit 4 is the normal RUNNING indication.  Only bits 0..3 are
-       * fault conditions; treating any nonzero word as an error made a
-       * healthy running FPGA appear as "FPGA UNDERRU, ARG=16". */
-      uint16_t fpga_fault_flags = (uint16_t)(fpga_flags &
-                                             (FPGA_STATUS_UNDERRUN |
-                                              FPGA_STATUS_OVERFLOW |
-                                              FPGA_STATUS_INVALID_FRAME |
-                                              FPGA_STATUS_OUTPUT_FAULT));
-      if (fpga_fault_flags != 0u) system_status_set(UMH_SYSTEM_ERROR);
-      if (fpga_fault_flags != 0u && fpga_fault_flags != previous_fpga_flags) {
-        umh_fault_code_t code = (fpga_fault_flags & FPGA_STATUS_OUTPUT_FAULT) != 0u ? UMH_FAULT_FPGA_OUTPUT :
-                                 (fpga_fault_flags & FPGA_STATUS_INVALID_FRAME) != 0u ? UMH_FAULT_FPGA_INVALID_FRAME :
-                                 (fpga_fault_flags & FPGA_STATUS_OVERFLOW) != 0u ? UMH_FAULT_FPGA_OVERFLOW :
-                                 UMH_FAULT_FPGA_UNDERRUN;
-        system_status_fault(code, fpga_fault_flags, UMH_FAULT_CRITICAL);
-      }
-      previous_fpga_flags = fpga_fault_flags;
-    }
-    system_status_get()->fpga_credit = fpga_link_status(&fpga_link)->fifo_credit;
-    system_status_get()->fpga_depth = fpga_link_status(&fpga_link)->fifo_depth;
-    system_status_get()->frame_count = frame_ring_count(&frame_ring);
-    system_status_get()->frame_free = frame_ring_free(&frame_ring);
-    system_status_get()->device_time = (uint32_t)now_us;
-    system_status_get()->frame_dropped = frame_ring.dropped;
+    render_status_tail(now_us);
   }
 }
 
@@ -2885,10 +3067,17 @@ static void storage_task(void *argument)
 static void input_task(void *argument)
 {
   TickType_t last_wake = xTaskGetTickCount();
+  uint8_t gun_pressed = 0u;
   (void)argument;
   for (;;) {
     input_events_sample();
     gun_trigger_sample(&gun_trigger);
+    if (gun_trigger_pressed(&gun_trigger) != gun_pressed) {
+      gun_pressed = gun_trigger_pressed(&gun_trigger);
+      if (umh_protocol_task_handle != NULL)
+        (void)xTaskNotifyGive((TaskHandle_t)umh_protocol_task_handle);
+    }
+    if (ui_task_handle != NULL) (void)xTaskNotifyGive(ui_task_handle);
     vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(10u));
   }
 }
@@ -2896,15 +3085,27 @@ static void input_task(void *argument)
 static void ui_task(void *argument)
 {
   input_event_t event;
+  uint32_t last_render = 0u;
   (void)argument;
+  ui_task_handle = xTaskGetCurrentTaskHandle();
   for (;;) {
+    uint8_t handled = 0u;
+    uint32_t now;
     while (input_events_poll(&event) != 0u) {
       device_gui_handle_event(&device_gui, &event);
+      handled = 1u;
     }
-    device_gui_render(&device_gui, HAL_GetTick());
-    /* Keep the cursor animation responsive while input scanning remains
-     * independent at 10 ms. */
-    osDelay(30u);
+    now = HAL_GetTick();
+    /* An event is redrawn at once, so key response is still one input scan.
+     * Live values only need a readable refresh rate; the 30 ms page transition
+     * is the one animation that still needs the fast cadence. */
+    if (handled != 0u || (int32_t)(device_gui.transition_until - now) > 0 ||
+        (uint32_t)(now - last_render) >= 120u) {
+      device_gui_render(&device_gui, now);
+      last_render = now;
+    }
+    if ((int32_t)(device_gui.transition_until - now) > 0) osDelay(30u);
+    else (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(120u));
   }
 }
 

@@ -269,14 +269,15 @@ static void flash_library_build_frame(const flash_library_reader_t *reader,
   frame->deadline = reader->origin_us +
                     (uint64_t)frame_index * (uint64_t)reader->frame_period_us;
   frame->update_flags = UMH_FRAME_FLAG_ULTRASOUND;
+  if (reader->level_mode == FLASH_LIBRARY_LEVEL_FULL) {
+    /* The full record is exactly the 84 interleaved phase/level pairs of the
+     * frame channel array, so one copy replaces the per-channel loop. */
+    memcpy(frame->channels, record, sizeof(frame->channels));
+    return;
+  }
   for (i = 0u; i < FLASH_LIBRARY_CHANNEL_COUNT; ++i) {
-    if (reader->level_mode == FLASH_LIBRARY_LEVEL_UNIFORM) {
-      frame->channels[i].phase = record[i];
-      frame->channels[i].level = reader->level_table[i];
-    } else {
-      frame->channels[i].phase = record[2u * i];
-      frame->channels[i].level = record[2u * i + 1u];
-    }
+    frame->channels[i].phase = record[i];
+    frame->channels[i].level = reader->level_table[i];
   }
 }
 
@@ -642,6 +643,22 @@ int flash_library_writer_write(flash_library_writer_t *writer, const void *data,
   if (length == 0u || length > writer->records_bytes - writer->received_bytes)
     return FLASH_LIBRARY_PARAM;
   writer->crc_state = umh_crc32_update(writer->crc_state, data, length);
+  /* The record stream is page-aligned from records_address on, so full pages
+   * can be programmed straight out of the caller's buffer.  The staging page
+   * is then only needed for whole chunks that straddle a page boundary. */
+  while (writer->page_used == 0u && length >= FLASH_NOR_PAGE_SIZE) {
+    if (flash_nor_page_program(writer->page_address, source,
+                               FLASH_NOR_PAGE_SIZE) != FLASH_NOR_OK) {
+      writer->active = 0u;
+      return FLASH_LIBRARY_IO;
+    }
+    writer->library->stats.page_programs++;
+    writer->library->stats.bytes_programmed += FLASH_NOR_PAGE_SIZE;
+    writer->page_address += FLASH_NOR_PAGE_SIZE;
+    writer->received_bytes += FLASH_NOR_PAGE_SIZE;
+    source += FLASH_NOR_PAGE_SIZE;
+    length -= FLASH_NOR_PAGE_SIZE;
+  }
   while (length != 0u) {
     uint32_t room = FLASH_NOR_PAGE_SIZE - writer->page_used;
     uint32_t take = length < room ? length : room;

@@ -17,13 +17,11 @@
 #define UMH_FAST_TRIG_SIZE 1024u
 #define UMH_FAST_TRIG_MASK (UMH_FAST_TRIG_SIZE - 1u)
 
-/* Non-const so the linker places it in .data: the C runtime copies it to RAM
- * at boot.  The renderer reads it 168..1344 times per frame, and this part has
- * no data cache on the flash path (the ART accelerator only covers instruction
- * fetch), so a random 16-bit load from .rodata costs the flash wait states
- * every time.  The 2 KiB of RAM buys back roughly a 3x higher phase-synthesis
- * throughput, which is the budget the motion engine lives on. */
-extern int16_t umh_fast_sin_table[UMH_FAST_TRIG_SIZE];
+/* const: the table is never written, so it lives in flash .rodata and costs no
+ * SRAM1 (the 96 KiB SRAM1 bank is the scarce resource on this board).  Every
+ * read path is the renderer's cold per-channel phase term; the hot
+ * single-point synthesis does not touch the table at all. */
+extern const int16_t umh_fast_sin_table[UMH_FAST_TRIG_SIZE];
 
 static inline float umh_fast_sin_q10(int32_t phase_q10)
 {

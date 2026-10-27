@@ -5,11 +5,11 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
-/* Number of tasks the sampler keeps.  The image runs nine (protocol, render,
- * storage, ui, disp, input, health, cal, IDLE); one spare entry covers a future
- * task.  Every entry is a full TaskStatus_t, so the two entries that used to be
- * spare cost 40 bytes of SRAM1 each on a part that has none to give. */
-#define UMH_TASK_STATS_MAX 10u
+/* Number of tasks the sampler keeps.  The image runs exactly nine (protocol,
+ * render, storage, ui, disp, input, health, cal, IDLE); the entry array and the
+ * per-handle bookkeeping are sized to that, because every entry is a full
+ * TaskStatus_t and SRAM1 has no spare. */
+#define UMH_TASK_STATS_MAX 9u
 
 /* Sampled scheduler state, refreshed from the low-priority health task.
  *

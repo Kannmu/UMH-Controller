@@ -2,8 +2,8 @@
 -d LCMXO2-2000HC
 -t CSBGA132
 -s 4
--frequency 128
--optimization_goal Balanced
+
+-optimization_goal Area
 -bram_utilization 100
 -ramstyle Auto
 -romstyle auto

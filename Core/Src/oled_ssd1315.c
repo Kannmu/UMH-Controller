@@ -86,12 +86,15 @@ static const uint8_t font_upper[26][5] = {
   {0x7Fu,0x20u,0x18u,0x20u,0x7Fu},{0x63u,0x14u,0x08u,0x14u,0x63u},
   {0x07u,0x08u,0x70u,0x08u,0x07u},{0x61u,0x51u,0x49u,0x45u,0x43u}
 };
+/* Stored already bit-reversed into the framebuffer's LSB-first column order.
+ * Deriving that with a 7-bit loop per glyph column cost more than the rest of
+ * the character blit together on the 33 Hz repaint path. */
 static const uint8_t font_digit[10][5] = {
-  {0x3Eu,0x45u,0x49u,0x51u,0x3Eu},{0x00u,0x21u,0x7Fu,0x01u,0x00u},
-  {0x23u,0x45u,0x49u,0x51u,0x21u},{0x42u,0x41u,0x51u,0x69u,0x46u},
-  {0x0Cu,0x14u,0x24u,0x7Fu,0x04u},{0x72u,0x51u,0x51u,0x51u,0x4Eu},
-  {0x1Eu,0x29u,0x49u,0x49u,0x06u},{0x40u,0x47u,0x48u,0x50u,0x60u},
-  {0x36u,0x49u,0x49u,0x49u,0x36u},{0x30u,0x49u,0x49u,0x4Au,0x3Cu}
+  {0x3Eu,0x51u,0x49u,0x45u,0x3Eu},{0x00u,0x42u,0x7Fu,0x40u,0x00u},
+  {0x62u,0x51u,0x49u,0x45u,0x42u},{0x21u,0x41u,0x45u,0x4Bu,0x31u},
+  {0x18u,0x14u,0x12u,0x7Fu,0x10u},{0x27u,0x45u,0x45u,0x45u,0x39u},
+  {0x3Cu,0x4Au,0x49u,0x49u,0x30u},{0x01u,0x71u,0x09u,0x05u,0x03u},
+  {0x36u,0x49u,0x49u,0x49u,0x36u},{0x06u,0x49u,0x49u,0x29u,0x1Eu}
 };
 
 static uint8_t glyph_column(char character, uint8_t column)
@@ -99,15 +102,8 @@ static uint8_t glyph_column(char character, uint8_t column)
   if (column >= 5u) return 0u;
   if (character >= 'A' && character <= 'Z') return font_upper[(uint8_t)character - 'A'][column];
   if (character >= 'a' && character <= 'z') return font_upper[(uint8_t)character - 'a'][column];
-  if (character >= '0' && character <= '9') {
-    uint8_t value = font_digit[(uint8_t)character - '0'][column];
-    uint8_t reversed = 0u;
-    uint8_t bit;
-    /* Digit artwork is stored MSB-first; the framebuffer is LSB-first. */
-    for (bit = 0u; bit < 7u; ++bit)
-      reversed |= (uint8_t)(((value >> bit) & 1u) << (6u - bit));
-    return reversed;
-  }
+  if (character >= '0' && character <= '9')
+    return font_digit[(uint8_t)character - '0'][column];
   switch (character) {
     case ':': return column == 1u || column == 3u ? 0x14u : 0u;
     case '.': return column == 2u ? 0x40u : 0u;
@@ -303,28 +299,39 @@ int oled_ssd1315_refresh(oled_ssd1315_t *oled)
   }
   for (page = 0u; page < OLED_PAGES; ++page) {
     uint16_t offset = (uint16_t)page * OLED_WIDTH;
-    /* Content compare, not the dirty hint.
-     *
-     * device_gui_render() clears the framebuffer and immediately redraws the
-     * same picture, so every lit pixel goes 0 -> 1 again and re-arms its page
-     * bit on every repaint.  The hint is therefore always set and cannot be
-     * used to decide what to send; comparing 128 bytes against the panel shadow
-     * costs a few cycles and keeps the bus idle whenever the image is
-     * unchanged. */
-    if (oled->force_full == 0u &&
-        memcmp(&oled->framebuffer[offset], &oled->shadow[offset], OLED_WIDTH) == 0)
-      continue;
+    uint8_t first;
+    uint8_t last;
+    uint8_t span;
+    /* Content compare, not the dirty hint: device_gui_render() clears the
+     * framebuffer and immediately redraws the same picture, so every lit pixel
+     * goes 0 -> 1 again and re-arms its page bit on every repaint.  Only the
+     * columns that actually changed are sent, which on a live status page is a
+     * handful of digit cells instead of the whole 128-byte page. */
+    if (oled->force_full != 0u) {
+      first = 0u;
+      last = (uint8_t)(OLED_WIDTH - 1u);
+    } else {
+      first = 0u;
+      while (first < OLED_WIDTH &&
+             oled->framebuffer[offset + first] == oled->shadow[offset + first]) ++first;
+      if (first >= OLED_WIDTH) continue;
+      last = (uint8_t)(OLED_WIDTH - 1u);
+      while (last > first &&
+             oled->framebuffer[offset + last] == oled->shadow[offset + last]) --last;
+    }
+    span = (uint8_t)(last - first + 1u);
     commands[0] = (uint8_t)(0xB0u | page);
-    commands[1] = 0x00u;
-    commands[2] = 0x10u;
-    if (send(oled, 0x00u, commands, sizeof(commands)) != 0 || send(oled, 0x40u, &oled->framebuffer[offset], OLED_WIDTH) != 0) {
+    commands[1] = (uint8_t)(0x00u | (first & 0x0Fu));
+    commands[2] = (uint8_t)(0x10u | (first >> 4u));
+    if (send(oled, 0x00u, commands, sizeof(commands)) != 0 ||
+        send(oled, 0x40u, &oled->framebuffer[offset + first], span) != 0) {
       if (++oled->failures >= OLED_FAILURES_BEFORE_BACKOFF) {
         oled->retry_after_ms = HAL_GetTick() + OLED_BACKOFF_MS;
         oled->failures = 0u;
       }
       return -2;
     }
-    memcpy(&oled->shadow[offset], &oled->framebuffer[offset], OLED_WIDTH);
+    memcpy(&oled->shadow[offset + first], &oled->framebuffer[offset + first], span);
     oled->dirty_pages &= (uint8_t)~(1u << page);
   }
   oled->force_full = 0u;

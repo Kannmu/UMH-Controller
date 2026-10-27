@@ -119,9 +119,22 @@ configIDLE_TASK_NAME in FreeRTOSConfig.h. */
 	microcontroller architecture. */
 
 	/* uxTopReadyPriority holds the priority of the highest priority ready
-	state task. */
+	state task.  configMAX_PRIORITIES is 56 here because the CMSIS-RTOS2
+	wrapper rejects any other value, which is above the 32 levels the port
+	optimised selection supports, so the ready set is kept in a 64-bit mask
+	instead.  Selection is then two loads, a CLZ and one list access no matter
+	how far the highest ready priority drops, instead of one empty-list test
+	per skipped priority level on every context switch. */
 	#define taskRECORD_READY_PRIORITY( uxPriority )														\
 	{																									\
+		if( ( uxPriority ) >= 32U )																		\
+		{																								\
+			uxReadyPriorityMask[ 1 ] |= ( 1UL << ( ( uxPriority ) - 32U ) );							\
+		}																								\
+		else																							\
+		{																								\
+			uxReadyPriorityMask[ 0 ] |= ( 1UL << ( uxPriority ) );										\
+		}																								\
 		if( ( uxPriority ) > uxTopReadyPriority )														\
 		{																								\
 			uxTopReadyPriority = ( uxPriority );														\
@@ -130,30 +143,71 @@ configIDLE_TASK_NAME in FreeRTOSConfig.h. */
 
 	/*-----------------------------------------------------------*/
 
+	/* A stale bit can only come from a ready-list removal that did not go
+	through one of the reset macros.  Clear it and rescan rather than stop the
+	device in configASSERT(); the normal path fails the length test once and
+	leaves the loop immediately. */
 	#define taskSELECT_HIGHEST_PRIORITY_TASK()															\
 	{																									\
-	UBaseType_t uxTopPriority = uxTopReadyPriority;														\
+	UBaseType_t uxTopPriority;																			\
 																										\
-		/* Find the highest priority queue that contains ready tasks. */								\
-		while( listLIST_IS_EMPTY( &( pxReadyTasksLists[ uxTopPriority ] ) ) )							\
+		for( ;; )																						\
 		{																								\
-			configASSERT( uxTopPriority );																\
-			--uxTopPriority;																			\
+			if( uxReadyPriorityMask[ 1 ] != 0UL )														\
+			{																							\
+				uxTopPriority = ( UBaseType_t ) ( 63U - ( UBaseType_t ) __builtin_clz( uxReadyPriorityMask[ 1 ] ) ); \
+			}																							\
+			else																						\
+			{																							\
+				uxTopPriority = ( UBaseType_t ) ( 31U - ( UBaseType_t ) __builtin_clz( uxReadyPriorityMask[ 0 ] | 1UL ) ); \
+			}																							\
+			if( listCURRENT_LIST_LENGTH( &( pxReadyTasksLists[ uxTopPriority ] ) ) != ( UBaseType_t ) 0 ) \
+			{																							\
+				break;																					\
+			}																							\
+			configASSERT( uxTopPriority > 0U );															\
+			if( uxTopPriority >= 32U )																	\
+			{																							\
+				uxReadyPriorityMask[ 1 ] &= ~( 1UL << ( uxTopPriority - 32U ) );						\
+			}																							\
+			else																						\
+			{																							\
+				uxReadyPriorityMask[ 0 ] &= ~( 1UL << uxTopPriority );									\
+			}																							\
 		}																								\
-																										\
-		/* listGET_OWNER_OF_NEXT_ENTRY indexes through the list, so the tasks of						\
-		the	same priority get an equal share of the processor time. */									\
 		listGET_OWNER_OF_NEXT_ENTRY( pxCurrentTCB, &( pxReadyTasksLists[ uxTopPriority ] ) );			\
 		uxTopReadyPriority = uxTopPriority;																\
 	} /* taskSELECT_HIGHEST_PRIORITY_TASK */
 
 	/*-----------------------------------------------------------*/
 
-	/* Define away taskRESET_READY_PRIORITY() and portRESET_READY_PRIORITY() as
-	they are only required when a port optimised method of task selection is
-	being used. */
-	#define taskRESET_READY_PRIORITY( uxPriority )
-	#define portRESET_READY_PRIORITY( uxPriority, uxTopReadyPriority )
+	#define taskRESET_READY_PRIORITY( uxPriority )														\
+	{																									\
+		if( listCURRENT_LIST_LENGTH( &( pxReadyTasksLists[ ( uxPriority ) ] ) ) == ( UBaseType_t ) 0 )	\
+		{																								\
+			if( ( uxPriority ) >= 32U )																	\
+			{																							\
+				uxReadyPriorityMask[ 1 ] &= ~( 1UL << ( ( uxPriority ) - 32U ) );						\
+			}																							\
+			else																						\
+			{																							\
+				uxReadyPriorityMask[ 0 ] &= ~( 1UL << ( uxPriority ) );									\
+			}																							\
+		}																								\
+	}
+
+	/* Call sites guarantee the list at uxPriority has just become empty. */
+	#define portRESET_READY_PRIORITY( uxPriority, uxTopReadyPriority )									\
+	{																									\
+		if( ( uxPriority ) >= 32U )																		\
+		{																								\
+			uxReadyPriorityMask[ 1 ] &= ~( 1UL << ( ( uxPriority ) - 32U ) );							\
+		}																								\
+		else																							\
+		{																								\
+			uxReadyPriorityMask[ 0 ] &= ~( 1UL << ( uxPriority ) );										\
+		}																								\
+	}
 
 #else /* configUSE_PORT_OPTIMISED_TASK_SELECTION */
 
@@ -370,6 +424,8 @@ the errno of the currently running task. */
 PRIVILEGED_DATA static volatile UBaseType_t uxCurrentNumberOfTasks 	= ( UBaseType_t ) 0U;
 PRIVILEGED_DATA static volatile TickType_t xTickCount 				= ( TickType_t ) configINITIAL_TICK_COUNT;
 PRIVILEGED_DATA static volatile UBaseType_t uxTopReadyPriority 		= tskIDLE_PRIORITY;
+/* One bit per ready priority level: [0] covers 0..31, [1] covers 32..63. */
+PRIVILEGED_DATA static volatile uint32_t uxReadyPriorityMask[ 2 ]	= { 0U, 0U };
 PRIVILEGED_DATA static volatile BaseType_t xSchedulerRunning 		= pdFALSE;
 PRIVILEGED_DATA static volatile TickType_t xPendedTicks 			= ( TickType_t ) 0U;
 PRIVILEGED_DATA static volatile BaseType_t xYieldPending 			= pdFALSE;

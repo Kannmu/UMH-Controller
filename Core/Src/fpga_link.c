@@ -31,9 +31,11 @@ static void mark_link_fault(fpga_link_t *link)
 #define get_u32(p)     umh_read_u32_le(p)
 
 static void spi_dma_blocking_init(void);
-static uint16_t pack_header(fpga_link_t *link, uint8_t command,
+static uint16_t pack_header(fpga_link_t *link, uint8_t *tx, uint8_t command,
                             const umh_output_frame_t *frame,
                             uint16_t extension_length);
+static int link_complete_deferred(fpga_link_t *link);
+static SPI_TypeDef *link_spi_hw;
 
 void fpga_link_init(fpga_link_t *link, SPI_HandleTypeDef *spi)
 {
@@ -48,6 +50,7 @@ void fpga_link_init(fpga_link_t *link, SPI_HandleTypeDef *spi)
   mutex_attributes.cb_mem = &link->mutex_memory;
   mutex_attributes.cb_size = sizeof(link->mutex_memory);
   link->mutex = osMutexNew(&mutex_attributes);
+  link_spi_hw = spi != NULL ? spi->Instance : NULL;
   link->status.protocol_version = FPGA_PROTOCOL_VERSION;
   link->status.fifo_credit = FPGA_FIFO_DEFAULT_CREDIT;
   for (uint16_t map_i = 0u; map_i < UMH_DEVICE_CHANNEL_COUNT; ++map_i)
@@ -57,7 +60,7 @@ void fpga_link_init(fpga_link_t *link, SPI_HandleTypeDef *spi)
     umh_output_frame_t phase_frame;
     memset(&phase_frame, 0, sizeof(phase_frame));
     phase_frame.update_flags = UMH_FRAME_FLAG_ULTRASOUND;
-    (void)pack_header(link, FPGA_CMD_FRAME_PHASE, &phase_frame, 0u);
+    (void)pack_header(link, link->tx, FPGA_CMD_FRAME_PHASE, &phase_frame, 0u);
     memcpy(link->phase_header, link->tx, FPGA_PHASE_HEADER_BYTES);
     link->transaction_sequence = 0u;
   }
@@ -81,6 +84,8 @@ uint32_t fpga_link_calibration_link_begin(fpga_link_t *link)
     return 0u;
   spi = link->spi->Instance;
   if (osMutexAcquire(link->mutex, osWaitForever) != osOK) return 0u;
+  /* The clock divider must not change under a frame that is still shifting out. */
+  (void)link_complete_deferred(link);
   saved_cr1 = spi->CR1;
   spi->CR1 = (saved_cr1 & ~(SPI_CR1_BR | SPI_CR1_SPE)) |
              SPI_BAUDRATEPRESCALER_32;
@@ -94,6 +99,7 @@ void fpga_link_calibration_link_end(fpga_link_t *link, uint32_t saved_cr1)
       link->mutex == NULL || saved_cr1 == 0u)
     return;
   if (osMutexAcquire(link->mutex, osWaitForever) != osOK) return;
+  (void)link_complete_deferred(link);
   link->spi->Instance->CR1 = saved_cr1;
   osMutexRelease(link->mutex);
 }
@@ -108,6 +114,22 @@ static uint8_t exchange_dma_failures;
  * ~30 ms without a CS edge. */
 #define FPGA_SPI_TIMEOUT_CYCLES (SystemCoreClock / 500u)
 
+/* Deferred frame transmit.  A frame transaction is armed and left to the DMA
+ * engine; the RX transfer-complete interrupt only deasserts CS (the FPGA needs
+ * that edge to close the frame) and never wakes a task.  The next link
+ * operation, whichever task issues it, reaps the result before touching the
+ * bus.  At the demo's 4800 fps the 22.6 us wire time is overlapped with the
+ * caller's own work instead of being blocked out and then paid again as a
+ * 6.4 us wake plus a scheduler round trip. */
+#define FPGA_XFER_NONE  0u
+#define FPGA_XFER_PHASE 1u
+#define FPGA_XFER_FULL  2u
+
+static volatile uint8_t xfer_cs_isr;
+static volatile uint8_t xfer_block_wait;
+static volatile uint8_t xfer_done;
+static volatile uint8_t xfer_err;
+
 /* Drop RX bytes an aborted frame left in the FIFO and clear OVR (DR reads
  * followed by an SR read), so every frame starts byte-aligned. */
 static void spi_flush_rx(SPI_TypeDef *spi)
@@ -115,30 +137,36 @@ static void spi_flush_rx(SPI_TypeDef *spi)
   while ((spi->SR & SPI_SR_FRLVL) != 0u) (void)*(__IO uint8_t *)&spi->DR;
 }
 
-/* Transfer completion is signalled by the SPI1 RX DMA channel.
- *
- * The frame path used to spin on DMA1->ISR for the whole 200-byte transaction.
- * At the demo's 4.8 kHz frame rate that spin was 33 % of the CPU, all of it
- * waiting for bytes to shift out at 21.25 MHz; the RX channel raises its
- * transfer-complete interrupt at exactly the same instant the spin loop exited.
- * The interrupt now gives a semaphore and the render task blocks on it for the
- * duration of the transfer instead of burning cycles, so the protocol and UI
- * tasks (and the idle task, and the MCU's power budget) get that time back.
- *
- * The polling loop is kept as the fallback when the scheduler is not running
- * yet or the semaphore could not be created. */
 extern DMA_HandleTypeDef hdma_spi1_rx;
 
 static SemaphoreHandle_t spi_dma_sem;
 static StaticSemaphore_t spi_dma_sem_mem;
-static volatile uint8_t spi_dma_error;
 static uint8_t spi_dma_blocking_ready;
 
+/* RX transfer-complete: the last byte has been clocked in, so the frame is
+ * over from the FPGA's point of view.  Only the deferred path lets this
+ * interrupt own CS; command transactions deselect in the caller, exactly as
+ * before, so their byte timing is unchanged. */
 static void spi_dma_complete_isr(DMA_HandleTypeDef *hdma)
 {
   BaseType_t woken = pdFALSE;
+  volatile uint8_t defer = xfer_cs_isr;
   (void)hdma;
-  if (spi_dma_sem != NULL) {
+  xfer_done = 1u;
+  if (defer != 0u) {
+    /* CS must not rise before the final MOSI bit has left the shifter, and BSY
+     * clears within one SCK period of the last edge; the bound keeps a stuck
+     * BSY from hanging the interrupt. */
+    uint32_t start = DWT->CYCCNT;
+    if (link_spi_hw != NULL) {
+      while ((link_spi_hw->SR & SPI_SR_BSY) != 0u &&
+             (DWT->CYCCNT - start) <= 400u) {
+      }
+    }
+    cs_high();
+    xfer_cs_isr = 0u;
+  }
+  if (xfer_block_wait != 0u && spi_dma_sem != NULL) {
     (void)xSemaphoreGiveFromISR(spi_dma_sem, &woken);
     portYIELD_FROM_ISR(woken);
   }
@@ -148,8 +176,12 @@ static void spi_dma_error_isr(DMA_HandleTypeDef *hdma)
 {
   BaseType_t woken = pdFALSE;
   (void)hdma;
-  spi_dma_error = 1u;
-  if (spi_dma_sem != NULL) {
+  xfer_err = 1u;
+  if (xfer_cs_isr != 0u) {
+    cs_high();
+    xfer_cs_isr = 0u;
+  }
+  if (xfer_block_wait != 0u && spi_dma_sem != NULL) {
     (void)xSemaphoreGiveFromISR(spi_dma_sem, &woken);
     portYIELD_FROM_ISR(woken);
   }
@@ -166,136 +198,146 @@ static void spi_dma_blocking_init(void)
   spi_dma_blocking_ready = 1u;
 }
 
-static int exchange_dma(fpga_link_t *link, uint16_t length)
+/* Result of one armed transaction: 0 not finished, 1 finished, 2 failed.
+ *
+ * The RX transfer-complete interrupt runs HAL_DMA_IRQHandler, and that handler
+ * clears TCIF2 itself, so the raw TC flag pair cannot be the completion source
+ * once the handler has run - the ISR latches xfer_done instead.  CNDTR still
+ * discriminates: a latch left behind by an interrupt that was pending while the
+ * next transfer was armed reads CNDTR != 0 (just reloaded) and is ignored. */
+static uint8_t xfer_state(void)
+{
+  uint32_t isr = DMA1->ISR;
+  if (xfer_err != 0u) return 2u;
+  if ((isr & (DMA_ISR_TEIF1 | DMA_ISR_TEIF2)) != 0u) return 2u;
+  if (DMA1_Channel2->CNDTR != 0u) return 0u;
+  if (xfer_done != 0u) return 1u;
+  if ((isr & (DMA_ISR_TCIF1 | DMA_ISR_TCIF2)) == (DMA_ISR_TCIF1 | DMA_ISR_TCIF2)) return 1u;
+  return 0u;
+}
+
+/* Arm one byte-stream transaction.  The HAL already programmed the channel
+ * configuration (DMAMUX request, direction, increments, size); only the
+ * address/COUNT pair and the enables change per transfer.  RX is enabled before
+ * TX starts the clock: with TX first, an ISR landing between the two enables
+ * let the 4-byte RX FIFO overrun, and OVR then stalled RX DMA for the whole
+ * timeout with CS low, long enough for the FPGA link watchdog to drop
+ * MOD_FIXED. */
+static int exchange_arm(fpga_link_t *link, const uint8_t *tx, uint16_t length,
+                        uint8_t defer_cs)
 {
   SPI_TypeDef *spi = link->spi->Instance;
-  DMA_Channel_TypeDef *tx = DMA1_Channel1;
-  DMA_Channel_TypeDef *rx = DMA1_Channel2;
-  uint32_t start_cycles;
-  uint32_t expired = 0u;
-  uint32_t isr = 0u;
-  uint8_t complete = 0u;
-  if (spi == NULL || tx == NULL || rx == NULL) return -1;
-  /* The HAL initialised both DMA channels for SPI1 TX/RX byte streams.  The
-   * old code polled TXE/RXNE per byte and inserted a ~50-cycle turn-around
-   * gap between bytes, which made a 220-byte frame take ~150 us instead of
-   * the 83 us allowed by the 21.25 MHz wire rate.  Channel-config registers
-   * (DMAMUX request, direction, increments, size) are already programmed. */
+  DMA_Channel_TypeDef *txch = DMA1_Channel1;
+  DMA_Channel_TypeDef *rxch = DMA1_Channel2;
+  if (spi == NULL) return -1;
   spi->CR1 |= SPI_CR1_SPE;
   spi->CR2 |= SPI_CR2_TXDMAEN | SPI_CR2_RXDMAEN;
   spi_flush_rx(spi);
 
-  tx->CCR &= ~DMA_CCR_EN;
-  rx->CCR &= ~DMA_CCR_EN;
+  txch->CCR &= ~DMA_CCR_EN;
+  rxch->CCR &= ~DMA_CCR_EN;
   DMA1->IFCR = DMA_IFCR_CGIF1 | DMA_IFCR_CGIF2;
-  tx->CPAR = (uint32_t)&spi->DR;
-  tx->CMAR = (uint32_t)link->tx;
-  tx->CNDTR = length;
-  rx->CPAR = (uint32_t)&spi->DR;
-  rx->CMAR = (uint32_t)link->rx;
-  rx->CNDTR = length;
+  txch->CPAR = (uint32_t)&spi->DR;
+  txch->CMAR = (uint32_t)tx;
+  txch->CNDTR = length;
+  rxch->CPAR = (uint32_t)&spi->DR;
+  rxch->CMAR = (uint32_t)link->rx;
+  rxch->CNDTR = length;
 
-  /* RX must be armed before TX starts the clock.  With TX first, an ISR
-   * landing between the two enables let the 4-byte RX FIFO overrun; OVR
-   * then stalled RX DMA for the whole timeout with CS low, long enough for
-   * the FPGA link watchdog to drop MOD_FIXED. */
+  /* A deferred transfer never parks a task on the semaphore, so it can never
+   * leave a stale token behind and does not have to clear one here. */
+  if (spi_dma_blocking_ready != 0u && defer_cs == 0u) (void)xSemaphoreTake(spi_dma_sem, 0);
+  rxch->CCR |= DMA_CCR_TCIE | DMA_CCR_TEIE;
   cs_low();
-  if (spi_dma_blocking_ready != 0u) {
-    /* Drop any stale completion and arm the RX transfer-complete interrupt
-     * before the channel starts. */
-    (void)xSemaphoreTake(spi_dma_sem, 0);
-    spi_dma_error = 0u;
-    rx->CCR |= DMA_CCR_TCIE | DMA_CCR_TEIE;
+  xfer_cs_isr = defer_cs;
+  /* Latched results are cleared with interrupts masked so a completion from the
+   * previous transfer can never be read as this one's. */
+  {
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    xfer_done = 0u;
+    xfer_err = 0u;
+    __set_PRIMASK(primask);
   }
-  rx->CCR |= DMA_CCR_EN;
-  tx->CCR |= DMA_CCR_EN;
+  rxch->CCR |= DMA_CCR_EN;
+  txch->CCR |= DMA_CCR_EN;
+  return 0;
+}
 
-  if (spi_dma_blocking_ready != 0u) {
-    complete = xSemaphoreTake(spi_dma_sem, pdMS_TO_TICKS(2u)) == pdTRUE ? 1u : 0u;
-    if (complete != 0u && spi_dma_error == 0u) isr = DMA_ISR_TCIF1 | DMA_ISR_TCIF2;
-    else if (complete != 0u) isr = DMA_ISR_TEIF1;
-    else expired = 1u;
-  } else {
-    /* Sample the deadline before the flags so a preempted wait can never
-     * report a finished transfer as a timeout. */
-    start_cycles = DWT->CYCCNT;
-    do {
-      expired = (DWT->CYCCNT - start_cycles) > FPGA_SPI_TIMEOUT_CYCLES;
-      isr = DMA1->ISR;
-    } while ((isr & (DMA_ISR_TEIF1 | DMA_ISR_TEIF2)) == 0u &&
-             (isr & (DMA_ISR_TCIF1 | DMA_ISR_TCIF2)) != (DMA_ISR_TCIF1 | DMA_ISR_TCIF2) &&
-             expired == 0u);
+/* Complete the armed transaction.  block == 0 is the deferred path: the frame
+ * has almost always finished while the caller was busy, so this is a latch read
+ * plus a few register writes. */
+static int exchange_wait(fpga_link_t *link, uint8_t block)
+{
+  SPI_TypeDef *spi = link->spi->Instance;
+  uint32_t start_cycles;
+  uint8_t state;
+  if (spi == NULL) return -1;
+  state = xfer_state();
+  if (state == 0u) {
+    if (block != 0u && spi_dma_blocking_ready != 0u) {
+      xfer_block_wait = 1u;
+      state = xfer_state();
+      if (state == 0u) (void)xSemaphoreTake(spi_dma_sem, pdMS_TO_TICKS(2u));
+      xfer_block_wait = 0u;
+    } else {
+      start_cycles = DWT->CYCCNT;
+      while ((state = xfer_state()) == 0u &&
+             (DWT->CYCCNT - start_cycles) <= FPGA_SPI_TIMEOUT_CYCLES) {
+      }
+    }
+    state = xfer_state();
   }
-  tx->CCR &= ~DMA_CCR_EN;
-  rx->CCR &= ~DMA_CCR_EN;
+  DMA1_Channel1->CCR &= ~DMA_CCR_EN;
+  DMA1_Channel2->CCR &= ~DMA_CCR_EN;
   DMA1->IFCR = DMA_IFCR_CGIF1 | DMA_IFCR_CGIF2;
   start_cycles = DWT->CYCCNT;
   while ((spi->SR & SPI_SR_BSY) != 0u &&
          (DWT->CYCCNT - start_cycles) <= FPGA_SPI_TIMEOUT_CYCLES) {
   }
-
-  /* CS returns high on every path so the FPGA always sees the frame end;
-   * a failed DMA frame is retried once by the register path in exchange(). */
+  xfer_cs_isr = 0u;
+  /* CS returns high on every path so the FPGA always sees the frame end. */
   cs_high();
-  return (isr & (DMA_ISR_TEIF1 | DMA_ISR_TEIF2 | DMA_ISR_TCIF1 | DMA_ISR_TCIF2)) ==
-         (DMA_ISR_TCIF1 | DMA_ISR_TCIF2) ? 0 : -3;
+  {
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    xfer_done = 0u;
+    xfer_err = 0u;
+    __set_PRIMASK(primask);
+  }
+  return state == 1u ? 0 : -3;
 }
 
 /* Transfers at or below this length use the register path.  Arming two DMA
  * channels costs several register writes, a clear and a poll loop, which is
  * more than the transfer itself for the 2-byte FIFO fill polls that
- * aperture_mod_service() issues many times per millisecond.  The wire time of
- * 17 bytes at 21.25 MHz is 8 us, so the crossover sits well above it. */
+ * aperture_mod_service() issues many times per millisecond. */
 #define FPGA_SPI_POLL_MAX_BYTES 17u
 
-static int exchange(fpga_link_t *link, uint16_t length)
+/* Byte-at-a-time fallback.  It keeps the SPI shift register continuously fed:
+ * HAL_SPI_TransmitReceive() restarts its timeout bookkeeping for every byte,
+ * which made a 204-byte frame take ~200 us on this 170 MHz part instead of the
+ * 77 us allowed by the wire rate.  TXE only means the transmit buffer is empty,
+ * so RXNE is checked before DR is read; without that the first status byte of
+ * the 16-byte MOD_FIXED transaction reads back 0. */
+static int exchange_register(fpga_link_t *link, const uint8_t *tx, uint16_t length)
 {
   static uint32_t last_report;
-  SPI_TypeDef *spi;
+  SPI_TypeDef *spi = link->spi->Instance;
   uint32_t start_cycles;
   uint32_t timeout_cycles;
   uint16_t i;
-  if (link == NULL || link->spi == NULL || length == 0u || length > FPGA_TX_BUFFER_SIZE) return -1;
-  spi = link->spi->Instance;
   if (spi == NULL) return -1;
-  link->tx_length = length;
-  if (exchange_use_polling == 0u && length > FPGA_SPI_POLL_MAX_BYTES) {
-    int dma_result = exchange_dma(link, length);
-    if (dma_result == 0) {
-      exchange_dma_failures = 0u;
-      return 0;
-    }
-    link->levels_valid = 0u;
-    link->hold_valid = 0u;
-    if (++exchange_dma_failures >= FPGA_SPI_DMA_FAILURES_LATCH) {
-      exchange_use_polling = 1u;
-      system_status_fault(UMH_FAULT_FPGA_SPI_TIMEOUT, 21u, UMH_FAULT_WARNING);
-    }
-  }
-
-  /* HAL_SPI_Init() leaves SPE cleared; the HAL transfer functions enable it
-   * lazily.  This direct path must do the same on its first use. */
   spi->CR1 |= SPI_CR1_SPE;
-
-  /* Direct register service keeps the SPI shift register continuously fed.
-   * HAL_SPI_TransmitReceive() restarts its timeout bookkeeping for every byte,
-   * which made a 204-byte frame take ~200 us on this 170 MHz part instead of
-   * the 77 us required by the 21.25 MHz wire rate.  At 4800 frames/s that
-   * difference was the entire ULM timing budget. */
   spi_flush_rx(spi);
   cs_low();
   start_cycles = DWT->CYCCNT;
   timeout_cycles = FPGA_SPI_TIMEOUT_CYCLES;
-  /* TXE only means the transmit buffer is empty; it does not guarantee the previous
-   * byte has been received.  The 16-byte MOD_FIXED transaction uses this polling
-   * branch, so RXNE must be checked before reading DR or the first status byte is
-   * read as 0 and focused-AM configuration always fails.  Longer transfers use DMA
-   * and are unaffected. */
   for (i = 0u; i < length; ++i) {
     while ((spi->SR & SPI_SR_TXE) == 0u) {
       if ((DWT->CYCCNT - start_cycles) > timeout_cycles) goto exchange_timeout;
     }
-    *(__IO uint8_t *)&spi->DR = link->tx[i];
+    *(__IO uint8_t *)&spi->DR = tx[i];
     while ((spi->SR & SPI_SR_RXNE) == 0u) {
       if ((DWT->CYCCNT - start_cycles) > timeout_cycles) goto exchange_timeout;
     }
@@ -319,35 +361,55 @@ exchange_timeout:
   return -3;
 }
 
-static uint16_t pack_header(fpga_link_t *link, uint8_t command,
+static int exchange(fpga_link_t *link, uint16_t length)
+{
+  if (link == NULL || link->spi == NULL || length == 0u || length > FPGA_TX_BUFFER_SIZE) return -1;
+  link->tx_length = length;
+  if (exchange_use_polling == 0u && length > FPGA_SPI_POLL_MAX_BYTES) {
+    if (exchange_arm(link, link->tx, length, 0u) == 0 && exchange_wait(link, 1u) == 0) {
+      exchange_dma_failures = 0u;
+      return 0;
+    }
+    link->levels_valid = 0u;
+    link->hold_valid = 0u;
+    if (++exchange_dma_failures >= FPGA_SPI_DMA_FAILURES_LATCH) {
+      exchange_use_polling = 1u;
+      system_status_fault(UMH_FAULT_FPGA_SPI_TIMEOUT, 21u, UMH_FAULT_WARNING);
+    }
+  }
+  return exchange_register(link, link->tx, length);
+}
+
+static uint16_t pack_header(fpga_link_t *link, uint8_t *tx, uint8_t command,
                             const umh_output_frame_t *frame,
                             uint16_t extension_length)
 {
   uint16_t pos = 0u;
   uint16_t update = frame != NULL ? frame->update_flags : 0u;
   uint8_t mask[UMH_DEVICE_CHANNEL_BITMAP_BYTES] = {0};
-  link->tx[pos++] = command;
-  link->tx[pos++] = FPGA_PROTOCOL_VERSION;
-  put_u32(&link->tx[pos], link->transaction_sequence++); pos += 4u;
-  put_u32(&link->tx[pos], frame != NULL ? frame->sequence : 0u); pos += 4u;
-  put_u64(&link->tx[pos], frame != NULL ? frame->deadline : 0u); pos += 8u;
-  put_u16(&link->tx[pos], update); pos += 2u;
+  tx[pos++] = command;
+  tx[pos++] = FPGA_PROTOCOL_VERSION;
+  put_u32(&tx[pos], link->transaction_sequence++); pos += 4u;
+  put_u32(&tx[pos], frame != NULL ? frame->sequence : 0u); pos += 4u;
+  put_u64(&tx[pos], frame != NULL ? frame->deadline : 0u); pos += 8u;
+  put_u16(&tx[pos], update); pos += 2u;
   if ((update & UMH_FRAME_FLAG_ULTRASOUND) != 0u) {
     memset(mask, 0xFF, sizeof(mask));
     mask[sizeof(mask) - 1u] = FPGA_ULTRASOUND_BITMAP_LAST_MASK;
   }
-  memcpy(&link->tx[pos], mask, sizeof(mask)); pos += sizeof(mask);
-  link->tx[pos++] = (update & UMH_FRAME_FLAG_RGB) != 0u ? 0x0Fu : 0u;
+  memcpy(&tx[pos], mask, sizeof(mask)); pos += sizeof(mask);
+  tx[pos++] = (update & UMH_FRAME_FLAG_RGB) != 0u ? 0x0Fu : 0u;
   /* The digital byte pair stays in the wire frame for protocol compatibility,
    * but it has no consumer on either side any more: the FPGA ignores it and
    * PA9, the one pin it used to drive, is the trigger input. */
-  link->tx[pos++] = frame != NULL ? frame->digital_mask : 0u;
-  link->tx[pos++] = frame != NULL ? frame->digital_state : 0u;
-  put_u16(&link->tx[pos], extension_length); pos += 2u;
+  tx[pos++] = frame != NULL ? frame->digital_mask : 0u;
+  tx[pos++] = frame != NULL ? frame->digital_state : 0u;
+  put_u16(&tx[pos], extension_length); pos += 2u;
   return pos;
 }
 
-static uint16_t pack_common(fpga_link_t *link, uint8_t command, const umh_output_frame_t *frame)
+static uint16_t pack_common(fpga_link_t *link, uint8_t *tx, uint8_t command,
+                            const umh_output_frame_t *frame)
 {
   uint16_t pos;
   uint16_t i;
@@ -358,7 +420,7 @@ static uint16_t pack_common(fpga_link_t *link, uint8_t command, const umh_output
     extension_length = frame->extension_length;
     if (extension_length > sizeof(frame->extension)) return 0u;
   }
-  pos = pack_header(link, command, frame, extension_length);
+  pos = pack_header(link, tx, command, frame, extension_length);
   if (frame != NULL && (update & UMH_FRAME_FLAG_ULTRASOUND) != 0u) {
     /* Logical/protocol channel i is element E(i+1).  The FPGA output bit
      * order follows the PCB netlist, so serialization applies the fixed
@@ -366,62 +428,79 @@ static uint16_t pack_common(fpga_link_t *link, uint8_t command, const umh_output
     uint16_t channel_base = pos;
     pos = (uint16_t)(pos + 2u * UMH_DEVICE_CHANNEL_COUNT);
     if (fpga_channel_map_identity != 0u) {
-      memcpy(&link->tx[channel_base], frame->channels, sizeof(frame->channels));
+      memcpy(&tx[channel_base], frame->channels, sizeof(frame->channels));
     } else {
       for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
         uint8_t physical = fpga_logical_to_physical[i];
-        link->tx[channel_base + 2u * (uint16_t)physical] = frame->channels[i].phase;
-        link->tx[channel_base + 2u * (uint16_t)physical + 1u] = frame->channels[i].level;
+        tx[channel_base + 2u * (uint16_t)physical] = frame->channels[i].phase;
+        tx[channel_base + 2u * (uint16_t)physical + 1u] = frame->channels[i].level;
       }
     }
   }
   if (frame != NULL && (update & UMH_FRAME_FLAG_RGB) != 0u) {
-    memcpy(&link->tx[pos], frame->rgb, sizeof(frame->rgb));
+    memcpy(&tx[pos], frame->rgb, sizeof(frame->rgb));
     pos = (uint16_t)(pos + sizeof(frame->rgb));
   }
   if (extension_length != 0u) {
-    memcpy(&link->tx[pos], frame->extension, extension_length);
+    memcpy(&tx[pos], frame->extension, extension_length);
     pos = (uint16_t)(pos + extension_length);
   }
   if (pos > FPGA_TX_BUFFER_SIZE) return 0u;
   return pos;
 }
 
-static uint8_t pack_phase_fused(fpga_link_t *link, const umh_output_frame_t *frame)
+/* Pack the 84 phases of a phase-only frame.  Four channels are de-interleaved
+ * per iteration: the channel array is {phase, level} pairs, so a 32-bit load
+ * holds two channels and UXTB16 splits the phase bytes out of two loads at once.
+ * The "levels unchanged" test rides on the same loads: the previous channel
+ * words are kept, so masking out the level bytes and comparing decides PHASE_ONLY
+ * eligibility in two instructions per four channels. */
+static uint8_t pack_phase_fused(fpga_link_t *link, const umh_output_frame_t *frame,
+                                uint8_t *tx)
 {
   uint16_t i;
-  uint16_t phases;
-  uint32_t pair;
+  uint8_t *out = &tx[FPGA_PHASE_HEADER_BYTES];
   if (fpga_channel_map_identity == 0u) {
     for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
-      if (frame->channels[i].level != link->levels[i]) return 0u;
-      link->tx[FPGA_PHASE_HEADER_BYTES + (uint16_t)fpga_logical_to_physical[i]] =
-          frame->channels[i].phase;
-      link->hold_phases[i] = frame->channels[i].phase;
+      uint32_t word;
+      memcpy(&word, &frame->channels[i & (uint16_t)~1u], sizeof(word));
+      if (frame->channels[i].level !=
+          (uint8_t)(word >> ((i & 1u) != 0u ? 24u : 8u)))
+        return 0u;
     }
+    for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i)
+      out[fpga_logical_to_physical[i]] = frame->channels[i].phase;
+    memcpy(link->prev_channels, frame->channels, sizeof(link->prev_channels));
     return 1u;
   }
-  for (i = 0u; i < (uint16_t)(UMH_DEVICE_CHANNEL_COUNT / 2u); ++i) {
-    memcpy(&pair, &frame->channels[2u * i], sizeof(pair));
-    if ((uint8_t)(pair >> 8) != link->levels[2u * i] ||
-        (uint8_t)(pair >> 24) != link->levels[2u * i + 1u])
+  for (i = 0u; i < (uint16_t)(UMH_DEVICE_CHANNEL_COUNT / 4u); ++i) {
+    uint32_t a, b, la, lb, phases;
+    memcpy(&a, &frame->channels[4u * i], sizeof(a));
+    memcpy(&b, &frame->channels[4u * i + 2u], sizeof(b));
+    if (((a ^ link->prev_channels[2u * i]) & 0xFF00FF00u) != 0u ||
+        ((b ^ link->prev_channels[2u * i + 1u]) & 0xFF00FF00u) != 0u)
       return 0u;
-    phases = (uint16_t)((pair & 0x000000FFu) | ((pair >> 8) & 0x0000FF00u));
-    memcpy(&link->tx[FPGA_PHASE_HEADER_BYTES + 2u * i], &phases, sizeof(phases));
-    memcpy(&link->hold_phases[2u * i], &phases, sizeof(phases));
+    la = __UXTB16(a);
+    lb = __UXTB16(b);
+    phases = (la & 0x000000FFu) | ((la >> 8) & 0x0000FF00u) |
+             ((lb << 16) & 0x00FF0000u) | ((lb << 8) & 0xFF000000u);
+    memcpy(&out[4u * i], &phases, sizeof(phases));
+    memcpy(&link->prev_channels[2u * i], &a, sizeof(a));
+    memcpy(&link->prev_channels[2u * i + 1u], &b, sizeof(b));
   }
   return 1u;
 }
 
-static void phase_header_patch(fpga_link_t *link, const umh_output_frame_t *frame)
+static void phase_header_patch(fpga_link_t *link, const umh_output_frame_t *frame,
+                               uint8_t *tx)
 {
   uint32_t transaction = link->transaction_sequence++;
-  memcpy(link->tx, link->phase_header, FPGA_PHASE_HEADER_BYTES);
-  memcpy(&link->tx[2], &transaction, sizeof(transaction));
-  memcpy(&link->tx[6], &frame->sequence, sizeof(frame->sequence));
-  memcpy(&link->tx[10], &frame->deadline, sizeof(frame->deadline));
-  link->tx[32] = frame->digital_mask;
-  link->tx[33] = frame->digital_state;
+  memcpy(tx, link->phase_header, FPGA_PHASE_HEADER_BYTES);
+  memcpy(&tx[2], &transaction, sizeof(transaction));
+  memcpy(&tx[6], &frame->sequence, sizeof(frame->sequence));
+  memcpy(&tx[10], &frame->deadline, sizeof(frame->deadline));
+  tx[32] = frame->digital_mask;
+  tx[33] = frame->digital_state;
 }
 
 static uint8_t phase_only_eligible(const fpga_link_t *link,
@@ -442,9 +521,10 @@ static uint8_t hold_match(const fpga_link_t *link, const umh_output_frame_t *fra
   if ((frame->update_flags &
        (UMH_FRAME_FLAG_DIGITAL | UMH_FRAME_FLAG_EXTENDED)) != 0u)
     return 0u;
-  for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
-    if (frame->channels[i].phase != link->hold_phases[i]) return 0u;
-    if (frame->channels[i].level != link->levels[i]) return 0u;
+  for (i = 0u; i < (uint16_t)(UMH_DEVICE_CHANNEL_COUNT / 2u); ++i) {
+    uint32_t word;
+    memcpy(&word, &frame->channels[2u * i], sizeof(word));
+    if (word != link->prev_channels[i]) return 0u;
   }
   if ((frame->update_flags & UMH_FRAME_FLAG_RGB) != 0u &&
       ((link->hold_flags & UMH_FRAME_FLAG_RGB) == 0u ||
@@ -455,11 +535,7 @@ static uint8_t hold_match(const fpga_link_t *link, const umh_output_frame_t *fra
 
 static void cache_levels(fpga_link_t *link, const umh_output_frame_t *frame)
 {
-  uint16_t i;
-  for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
-    link->levels[i] = frame->channels[i].level;
-    link->hold_phases[i] = frame->channels[i].phase;
-  }
+  memcpy(link->prev_channels, frame->channels, sizeof(link->prev_channels));
   link->levels_valid = 1u;
 }
 
@@ -492,6 +568,54 @@ static int unpack_status(fpga_link_t *link)
   return 0;
 }
 
+/* Reap the frame transaction armed by an earlier call.  Every entry point calls
+ * this with the link mutex held, so a frame armed by one task is accounted for
+ * by whichever task next touches the link.  Consequence: the status returned by
+ * a submit describes the previous frame, and a frame's counters/state are only
+ * committed once the transfer is known to have completed. */
+static int link_complete_deferred(fpga_link_t *link)
+{
+  uint8_t *buf;
+  int result;
+  if (link->xfer_pending == 0u) return 0;
+  /* Above ~40 kHz the next frame can arrive while the previous one is still on
+   * the wire; exchange_wait() bounds the wait so at most one transaction is ever
+   * in flight and the buffer a transfer reads is never rewritten underneath it. */
+  buf = link->xfer_buf;
+  result = exchange_wait(link, 0u);
+  link->xfer_pending = 0u;
+  if (result != 0) {
+    /* levels/hold were committed optimistically when the frame was armed; a
+     * frame the FPGA never received must not survive in them. */
+    link->levels_valid = 0u;
+    link->hold_valid = 0u;
+    if (++exchange_dma_failures >= FPGA_SPI_DMA_FAILURES_LATCH) {
+      exchange_use_polling = 1u;
+      system_status_fault(UMH_FAULT_FPGA_SPI_TIMEOUT, 21u, UMH_FAULT_WARNING);
+    }
+    /* Same single retry the blocking path has always done: the frame bytes are
+     * still in the buffer it was armed from, so the register path can put the
+     * frame on the wire. */
+    if (buf == NULL || exchange_register(link, buf, link->tx_length) != 0) {
+      link->xfer_kind = FPGA_XFER_NONE;
+      return -3;
+    }
+  }
+  result = unpack_status(link);
+  if (result != 0) {
+    link->xfer_kind = FPGA_XFER_NONE;
+    link->levels_valid = 0u;
+    link->hold_valid = 0u;
+    return -4;
+  }
+  if (link->xfer_kind == FPGA_XFER_PHASE) ++link->phase_frames;
+  else if (link->xfer_kind == FPGA_XFER_FULL) ++link->full_frames;
+  link->xfer_kind = FPGA_XFER_NONE;
+  link->running = 1u;
+  exchange_dma_failures = 0u;
+  return 0;
+}
+
 static int fpga_send_rgb_locked(fpga_link_t *link, const umh_rgb_value_t *rgb)
 {
   umh_output_frame_t rgb_frame;
@@ -500,7 +624,7 @@ static int fpga_send_rgb_locked(fpga_link_t *link, const umh_rgb_value_t *rgb)
   memset(&rgb_frame, 0, sizeof(rgb_frame));
   rgb_frame.update_flags = UMH_FRAME_FLAG_RGB;
   memcpy(rgb_frame.rgb, rgb, sizeof(rgb_frame.rgb));
-  length = pack_common(link, FPGA_CMD_WS2812, &rgb_frame);
+  length = pack_common(link, link->tx, FPGA_CMD_WS2812, &rgb_frame);
   if (length == 0u) return -1;
   if (exchange(link, length) != 0) return -2;
   if (unpack_status(link) != 0) return -3;
@@ -508,7 +632,7 @@ static int fpga_send_rgb_locked(fpga_link_t *link, const umh_rgb_value_t *rgb)
 }
 static int fpga_status_locked(fpga_link_t *link)
 {
-  uint16_t length = pack_common(link, FPGA_CMD_STATUS, NULL);
+  uint16_t length = pack_common(link, link->tx, FPGA_CMD_STATUS, NULL);
   if (length == 0u) return -1;
   if (exchange(link, length) != 0) return -1;
   return unpack_status(link);
@@ -522,13 +646,21 @@ int fpga_link_submit(fpga_link_t *link, const umh_output_frame_t *frame)
 int fpga_link_submit_allow_hold(fpga_link_t *link, const umh_output_frame_t *frame,
                                 uint8_t allow_hold)
 {
+  uint8_t *tx;
   uint16_t length;
   uint8_t frame_has_ultrasound;
   uint8_t phase_only;
   uint8_t tx_done = 0u;
+  uint8_t can_defer;
+  int reap;
   if (link == NULL || frame == NULL || link->mutex == NULL) return -1;
   frame_has_ultrasound = (frame->update_flags & UMH_FRAME_FLAG_ULTRASOUND) != 0u;
   if (osMutexAcquire(link->mutex, osWaitForever) != osOK) return -1;
+  reap = link_complete_deferred(link);
+  if (reap != 0) {
+    osMutexRelease(link->mutex);
+    return reap;
+  }
 
   if (allow_hold != 0u && frame_has_ultrasound != 0u && hold_match(link, frame) != 0u) {
     if ((uint32_t)(HAL_GetTick() - link->hold_last_tx_tick) >= 10u) {
@@ -565,37 +697,77 @@ int fpga_link_submit_allow_hold(fpga_link_t *link, const umh_output_frame_t *fra
     return 0;
   }
 
+  /* The credit in the reaped status was sampled while the previous frame was
+   * still on the wire, so a zero here can be an obsolete "busy" sample and would
+   * reject a frame the FPGA can take.  One fresh 36-byte STATUS transaction
+   * tells the truth; a builder that really is busy still returns -1 and the
+   * caller retries. */
   if (link->status.fifo_credit == 0u) {
-    osMutexRelease(link->mutex);
-    return -1;
+    if (fpga_status_locked(link) != 0 || link->status.fifo_credit == 0u) {
+      osMutexRelease(link->mutex);
+      return -1;
+    }
   }
   link->hold_valid = 0u;
   phase_only = phase_only_eligible(link, frame);
+  /* Alternate the frame buffer so an in-flight transfer never reads the buffer
+   * being packed.  Command traffic keeps tx[] and always reaps first; when the
+   * DMA path is latched off the frame is packed into tx[] and sent the old way. */
+  can_defer = exchange_use_polling == 0u;
+  link->frame_buf ^= 1u;
+  tx = can_defer && link->frame_buf != 0u ? link->tx_frame : link->tx;
   if (phase_only != 0u) {
-    phase_only = pack_phase_fused(link, frame);
-    if (phase_only != 0u) phase_header_patch(link, frame);
+    phase_only = pack_phase_fused(link, frame, tx);
+    if (phase_only != 0u) phase_header_patch(link, frame, tx);
   }
   if (phase_only != 0u) {
     length = (uint16_t)(FPGA_PHASE_HEADER_BYTES + UMH_DEVICE_CHANNEL_COUNT);
   } else {
-    length = pack_common(link, FPGA_CMD_FRAME, frame);
+    length = pack_common(link, tx, FPGA_CMD_FRAME, frame);
   }
   if (length == 0u) { osMutexRelease(link->mutex); return -2; }
-  if (exchange(link, length) != 0) { osMutexRelease(link->mutex); return -3; }
-  if (unpack_status(link) != 0) { osMutexRelease(link->mutex); return -4; }
-  if (phase_only != 0u) {
-    ++link->phase_frames;
-  } else {
-    if (frame_has_ultrasound != 0u) cache_levels(link, frame);
-    ++link->full_frames;
-  }
-  link->running = 1u;
+  if (phase_only == 0u && frame_has_ultrasound != 0u) cache_levels(link, frame);
   if (allow_hold != 0u) {
     link->hold_flags = (uint16_t)(frame->update_flags | UMH_FRAME_FLAG_ULTRASOUND);
     memcpy(link->hold_rgb, frame->rgb, sizeof(link->hold_rgb));
     link->hold_valid = 1u;
     link->hold_last_tx_tick = HAL_GetTick();
   }
+  link->tx_length = length;
+  if (can_defer != 0u && length > FPGA_SPI_POLL_MAX_BYTES) {
+    link->xfer_kind = phase_only != 0u ? FPGA_XFER_PHASE : FPGA_XFER_FULL;
+    link->xfer_buf = tx;
+    if (exchange_arm(link, tx, length, 1u) == 0) {
+      link->xfer_pending = 1u;
+      osMutexRelease(link->mutex);
+      return 0;
+    }
+    link->xfer_kind = FPGA_XFER_NONE;
+    link->xfer_buf = NULL;
+    if (exchange_register(link, tx, length) != 0) {
+      link->levels_valid = 0u;
+      link->hold_valid = 0u;
+      osMutexRelease(link->mutex);
+      return -3;
+    }
+  } else if (exchange(link, length) != 0) {
+    link->levels_valid = 0u;
+    link->hold_valid = 0u;
+    osMutexRelease(link->mutex);
+    return -3;
+  }
+  if (unpack_status(link) != 0) {
+    link->levels_valid = 0u;
+    link->hold_valid = 0u;
+    osMutexRelease(link->mutex);
+    return -4;
+  }
+  if (phase_only != 0u) {
+    ++link->phase_frames;
+  } else {
+    ++link->full_frames;
+  }
+  link->running = 1u;
   osMutexRelease(link->mutex);
   return 0;
 }
@@ -605,7 +777,8 @@ int fpga_link_poll_status(fpga_link_t *link)
   int result;
   if (link == NULL || link->mutex == NULL) return -1;
   if (osMutexAcquire(link->mutex, osWaitForever) != osOK) return -1;
-  result = fpga_status_locked(link);
+  result = link_complete_deferred(link);
+  if (result == 0) result = fpga_status_locked(link);
   osMutexRelease(link->mutex);
   return result;
 }
@@ -615,7 +788,11 @@ int fpga_link_safe_stop(fpga_link_t *link)
   uint16_t length;
   if (link == NULL || link->mutex == NULL) return -1;
   if (osMutexAcquire(link->mutex, osWaitForever) != osOK) return -1;
-  length = pack_common(link, FPGA_CMD_STOP, NULL);
+  /* A STOP must go out even if the previous frame died on the bus, so the reap
+   * result is not allowed to short-circuit it: the pending transfer is finished
+   * here, which is enough to keep the two off the wire at the same time. */
+  (void)link_complete_deferred(link);
+  length = pack_common(link, link->tx, FPGA_CMD_STOP, NULL);
   if (exchange(link, length) != 0) { osMutexRelease(link->mutex); return -2; }
   if (unpack_status(link) != 0) { osMutexRelease(link->mutex); return -3; }
   link->levels_valid = 0u;
@@ -645,7 +822,8 @@ int fpga_link_set_ws2812(fpga_link_t *link, uint8_t r, uint8_t g, uint8_t b)
     rgb[i].blue = b;
   }
   if (osMutexAcquire(link->mutex, osWaitForever) != osOK) return -1;
-  result = fpga_send_rgb_locked(link, rgb);
+  result = link_complete_deferred(link);
+  if (result == 0) result = fpga_send_rgb_locked(link, rgb);
   if (result == 0 && link->hold_valid != 0u) {
     memcpy(link->hold_rgb, rgb, sizeof(link->hold_rgb));
     link->hold_flags |= UMH_FRAME_FLAG_RGB;
@@ -660,6 +838,8 @@ static int compact_mod_command(fpga_link_t *link, uint8_t command,
   int result = 0;
   if (link == NULL || link->mutex == NULL) return -1;
   if (osMutexAcquire(link->mutex, osWaitForever) != osOK) return -1;
+  result = link_complete_deferred(link);
+  if (result != 0) { osMutexRelease(link->mutex); return result; }
   memset(link->tx, 0, 16u);
   link->tx[0] = command;
   link->tx[1] = FPGA_PROTOCOL_VERSION;
@@ -749,6 +929,8 @@ int fpga_link_mod_feed(fpga_link_t *link, const uint8_t *levels, uint8_t count)
   /* The FIFO covers several milliseconds, so waiting a few ticks behind a
    * lower-priority transaction is harmless; failing would drop levels. */
   if (osMutexAcquire(link->mutex, 5u) != osOK) return -3;
+  result = link_complete_deferred(link);
+  if (result != 0) { osMutexRelease(link->mutex); return result; }
   link->tx[0] = FPGA_CMD_MOD_FEED;
   link->tx[1] = FPGA_PROTOCOL_VERSION;
   if (count != 0u) memcpy(&link->tx[2], levels, count);
@@ -796,13 +978,15 @@ static int mic_command(fpga_link_t *link, uint8_t command, uint32_t sequence,
   spi = link->spi != NULL ? link->spi->Instance : NULL;
   if (extension_length > sizeof(frame.extension)) return -2;
   if (osMutexAcquire(link->mutex, osWaitForever) != osOK) return -1;
+  result = link_complete_deferred(link);
+  if (result != 0) { osMutexRelease(link->mutex); return result; }
   memset(&frame, 0, sizeof(frame));
   frame.update_flags = UMH_FRAME_FLAG_EXTENDED;
   frame.sequence = sequence;
   frame.extension_length = extension_length;
   if (extension != NULL && extension_length != 0u)
     memcpy(frame.extension, extension, extension_length);
-  length = pack_common(link, command, &frame);
+  length = pack_common(link, link->tx, command, &frame);
   if (length == 0u) result = -2;
   else {
     if (response_length > length) {
@@ -859,6 +1043,8 @@ int fpga_link_mic_audio_read(fpga_link_t *link, int16_t *samples, uint8_t capaci
   if (link == NULL || samples == NULL || actual == NULL ||
       capacity == 0u || capacity > FPGA_MIC_AUDIO_BATCH) return -1;
   if (osMutexAcquire(link->mutex, 5u) != osOK) return -2;
+  result = link_complete_deferred(link);
+  if (result != 0) { osMutexRelease(link->mutex); return result; }
   memset(link->tx, 0, FPGA_MIC_AUDIO_READ_BYTES);
   link->tx[0] = FPGA_CMD_MIC_AUDIO_READ;
   link->tx[1] = FPGA_PROTOCOL_VERSION;

@@ -185,8 +185,10 @@ SECTIONS
     __bss_end__ = _ebss;
   } >RAM
 
-  /* CPU-only voice sample storage.  The buffer is initialized explicitly when
-   * voice capture starts, so it needs no FLASH load image or reset-time copy. */
+  /* CPU-only real-time data: the frame ring, the spatial renderer tables and
+   * the USB-audio lookahead.  Every object placed here is fully written by its
+   * init function before use, so the section needs no FLASH load image or
+   * reset-time copy. */
   .ccmram (NOLOAD) :
   {
     . = ALIGN(4);
@@ -194,6 +196,8 @@ SECTIONS
     KEEP(*(.ccmram*))
     . = ALIGN(4);
   } >CCMRAM
+  ASSERT(SIZEOF(.ccmram) <= 0x4000,
+         "CCM: .ccmram residents must fit the 16 KiB CCM SRAM")
 
   /* User_heap_stack section, used to check that there is enough RAM left */
   ._user_heap_stack :
