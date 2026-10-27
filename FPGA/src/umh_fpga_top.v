@@ -1,13 +1,10 @@
 `timescale 1ns/1ps
 
-/* Per-microphone update of the one-carrier-period PDM mixer.  M is a
- * constant microphone slot and S is the PDM bit for this sample. */
+/* M: microphone slot 0..3, S: that slot's PDM bit for this sample. */
 `define MIC_UPDATE(M,S) \
     if ((S) ^ mic_lo_i_r) mic_xor_i[M] <= mic_xor_i[M] + 7'd1; \
     if ((S) ^ mic_lo_q_r) mic_xor_q[M] <= mic_xor_q[M] + 7'd1;
 
-/* Advance or complete the gate sequence after one 40 kHz I/Q sample has
- * been accumulated and handed to the EBR store registers. */
 `define MIC_FINISH_GATE \
     mic_gate_active <= 1'b0; \
     mic_gate_fill   <= 7'd0; \
@@ -21,50 +18,20 @@
         mic_gate_wait  <= mic_cfg_gap; \
     end
 
-/* ---------------------------------------------------------------------------
- * UMH v7 MachXO2 output engine.
- *
- * The STM32 streams one 8-bit phase byte and one 8-bit level byte per
- * ultrasound channel over SPI1.  The phase splits one 40 kHz carrier period
- * into 256 slots and the level is the duty threshold inside that window
- * (level=0 disables the channel, level=255 leaves it high for 255 of the
- * 256 slots).  us_tx is a plain 0/1 signal that drives a 0 V / 3.3 V square
- * wave on every external channel.
- *
- * 84 parallel 8-bit subtractor/comparator pairs do not fit the
- * LCMXO2-2000HC fabric: the measured result was 2729 of 2112 LUT4 and 1367
- * of 1056 slices.  The running waveform therefore lives in EBR instead.  A
- * 512 x 84 table holds two 256-slot banks.  Slot 0 of a bank is the
- * absolute output state at the carrier wrap and slots 1..255 are toggle
- * masks; the builder XORs one bit into the rising and one into the falling
- * slot of every channel, plus slot 0 when the high window wraps.  The
- * running logic reloads slot 0 and XORs every other slot, one LUT4 per
- * channel.  A new bank is drawn while the old bank still drives us_tx, and
- * the banks swap on a carrier wrap, so a parameter update never blanks an
- * output.
- * ------------------------------------------------------------------------- */
-
-/* 84 x 16-bit staging memory. Simple dual-port with clock domain crossing.
- * The write port is in the SPI SCK domain, read port in the 64 MHz domain. */
 module umh_channel_ram18 (
     input  wire        wr_clk,
-    input  wire [6:0]  wr_addr,
-    input  wire [15:0] wr_data,
+    input  wire [7:0]  wr_addr,
+    input  wire [7:0]  wr_data,
     input  wire        wr_en,
     input  wire        rd_clk,
-    input  wire [6:0]  rd_addr,
-    output reg  [15:0] rd_data
+    input  wire [7:0]  rd_addr,
+    output reg  [7:0]  rd_data
 );
-    (* syn_ramstyle = "block_ram" *) reg [15:0] mem [0:83];
+    (* syn_ramstyle = "block_ram" *) reg [7:0] mem [0:255];
     always @(posedge wr_clk) if (wr_en) mem[wr_addr] <= wr_data;
     always @(posedge rd_clk) rd_data <= mem[rd_addr];
 endmodule
 
-/* 512 x 84 toggle-event table. Pseudo dual-port: one read, one write.
- * Port A (read) for DDS, Port B (write) for frame builder.  The builder never
- * reads its own write port back: EV_WR computes the new word from the word it
- * just read on port A, so a second 84-bit read register would only burn 84
- * flops of an already 63 %-full slice budget. */
 module umh_toggle_ram84 (
     input  wire        clk,
     input  wire [8:0]  addr_a,
@@ -81,11 +48,6 @@ module umh_toggle_ram84 (
     end
 endmodule
 
-/* 256 x 32 microphone gate accumulator storage.  One word carries the
- * 16-bit in-phase and 16-bit quadrature sums of one (gate, microphone)
- * pair, so all 64 gates x 4 microphones fit into a single EBR.  The word
- * is written by the gate accumulator in the 64 MHz domain and read back by
- * MIC_READ; a synchronous read port keeps the MISO payload stable. */
 module umh_mic_iq_ram (
     input  wire        clk,
     input  wire        we,
@@ -94,9 +56,7 @@ module umh_mic_iq_ram (
     input  wire [8:0]  rd_addr,
     output reg  [15:0] rd_data
 );
-    /* 512 x 16 fits one MachXO2 EBR exactly.  Address {gate[5:0],
-     * word[2:0]}: words 0..3 are the four microphone I sums, words 4..7 the
-     * four Q sums. */
+
     (* syn_ramstyle = "block_ram" *) reg [15:0] mem [0:511];
     always @(posedge clk) begin
         if (we) mem[wr_addr] <= wr_data;
@@ -104,8 +64,6 @@ module umh_mic_iq_ram (
     end
 endmodule
 
-/* 256 x 8 common-level FIFO in the last free EBR.  Written from the SPI
- * SCK domain, read by the output domain through a registered port. */
 module umh_level_fifo (
     input  wire       wr_clk,
     input  wire       we,
@@ -137,44 +95,14 @@ module umh_fpga_top (
 );
     localparam [15:0] HEADER_BYTES  = 16'd36;
     localparam [15:0] CHANNEL_BYTES = 16'd168;
-    /* Compact command transactions.  The master clocks exactly 16 bytes;
-     * bytes 0..1 are command/version, byte 2 is the payload, bytes 6..9 may
-     * carry the frame sequence, and the usual 16-byte status word is read
-     * back in the same transaction. */
+    localparam [15:0] PHASE_BYTES   = 16'd84;
     localparam [15:0] COMPACT_BYTES   = 16'd16;
     localparam [7:0]  MOD_CMD_FIXED  = 8'h17;
-    /* MOD_FEED: [0x1A, version, level0 .. levelN-1] with N <= 32, so the
-     * transaction never reaches the 36-byte header end.  The levels go into
-     * a 256-entry FIFO that is popped on every second carrier wrap (exactly
-     * 20 kHz of FPGA time).  Writing one level per SPI transaction tied the
-     * sample instant to STM32 task timing; USB interrupts then moved single
-     * samples by one 25 us carrier period and each slip was an audible
-     * click.  The FIFO makes the sample clock independent of the MCU. */
     localparam [7:0]  MOD_CMD_FEED = 8'h1A;
-    /* 40 kHz carrier with 256 phase slots at 64 MHz (10.24 MHz slot rate). */
+    localparam [7:0]  MOD_CMD_PHASE = 8'h1B;
     localparam [31:0] CARRIER_STEP  = 32'd2684355;
 
-    /* ------------------------------------------------------------------
-     * 8 MHz STM32 PA8 MCO -> 64 MHz output clock.
-     *
-     * MachXO2 law, confirmed with Lattice's own PLL calculator
-     * (ispfpga/bin/nt64/scuba.exe -arch xo2c00 -fin 8 -fclkop 128):
-     *
-      *   fCLKOP = fCLKI * CLKFB_DIV / CLKI_DIV = 8 * 8 / 1    = 64 MHz
-     *   fVCO   = fCLKOP * CLKOP_DIV            = 64 * 8       = 512 MHz
-     *
-     * Loop filter: ICP_CURRENT / LPF_RESISTOR / FREQUENCY_PIN_* are the
-     * values Lattice scuba generates for exactly this 8 -> 64 MHz, /8
-     * feedback PLL.  Without them Map left the charge pump and loop filter
-     * at defaults ("Output Clock(P) Frequency: NA" in the .mrp) and the
-     * loop never locked: LOCK stayed low and pll_clk ran ~700 ppm slow
-     * against the STM32 HSE with large wideband phase wander, which the
-     * LC/transducer resonance converts into audible AM hiss on every
-     * channel.  LOCK is reported as diagnostic status bit 13 (0x2000);
-     * us_tx is still enabled only by running/stop_event, never by LOCK.
-     * CLKOP_CPHASE = CLKOP_DIV-1 keeps CLKOP aligned with the INT_DIVA
-     * feedback path, which is the only internal feedback mode Map accepts.
-     * ------------------------------------------------------------------ */
+    /* INT_DIVA with these ICP/LPF/FREQUENCY_PIN attributes is the only 8->64 MHz setting Map accepts. */
     wire pll_clk, pll_feedback, pll_lock;
     wire fpga_clk = pll_clk;
     EHXPLLJ #(
@@ -195,28 +123,12 @@ module umh_fpga_top (
         /* synthesis ICP_CURRENT="9" */
         /* synthesis LPF_RESISTOR="72" */;
 
-    /* LOCK is asynchronous to pll_clk; two-flop synchroniser, status only. */
     reg [1:0] pll_lock_sync = 2'b00;
     always @(posedge pll_clk) pll_lock_sync <= {pll_lock_sync[0], pll_lock};
 
-    /* ------------------------------------------------------------------
-     * SPI1 control link.  The receiver is clocked by spi1_sck, which is the
-     * normal SPI-slave arrangement.  fpga_cs_n is an asynchronous reset for
-     * that domain only and is released long after the last SCK edge, so its
-     * recovery time is met; no other logic in this design is clocked by CS.
-     * Only single-bit toggles cross into the output domain through two-flop
-     * synchronisers.  Multi-bit fields (sequence, update flags, RGB, mod
-     * mode) are static from the SCK edge that raised the toggle and are read
-     * directly after the settle delay; the sequence number is diagnostic
-     * only, so a build that starts during a later transaction may at worst
-     * report a stale value.
-     * ------------------------------------------------------------------ */
-    reg  [7:0]  spi_rx_shift, spi_command, spi_version, spi_phase_pending;
+    reg  [7:0]  spi_rx_shift, spi_command, spi_version;
     reg  [2:0]  spi_bit_count;
-    /* The longest transaction is 248 bytes, so a 9-bit byte counter is
-     * enough; the sequence only feeds the status word and the MIC_READ gate
-     * address, so 16 bits are kept. */
-    reg  [8:0]  spi_byte_count, spi_expected_length;
+    reg  [8:0]  spi_byte_count, spi_expected_length, spi_expected_last;
     reg  [15:0] spi_update_flags, spi_extension_length;
     reg  [15:0] spi_frame_sequence, accepted_sequence_spi;
     reg  [1:0]  accepted_update_flags_spi;
@@ -225,67 +137,42 @@ module umh_fpga_top (
     reg  [7:0]  spi_compact_data;
     reg         mod_level_spi;
     reg         mod_toggle_spi;
-    /* MOD_FEED write pointer.  It is not reset by CS: it only moves on
-     * SCK edges of level bytes and is static from the last SCK edge until
-     * the next transaction, which is when the output domain copies it. */
     reg  [7:0]  feed_wr_spi;
     reg         frame_toggle_spi, stop_toggle_spi, invalid_frame_spi, ws2812_toggle_spi;
-    /* LED colour, in ws2812_stream's {G,R,B} word order.  The four LEDs share
-     * one DI line, so only the first RGB triple of the payload is stored; the
-     * other nine bytes stay wire-compatible but are discarded. */
     reg  [23:0] rgb_values;
-    /* Set only after all three RGB bytes of the current transaction have
-     * been captured.  The output domain refuses to publish a partial update. */
     reg  [1:0]  spi_rgb_captured;
     reg         rgb_values_complete_spi;
     reg  [8:0]  status_bit_index;
 
-    /* Sticky diagnostics for the board bring-up report.  Status is read
-     * while CS is inactive; these bits are ignored by the STM32 fault mask. */
     wire [7:0]  spi_rx_byte  = {spi_rx_shift[6:0], spi1_mosi};
+    wire        spi_phase_only = (spi_command == MOD_CMD_PHASE);
     wire        spi_payload_byte = !fpga_cs_n && spi_update_flags[0] &&
                                    (spi_bit_count == 3'd7) &&
                                    (spi_byte_count >= HEADER_BYTES) &&
                                    (spi_byte_count < HEADER_BYTES + CHANNEL_BYTES);
-    wire        spi_write    = spi_payload_byte && (spi_channel_field == 2'd1);
-    wire [15:0] staging_wr_data = {spi_phase_pending, spi_rx_byte};
-    /* RGB follows the optional ultrasound payload.  WS2812-only commands
-     * therefore start at byte 36, while combined frames start at byte 204.
-     * Only the first three RGB bytes are consumed; the parallel LEDs all show
-     * the same colour, so the remaining nine payload bytes are ignored. */
+    /* Staging page bit: 0 = phase page, 1 = level page. */
+    wire        staging_wr_page = spi_phase_only ? 1'b0 : spi_channel_field[0];
+    wire [7:0]  staging_wr_addr = {staging_wr_page, spi_channel_index};
     wire [8:0]  spi_rgb_start = HEADER_BYTES[8:0] +
                                 (spi_update_flags[0] ? CHANNEL_BYTES[8:0] : 9'd0);
-    wire [8:0]  spi_rgb_offset = spi_byte_count - spi_rgb_start;
+    wire [1:0]  spi_rgb_offset = spi_byte_count[1:0];
     wire        spi_rgb_payload_byte = !fpga_cs_n && spi_update_flags[1] &&
                                        (spi_bit_count == 3'd7) &&
-                                       (spi_byte_count >= spi_rgb_start) &&
-                                       (spi_rgb_offset <= 9'd2);
+                                       (spi_byte_count[8:2] == spi_rgb_start[8:2]) &&
+                                       (spi_rgb_offset != 2'd3);
     wire        spi_compact_cmd = (spi_command == MOD_CMD_FIXED) ||
                                   (spi_command == 8'h16) || (spi_command == 8'h18);
     wire        spi_audio_read_cmd = (spi_command == 8'h16);
     wire        spi_audio_reset_cmd = (spi_command == 8'h18);
-    /* Level bytes are bytes 2.. of a MOD_FEED transaction.  spi_command
-     * is only valid from byte 1 on, so byte 0 can never match here. */
     wire        feed_we = (spi_bit_count == 3'd7) &&
                            (spi_command == MOD_CMD_FEED) &&
                            (spi_byte_count[8:1] != 8'd0);
 
     reg         ws2812_enable;
     wire        ws2812_frame_done;
-    reg  [7:0]  ws2812_frames_left;
+    reg  [1:0]  ws2812_frames_left;
+    localparam [1:0] WS2812_FRAMES = 2'd2;
 
-    /* ------------------------------------------------------------------
-     * Carrier DDS (Fully Pipelined 5-Stage).
-     * Stage 1: fractional accumulator carry
-     * Stage 2: global phase counter and wrap detection
-     * Stage 3: bank selection and address generation
-     * Stage 4: EBR read latency
-     * Stage 5: slot 0 reloads us_tx, any other slot toggles it
-     *
-     * ev_run_hold_s5 is a synchronous-clear capture: it holds the EBR word
-     * only in the stage-5 cycle of a step and is zero otherwise, so stage 5
-     * needs no step qualifier and us_tx costs one LUT4 per channel.
-     * ------------------------------------------------------------------ */
     reg  [23:0] phase_frac;
     reg         phase_step_s1;
     reg  [7:0]  global_phase_s2;
@@ -299,34 +186,13 @@ module umh_fpga_top (
 
     wire [24:0] phase_frac_sum = {1'b0, phase_frac} + 25'd2684355;
 
-    /* fpga_time is the single shared microsecond timebase.  The link
-     * watchdog and the microphone power-up sequencer take their delays from
-     * its bits instead of keeping wide counters and comparators of their own. */
     reg  [31:0] fpga_time;
-    reg  [5:0]  time_divider;                  /* free-running 64 MHz / 64 */
+    reg  [5:0]  time_divider;
     wire        us_tick = (time_divider == 6'd63);
-    /* SPI link watchdog: a running output must receive either frame or status
-     * traffic at least this often.  If the STM32 resets or hangs, the FPGA
-     * clears the output instead of holding the last frame forever.  The
-     * counter advances on each rising edge of fpga_time[10] (every 2.048 ms)
-     * and saturates at 15, i.e. the timeout is 28.7..30.7 ms after the last
-     * chip-select. */
+
     reg  [3:0]  link_idle;
     reg         link_tick_d;
 
-    /* ------------------------------------------------------------------
-     * SPH0641LU4H-1 clock sequencer and 40 kHz coherent I/Q demodulator.
-     *
-     * The datasheet forbids powering up or waking directly into ultrasonic
-     * mode (3.072..4.8 MHz).  The clock is therefore held low through
-     * power-up, run at 200 kHz for 20 ms (sleep exit + 15 ms wake-up), and
-     * only then switched to the 4 MHz ultrasonic clock.
-     * ------------------------------------------------------------------ */
-    /* Both delays are decoded from fpga_time, which counts from
-     * configuration: the 200 kHz clock starts at 10.24 ms (bits 13|11) and
-     * the 4 MHz clock at 30.72 ms (bits 14|13|12|11), i.e. after 20.48 ms of
-     * warm-up.  The sequencer never re-enters these states, so the later
-     * wrap of fpga_time is irrelevant. */
     wire        mic_boot_done = fpga_time[13] && fpga_time[11];
     wire        mic_warm_done = fpga_time[14] && fpga_time[13] &&
                                 fpga_time[12] && fpga_time[11];
@@ -334,17 +200,15 @@ module umh_fpga_top (
     reg         mic_warm;
     reg         mic_ultrasonic;
     reg  [7:0]  mic_warm_half;
-    reg  [3:0]  mic_phase;             /* 0..15, one 4 MHz PDM bit period */
+    reg  [3:0]  mic_phase;
     reg         mic_clock_reg;
     reg  [15:0] mic_shift_0_l, mic_shift_0_r;
     reg  [15:0] mic_shift_1_l, mic_shift_1_r;
-    reg  [4:0]  mic_sample_count;
+    reg  [3:0]  mic_sample_count;
     reg  [63:0] mic_latest;
-    /* 16 kHz mono PCM decimator and 32-sample CDC FIFO.  Each PDM input is
-     * counted over 250 4 MHz samples; averaging the four microphones gives a
-     * robust near-mouth voice signal while fitting one small register FIFO. */
-    reg  [8:0]  pcm_decim_count;
-    reg  [9:0]  pcm_ones [0:3];
+
+    reg  [7:0]  pcm_decim_count;
+    reg  [9:0]  pcm_acc;
     reg  signed [15:0] pcm_fifo [0:31];
     reg  [5:0]  pcm_wr_ptr;
     reg  [5:0]  pcm_rd_ptr_spi;
@@ -353,43 +217,27 @@ module umh_fpga_top (
     reg  [4:0]  pcm_read_count_latched_spi;
     wire [5:0]  pcm_count_spi = pcm_wr_sync2_spi - pcm_rd_ptr_spi;
     wire [4:0]  pcm_read_count = (pcm_count_spi > 6'd16) ? 5'd16 : pcm_count_spi[4:0];
-    wire [11:0] pcm_density_sum = {2'b00, pcm_ones[0]} + {2'b00, pcm_ones[1]} +
-                                    {2'b00, pcm_ones[2]} + {2'b00, pcm_ones[3]} +
-                                    mic_data_0 + mic_data_1;
-    wire signed [12:0] pcm_centered = $signed({1'b0, pcm_density_sum}) - 13'sd500;
+    localparam [9:0] PCM_BIAS = 11'd1024 - 11'd500;
+    wire [9:0] pcm_acc_next = pcm_acc + {8'd0, mic_data_0} + {8'd0, mic_data_1};
 
-    /* 40 kHz local oscillator and one-carrier-period boxcar.  The PDM bit
-     * rate is 4 MHz and the LO period is 100 PDM samples (25 us).  XOR-ing
-     * the PDM bit with the +/-1 LO and integrating over exactly one LO period
-     * rejects every LO harmonic; the result is a true 40 kHz complex I/Q
-     * sample.  The product sum is 100 - 2*xor_count, so no multiplier is
-     * needed anywhere in the microphone path. */
-    reg  [6:0]  mic_lo_n;              /* 0..99 carrier LO phase       */
-    reg  [6:0]  mic_window_count;      /* 0..100 PDM samples in window */
-    reg  [6:0]  mic_xor_i [0:3];       /* I mixer products equal to 1  */
-    reg  [6:0]  mic_xor_q [0:3];       /* Q mixer products equal to 1  */
-    reg  signed [7:0] mic_win_i [0:3]; /* 100 - 2*xor, range -100..100 */
+    reg  [6:0]  mic_lo_n;
+    reg  [6:0]  mic_window_count;
+    reg  [6:0]  mic_xor_i [0:3];
+    reg  [6:0]  mic_xor_q [0:3];
+    reg  signed [7:0] mic_win_i [0:3];
     reg  signed [7:0] mic_win_q [0:3];
-    reg         mic_bc_valid;          /* 40 kHz envelope valid pulse  */
-    reg         mic_lo_i_r, mic_lo_q_r; /* registered LO for this PDM period */
+    reg         mic_bc_valid;
+    reg         mic_lo_i_r, mic_lo_q_r;
 
-    /* Registered local oscillator.  mic_lo_n advances on phase 0 and the
-     * +/-1 LO bits for the new period (including the 40-sample-delayed bit
-     * used by the sliding boxcar) are registered in the same edge, so the
-     * long mixer / accumulator cloud starts from a flop instead of from the
-     * counter decoders. */
     wire [6:0]  mic_lo_n_next = (mic_lo_n == 7'd99) ? 7'd0 : (mic_lo_n + 7'd1);
     wire        mic_lo_i_next = (mic_lo_n_next < 7'd25) || (mic_lo_n_next >= 7'd75);
     wire        mic_lo_q_next = (mic_lo_n_next < 7'd50);
-    /* Gate configuration is expressed in 40 kHz samples (25 us).  The
-     * sequence is re-armed automatically after every completed block, so
-     * the STM32 can submit one pattern per block without reconfiguring. */
-    reg  [6:0]  mic_cfg_count;         /* 1..64 gates per pattern      */
-    reg  [15:0] mic_cfg_start;         /* gate 0 start after swap      */
-    reg  [15:0] mic_cfg_step;          /* start-to-start spacing       */
-    reg  [15:0] mic_cfg_gap;           /* step - width, precomputed    */
-    reg  [6:0]  mic_cfg_width;         /* 1..64 samples per gate       */
-    reg  [1:0]  mic_run_state;         /* 0 idle, 1 wait, 2 collect    */
+
+    reg  [6:0]  mic_cfg_count;
+    reg  [15:0] mic_cfg_start;
+    reg  [15:0] mic_cfg_gap;
+    reg  [6:0]  mic_cfg_width;
+    reg  [1:0]  mic_run_state;
     reg         mic_done;
     reg         mic_saturated;
     reg  [15:0] mic_block_count;
@@ -397,20 +245,17 @@ module umh_fpga_top (
     reg  [6:0]  mic_gate_fill;
     reg  [15:0] mic_gate_wait;
     reg         mic_gate_active;
-    /* The gate accumulators live in the microphone EBR.  A small read / add /
-     * write-back engine services the eight 16-bit words of the active gate
-     * once per 40 kHz sample; the remaining cycles of the sample period
-     * are idle, so one shared adder replaces eight parallel accumulators. */
+
     reg         mic_acc_busy;
-    reg  [2:0]  mic_acc_state;         /* 0 idle, 1 clear, 2 read, 3 write, 4 finish */
+    reg  [2:0]  mic_acc_state;
     reg  [2:0]  mic_acc_word;
     reg  [6:0]  mic_acc_gate;
-    reg         mic_acc_last;          /* this sample completes the gate */
+    reg         mic_acc_last;
     reg         mic_ram_we;
     reg  [8:0]  mic_ram_wr_addr;
     reg  [15:0] mic_ram_wr_data;
     wire [15:0] mic_ram_rd_data;
-    /* Payload layout for bits 192..319: eight 16-bit words, MSB first. */
+
     wire [3:0]  mic_payload_word = status_bit_index[8:4] - 4'd12;
     wire        mic_ram_rd_acc   = (mic_acc_state == 3'd2);
     wire [8:0]  mic_ram_rd_addr  = mic_ram_rd_acc ? {mic_acc_gate[5:0], mic_acc_word}
@@ -427,10 +272,6 @@ module umh_fpga_top (
                                                     : mic_win_i[mic_acc_word[1:0]];
     wire [15:0] mic_acc_addend = {{8{mic_acc_win[7]}}, mic_acc_win};
 
-    /* MIC_CONFIG handshake.  The SCK-domain extension bytes are written
-     * before the command-complete toggle and stay static until the next
-     * MIC_CONFIG, so after the toggle synchroniser and the settle count the
-     * hold register is read directly, like rgb_values. */
     reg  [47:0] mic_cfg_hold_spi;
     reg         mic_cfg_toggle_spi, mic_cfg_toggle_meta, mic_cfg_toggle_sync, mic_cfg_toggle_seen;
     reg  [3:0]  mic_cfg_settle;
@@ -438,17 +279,7 @@ module umh_fpga_top (
                                   ((mic_cfg_hold_spi[6:0] > 7'd64) ? 7'd64 : mic_cfg_hold_spi[6:0]);
     wire [6:0]  mic_cfg_width_w = (mic_cfg_hold_spi[46:40] == 7'd0) ? 7'd1 :
                                   ((mic_cfg_hold_spi[46:40] > 7'd64) ? 7'd64 : mic_cfg_hold_spi[46:40]);
-    /* ------------------------------------------------------------------
-     * Frame builder.  CLEAR wipes the inactive bank, then every channel
-     * XORs its bit into the rising slot p and the falling slot p+level
-     * (mod 256), and into slot 0 as well when that sum wraps: slot 0 holds
-     * the absolute state, and a wrapped window is already high there.
-     * Every edit is a read-modify-write XOR, so level=0 (rise and fall on
-     * one slot) and a fall that lands exactly on slot 0 cancel by
-     * themselves.  One adder serves both the CLEAR counter (rmw_slot + 1)
-     * and the falling slot (rmw_slot + level): build_level_eff is preset
-     * to 1 at build start.
-     * ------------------------------------------------------------------ */
+
     localparam [2:0] EV_IDLE = 3'd0, EV_CLEAR = 3'd1, EV_WAIT = 3'd2,
                      EV_LEVEL = 3'd3, EV_RD = 3'd4, EV_WR = 3'd5;
     reg  [2:0]  ev_state;
@@ -459,12 +290,9 @@ module umh_fpga_top (
     reg         frame_req, swap_pending, running, active_bank;
     wire [8:0]  ev_sum = {1'b0, rmw_slot} + {1'b0, build_level_eff};
 
-    /* Combinational one-hot channel mask, never a shift register (that made
-     * the builder write all-zero tables on some MachXO2 configurations).
-     * The shared 11 x 8 predecode keeps the write-data mux at one LUT4 per
-     * channel. */
     wire [10:0] ev_ch_hi /* synthesis syn_keep=1 */;
     wire [7:0]  ev_ch_lo /* synthesis syn_keep=1 */;
+    /* Combinational one-hot decode: an 84-bit shift register wrote all-zero tables on silicon. */
     wire [83:0] ev_ch_bit;
     genvar ev_bit_index;
     generate
@@ -480,21 +308,15 @@ module umh_fpga_top (
     endgenerate
 
     wire        build_idle = (ev_state == EV_IDLE) && !swap_pending && !frame_req;
-    /* The staging RAM is addressed by ev_ch directly: ev_ch only moves at
-     * the end of a channel, and EV_WAIT covers the registered read. */
-    wire [15:0] staging_q;
+    wire        staging_rd_page = (ev_state == EV_LEVEL) || (ev_state == EV_RD) ||
+                                  (ev_state == EV_WR);
+    wire [7:0]  staging_q;
     umh_channel_ram18 staging_ram (
-        .wr_clk(spi1_sck), .wr_addr(spi_channel_index), .wr_data(staging_wr_data),
-        .wr_en(spi_write), .rd_clk(fpga_clk), .rd_addr(ev_ch), .rd_data(staging_q)
+        .wr_clk(spi1_sck), .wr_addr(staging_wr_addr), .wr_data(spi_rx_byte),
+        .wr_en(spi_payload_byte), .rd_clk(fpga_clk),
+        .rd_addr({staging_rd_page, ev_ch}), .rd_data(staging_q)
     );
 
-    /* The device has only eight EBRs, so the event RAM's single read port
-     * serves both the DDS and the builder.  The DDS latches its address in
-     * stage 3 and uses the word in stage 4; the builder latches in EV_RD and
-     * uses the word in EV_WR.  Blocking the builder in the DDS stage-3 cycle
-     * alone is therefore enough, since a granted EV_RD is never followed by
-     * a DDS stage-4 cycle.  EV_WR writes rd ^ bit straight back to the slot
-     * it just read, so no 84-bit hold register is needed. */
     wire        ev_in_clear   = (ev_state == EV_CLEAR);
     wire        ev_rd_grant   = (ev_state == EV_RD) && !phase_step_s3;
     wire [8:0]  ev_build_addr = {~active_bank, rmw_slot};
@@ -508,24 +330,12 @@ module umh_fpga_top (
         .we_b(ev_we), .addr_b(ev_build_addr), .wr_data_b(ev_wr_data)
     );
 
-    /* ------------------------------------------------------------------
-     * Microphone gate accumulator storage: 64 gates x 4 microphones packed
-     * as {I[15:0], Q[15:0]} in one 256 x 32 EBR.  The accumulator writes in
-     * the 64 MHz domain and MIC_READ reads back through the synchronous port;
-     * the ultrasound engine never touches this memory.
-     * ------------------------------------------------------------------ */
     umh_mic_iq_ram mic_iq_ram (
         .clk(fpga_clk), .we(mic_ram_we), .wr_addr(mic_ram_wr_addr),
         .wr_data(mic_ram_wr_data),
         .rd_addr(mic_ram_rd_addr), .rd_data(mic_ram_rd_data)
     );
 
-    /* ------------------------------------------------------------------
-     * Cross-domain hand-off.  The SCK domain raises a toggle at the end of
-     * a complete frame; the output domain waits 8 cycles (62.5 ns, more
-     * than one full 42.5 MHz SCK period) before capturing anything, so the
-     * bit synchronisers and the RGB shift register are settled.
-     * ------------------------------------------------------------------ */
     reg  frame_toggle_meta, frame_toggle_sync, frame_toggle_seen;
     reg  stop_toggle_meta, stop_toggle_sync, stop_toggle_seen;
     reg  ws2812_toggle_meta, ws2812_toggle_sync, ws2812_toggle_seen;
@@ -533,14 +343,9 @@ module umh_fpga_top (
     reg  [15:0] pending_sequence, accepted_sequence;
     reg  [3:0]  frame_settle;
     reg  [3:0]  ws2812_settle;
-    /* LED colour snapshot, {G,R,B}.  All four LEDs are parallel on one DI
-     * line, so a single triple is all the stream needs. */
+
     reg  [23:0] rgb_hold;
 
-    /* Common-level mode state.  The full 84-channel phase image is loaded once
-     * through the normal FRAME command; these registers only substitute a
-     * common level byte during each event-table rebuild, so the 84 ultrasonic
-     * phases stay fixed while the common envelope is streamed. */
     reg         mod_active;
     reg  [7:0]  pending_mod_level;
     reg  [7:0]  build_level;
@@ -548,37 +353,27 @@ module umh_fpga_top (
     reg         frame_req_mod;
     reg         mod_toggle_meta, mod_toggle_sync, mod_toggle_seen;
     reg  [3:0]  mod_settle;
-    /* MOD_FEED FIFO, output side.  feed_wr copies feed_wr_spi on the
-     * synchronised CS rising edge, i.e. well after the last SCK edge of the
-     * transaction, so the multi-bit pointer is static when it is sampled
-     * and every RAM word below it is already written.  A level is popped at
-     * a carrier wrap while the builder is idle; the rebuilt bank swaps in at
-     * the next wrap, which cannot pop because swap_pending is still set
-     * there.  Each envelope sample therefore lasts exactly two carrier
-     * periods without a parity bit.  An empty FIFO holds the last level. */
+
     reg  [7:0]  feed_wr, feed_rd;
     wire [7:0]  feed_q;
     wire [7:0]  feed_fill = feed_wr - feed_rd;
+
     wire        feed_pop = wrap_s2 && mod_active && build_idle &&
-                            (feed_fill != 8'd0);
+                            (feed_wr != feed_rd);
     umh_level_fifo level_fifo (
         .wr_clk(spi1_sck), .we(feed_we), .wr_addr(feed_wr_spi), .wr_data(spi_rx_byte),
         .rd_clk(fpga_clk), .rd_addr(feed_rd), .rd_data(feed_q)
     );
-    /* In common-level mode the stored level byte is an enable marker: any
-     * non-zero value keeps the channel active at the common envelope level,
-     * while zero mutes the channel exactly as spatial rendering would.
-     * This preserves the EEPROM channel-enable mask without a multiplier. */
+    /* In common-level mode a non-zero stored level is only an enable marker for the common envelope. */
     wire [7:0]  event_level = build_mod ?
-                              ((staging_q[7:0] != 8'd0) ? build_level : 8'd0) :
-                              staging_q[7:0];
+                              ((staging_q != 8'd0) ? build_level : 8'd0) :
+                              staging_q;
     wire stop_event = (stop_toggle_sync != stop_toggle_seen);
     wire link_timeout = &link_idle;
 
-    /* Status is latched in the output domain while CS is high and only read
-     * afterwards, so the SCK side always sees one static 16-byte snapshot. */
     reg  cs_meta, cs_sync, cs_sync_d;
     reg  [127:0] status_hold;
+    reg         status_miso_q;
     wire cs_fall = cs_sync_d && !cs_sync;
     wire cs_rise = !cs_sync_d && cs_sync;
     always @(posedge fpga_clk) begin
@@ -589,14 +384,13 @@ module umh_fpga_top (
 
     wire [15:0] fifo_credit_wire  = build_idle ? 16'd1 : 16'd0;
     wire [15:0] fifo_depth_wire   = build_idle ? 16'd0 : 16'd1;
-    /* Upper status bits are diagnostic only.  The STM32 masks them out when
-     * deciding whether the FPGA reports a fault. */
+
     wire [15:0] status_flags_wire = (invalid_frame_sync ? 16'h0004 : 16'h0000) |
                                     (running ? 16'h0010 : 16'h0000) |
                                     (mod_active ? 16'h8000 : 16'h0000) |
                                     (pll_lock_sync[1] ? 16'h2000 : 16'h0000) |
-                                    16'h1000; /* MOD_FEED (0x1A) support */
-    /* Byte 1 reports the MOD_FEED FIFO fill level. */
+                                    16'h5000;
+
     wire [127:0] status_word = {
         8'h01, feed_fill,
         fifo_credit_wire[7:0],  fifo_credit_wire[15:8],
@@ -605,24 +399,29 @@ module umh_fpga_top (
         fpga_time[7:0], fpga_time[15:8], fpga_time[23:16], fpga_time[31:24],
         accepted_sequence[7:0], accepted_sequence[15:8], 16'd0
     };
-    /* MISO is a shared SPI return line and must be released while CS is
-     * inactive.  The first 16 bytes always carry the status word.  Longer
-     * transactions continue with the microphone payload:
-     *   bytes 16..23  {status, block_count, gate_count, 0}, MSB first
-     *   bytes 24..39  four 32-bit {I[15:0], Q[15:0]} words, MSB first
-     * The MIC_READ gate address travels in the frame-sequence header field
-     * (bytes 6..9), so it is already stable when the payload starts. */
+
+    /* 128:1 status read mux terminates on a flop: full SCK period to settle. */
+    wire [8:0]  status_next_index = status_bit_index + 9'd1;
+    wire        status_next_bit   = status_hold[7'd127 - status_next_index[6:0]];
+    wire        status_miso_bit   = (status_bit_index == 9'd0) ? status_hold[8'd127]
+                                                               : status_miso_q;
+
+    always @(negedge spi1_sck or posedge fpga_cs_n) begin
+        if (fpga_cs_n) status_miso_q <= 1'b0;
+        else           status_miso_q <= status_next_bit;
+    end
+
     wire [8:0] pcm_payload_bit = status_bit_index - 9'd136;
     wire [4:0] pcm_payload_sample = pcm_payload_bit[8:4];
     wire signed [15:0] pcm_spi_sample =
         pcm_fifo[(pcm_rd_ptr_spi + pcm_payload_sample) & 5'h1f];
     wire pcm_audio_miso = (status_bit_index < 9'd136) ?
-        ((status_bit_index < 9'd128) ? status_hold[8'd127 - status_bit_index[6:0]] :
+        ((status_bit_index < 9'd128) ? status_miso_bit :
          ((pcm_read_count_latched_spi >> (7 - status_bit_index[2:0])) & 1'b1)) :
         ((pcm_payload_sample < pcm_read_count_latched_spi) ? pcm_spi_sample[4'd15 - pcm_payload_bit[3:0]] : 1'b0);
     assign spi1_miso = fpga_cs_n ? 1'bz :
                        (spi_audio_read_cmd ? pcm_audio_miso :
-                        (status_bit_index < 9'd128) ? status_hold[8'd127 - status_bit_index[6:0]] :
+                        (status_bit_index < 9'd128) ? status_miso_bit :
                         (status_bit_index < 9'd192) ? mic_meta_word[9'd191 - status_bit_index] :
                         (status_bit_index < 9'd320) ? mic_ram_rd_data[4'd15 - status_bit_index[3:0]] :
                         1'b0);
@@ -634,16 +433,15 @@ module umh_fpga_top (
 
     wire [15:0] ext_len_next  = {spi_rx_byte, spi_extension_length[7:0]};
     wire [15:0] expected_next = HEADER_BYTES +
-                                (spi_update_flags[0] ? CHANNEL_BYTES : 16'd0) +
+                                (spi_phase_only ? PHASE_BYTES :
+                                 (spi_update_flags[0] ? CHANNEL_BYTES : 16'd0)) +
                                 (spi_update_flags[1] ? 16'd12 : 16'd0) + ext_len_next;
     wire        last_header_byte = (spi_byte_count == 16'd35);
-    /* A payload transaction must not complete on the last header byte.  At
-     * that edge spi_expected_length still contains its reset value (36), so
-     * comparing against it would commit FRAME/WS2812 commands before their
-     * payload had arrived. */
-    wire        header_end = last_header_byte && (expected_next == HEADER_BYTES);
+    wire        no_payload_bytes = !spi_phase_only && !spi_update_flags[0] &&
+                                   !spi_update_flags[1] && (ext_len_next == 16'd0);
+    wire        header_end = last_header_byte && no_payload_bytes;
     wire        payload_end = (spi_expected_length > HEADER_BYTES) &&
-                              (spi_byte_count + 16'd1 == spi_expected_length);
+                              (spi_byte_count == spi_expected_last);
     wire        compact_end = spi_compact_cmd && (spi_bit_count == 3'd7) &&
                               ((spi_command == 8'h16) ? (spi_byte_count == pcm_read_end_byte) : (spi_byte_count == COMPACT_BYTES - 16'd1));
     wire [8:0] pcm_read_end_byte = 9'd48;
@@ -654,8 +452,9 @@ module umh_fpga_top (
             spi_rx_shift <= 8'd0; spi_bit_count <= 3'd0; spi_byte_count <= 9'd0;
             spi_command <= 8'd0; spi_version <= 8'd0; spi_update_flags <= 16'd0;
             spi_extension_length <= 16'd0; spi_frame_sequence <= 16'd0;
-            spi_expected_length <= HEADER_BYTES; spi_channel_index <= 7'd0;
-            spi_channel_field <= 2'd0; spi_phase_pending <= 8'd0; spi_rgb_captured <= 2'd0;
+            spi_expected_length <= HEADER_BYTES; spi_expected_last <= 9'd35;
+            spi_channel_index <= 7'd0;
+            spi_channel_field <= 2'd0; spi_rgb_captured <= 2'd0;
         end else begin
             if (spi_bit_count == 3'd7) begin
                 spi_bit_count <= 3'd0;
@@ -663,7 +462,7 @@ module umh_fpga_top (
                 case (spi_byte_count)
                     16'd0:  spi_command  <= spi_rx_byte;
                     16'd1:  spi_version  <= spi_rx_byte;
-                        /* Only MOD_FIXED consumes this byte, at frame_end. */
+
                     16'd2: begin
                         spi_compact_data <= spi_rx_byte;
                         if (spi_command == 8'h16) pcm_read_count_latched_spi <= pcm_read_count;
@@ -676,11 +475,10 @@ module umh_fpga_top (
                     16'd35: begin
                         spi_extension_length[15:8] <= spi_rx_byte;
                         spi_expected_length <= expected_next[8:0];
+                        spi_expected_last   <= expected_next[8:0] - 9'd1;
                     end
                     default: begin
-                        /* MIC_CONFIG extension: six bytes at offsets 36..41.
-                         * Captured in the SCK domain and adopted after the
-                         * command-complete toggle is synchronized. */
+
                         if (spi_command == 8'h14) begin
                             case (spi_byte_count)
                                 16'd36: mic_cfg_hold_spi[7:0]   <= spi_rx_byte;
@@ -693,25 +491,25 @@ module umh_fpga_top (
                             endcase
                         end
                         if (spi_payload_byte) begin
-                            case (spi_channel_field)
-                                2'd0: spi_phase_pending <= spi_rx_byte;
-                                2'd1: if (spi_channel_index != 7'd83)
-                                          spi_channel_index <= spi_channel_index + 7'd1;
-                                default: ;
-                            endcase
-                            spi_channel_field <= (spi_channel_field == 2'd1) ? 2'd0
-                                                                           : spi_channel_field + 2'd1;
+                            if (spi_phase_only) begin
+                                if (spi_channel_index != 7'd83)
+                                    spi_channel_index <= spi_channel_index + 7'd1;
+                            end else begin
+                                case (spi_channel_field)
+                                    2'd0: ;
+                                    2'd1: if (spi_channel_index != 7'd83)
+                                              spi_channel_index <= spi_channel_index + 7'd1;
+                                    default: ;
+                                endcase
+                                spi_channel_field <= (spi_channel_field == 2'd1) ? 2'd0
+                                                                                : spi_channel_field + 2'd1;
+                            end
                         end else if (spi_rgb_payload_byte) begin
-                            /* STM32 sends R,G,B per LED.  All four LEDs are
-                             * parallel on one DI line, so only the first
-                             * triple is kept, stored in the {G,R,B} order
-                             * ws2812_stream shifts out.  No byte index is
-                             * needed: the byte counter itself selects the
-                             * field. */
+
                             case (spi_rgb_offset)
-                                9'd0: rgb_values[15:8]  <= spi_rx_byte;  /* R */
-                                9'd1: rgb_values[23:16] <= spi_rx_byte;  /* G */
-                                9'd2: rgb_values[7:0]   <= spi_rx_byte;  /* B */
+                                2'd0: rgb_values[15:8]  <= spi_rx_byte;
+                                2'd1: rgb_values[23:16] <= spi_rx_byte;
+                                2'd2: rgb_values[7:0]   <= spi_rx_byte;
                                 default: ;
                             endcase
                             spi_rgb_captured <= spi_rgb_captured + 2'd1;
@@ -720,16 +518,14 @@ module umh_fpga_top (
                 endcase
                 spi_byte_count <= spi_byte_count + 9'd1;
                 if (frame_end) begin
-                    /* Keep the parser's last complete transaction visible in
-                     * the status word, including STATUS and STOP commands. */
-                    /* frame_end of a compact command is always its byte 15. */
+
                     if (spi_command == MOD_CMD_FIXED && spi_version == 8'h01) begin
                         mod_level_spi <= spi_compact_data[0];
                         mod_toggle_spi <= ~mod_toggle_spi;
                         accepted_sequence_spi <= spi_frame_sequence;
                         invalid_frame_spi <= 1'b0;
-                    end else if (spi_command == 8'h10 && spi_version == 8'h01 &&
-                        spi_extension_length <= 16'd32) begin
+                    end else if ((spi_command == 8'h10 || spi_command == MOD_CMD_PHASE) &&
+                        spi_version == 8'h01 && spi_extension_length <= 16'd32) begin
                         frame_toggle_spi <= ~frame_toggle_spi;
                         accepted_sequence_spi <= spi_frame_sequence;
                         accepted_update_flags_spi <= spi_update_flags[1:0];
@@ -740,7 +536,7 @@ module umh_fpga_top (
                         invalid_frame_spi <= 1'b0;
                     end else if (spi_command == 8'h13 && spi_version == 8'h01 &&
                                  spi_extension_length <= 16'd32) begin
-                        /* WS2812 control command - use separate toggle to avoid frame building */
+
                         ws2812_toggle_spi <= ~ws2812_toggle_spi;
                         accepted_sequence_spi <= spi_frame_sequence;
                         accepted_update_flags_spi <= spi_update_flags[1:0];
@@ -748,16 +544,12 @@ module umh_fpga_top (
                         invalid_frame_spi <= 1'b0;
                     end else if (spi_command == 8'h14 && spi_version == 8'h01 &&
                                  spi_extension_length == 16'd6) begin
-                        /* Arm the microphone gate sequencer.  The frame
-                         * pattern submitted next starts the first block. */
+
                         mic_cfg_toggle_spi <= ~mic_cfg_toggle_spi;
                         invalid_frame_spi <= 1'b0;
                     end else if (spi_command == 8'h15 && spi_version == 8'h01 &&
                                  spi_extension_length == 16'd0) begin
-                        /* MIC_READ gate address travels in frame_sequence
-                         * (bytes 6..9), which is captured before the MISO
-                         * payload starts, so the first transaction already
-                         * returns the right gate. */
+
                         invalid_frame_spi <= 1'b0;
                     end else if ((spi_command == 8'h16 && spi_version == 8'h01) ||
                                  (spi_command == 8'h18 && spi_version == 8'h01)) begin
@@ -775,29 +567,28 @@ module umh_fpga_top (
 
     always @(posedge spi1_sck) if (feed_we) feed_wr_spi <= feed_wr_spi + 8'd1;
 
-    /* ------------------------------------------------------------------
-     * 64 MHz output domain: frame commit, carrier, microphone clock.
-     * ------------------------------------------------------------------ */
     always @(posedge fpga_clk) begin
         pcm_rd_sync1 <= pcm_rd_ptr_spi;
         pcm_rd_sync2 <= pcm_rd_sync1;
     end
 
+    wire audio_read_end  = compact_end && spi_audio_read_cmd;
+    wire audio_reset_end = compact_end && spi_audio_reset_cmd;
+
     always @(posedge spi1_sck) begin
         pcm_wr_sync1_spi <= pcm_wr_ptr;
         pcm_wr_sync2_spi <= pcm_wr_sync1_spi;
-        if (frame_end && spi_audio_reset_cmd)
+        if (audio_reset_end)
             pcm_rd_ptr_spi <= pcm_wr_sync2_spi;
-        else if (frame_end && spi_audio_read_cmd)
+        else if (audio_read_end)
             pcm_rd_ptr_spi <= pcm_rd_ptr_spi + pcm_read_count_latched_spi;
     end
 
     always @(posedge fpga_clk) begin
-        /* DDS stage 1: fractional carry only */
+
         phase_frac    <= phase_frac_sum[23:0];
         phase_step_s1 <= phase_frac_sum[24];
 
-        /* DDS stage 2: global phase and wrap detect */
         phase_step_s2 <= phase_step_s1;
         if (phase_step_s1) begin
             global_phase_s2 <= global_phase_s2 + 8'd1;
@@ -807,7 +598,6 @@ module umh_fpga_top (
             wrap_s2 <= 1'b0;
         end
 
-        /* DDS stage 3: active bank toggle and address generation */
         phase_step_s3 <= phase_step_s2;
         wrap_s3       <= wrap_s2;
         if (wrap_s2 && swap_pending) begin
@@ -824,13 +614,9 @@ module umh_fpga_top (
             end
         end
 
-        /* DDS stage 4: Event RAM read propagation */
         phase_step_s4 <= phase_step_s3;
         wrap_s4       <= wrap_s3;
 
-        /* DDS stage 5: capture the EBR word for exactly one cycle.  STOP and
-         * link loss clear it in the same cycle that clears running, so no
-         * stale toggle can reach us_tx after the engine stops. */
         wrap_s5 <= wrap_s4;
         if (phase_step_s4 && running && !stop_event && !link_timeout)
             ev_run_hold_s5 <= ev_rd_data;
@@ -840,17 +626,12 @@ module umh_fpga_top (
         time_divider <= time_divider + 6'd1;
         if (us_tick) fpga_time <= fpga_time + 32'd1;
 
-        /* Any SPI chip-select assertion proves the STM32 is alive.  Keep the
-         * counter saturated so link_timeout remains stable until re-armed. */
         link_tick_d <= fpga_time[10];
         if (cs_fall)
             link_idle <= 4'd0;
         else if (fpga_time[10] && !link_tick_d && !link_timeout)
             link_idle <= link_idle + 4'd1;
 
-        /* Refresh the response only while CS is inactive.  At the next
-         * transaction it is already valid before the first SCK edge; once
-         * CS goes low it remains constant for the whole SPI frame. */
         if (fpga_cs_n) status_hold <= status_word;
 
         frame_toggle_meta      <= frame_toggle_spi;
@@ -864,36 +645,28 @@ module umh_fpga_top (
         mod_toggle_meta  <= mod_toggle_spi;
         mod_toggle_sync  <= mod_toggle_meta;
 
-        if (ws2812_frame_done != 1'b0 && ws2812_frames_left != 8'd0) begin ws2812_frames_left <= ws2812_frames_left - 8'd1; if (ws2812_frames_left == 8'd1) ws2812_enable <= 1'b0; end
+        if (ws2812_frame_done != 1'b0 && ws2812_frames_left != 2'd0) begin ws2812_frames_left <= ws2812_frames_left - 2'd1; if (ws2812_frames_left == 2'd1) ws2812_enable <= 1'b0; end
         if (frame_toggle_sync != frame_toggle_seen) begin
             frame_toggle_seen <= frame_toggle_sync;
             frame_settle      <= 4'd8;
         end else if (frame_settle != 4'd0) begin
             if (frame_settle != 4'd1)
                 frame_settle <= frame_settle - 4'd1;
-            /* FIX: Remove cs_sync gating to match WS2812 path fix. */
+
             if (frame_settle == 4'd1) begin
                 frame_settle <= 4'd0;
-                /* accepted_update_flags_spi is static from the toggle's SCK
-                 * edge, like rgb_values, so it is read directly. */
+
                 if (accepted_update_flags_spi[0]) frame_req <= 1'b1;
-                /* RGB/digital-only FRAMEs must not rebuild the ultrasound
-                 * event table.  A pending compact level is still handled
-                 * through frame_req_mod. */
 
                 if (mod_active == 1'b0) frame_req_mod <= 1'b0;
                 if (accepted_update_flags_spi[1] && rgb_values_complete_spi) rgb_hold <= rgb_values;
-                /* RGB is a persistent independent output.  Ultrasound-only
-                 * frames must not erase the last LED test/demo colour. */
+
                 if (accepted_update_flags_spi[1]) begin
-                    if (rgb_values_complete_spi) begin ws2812_enable <= 1'b1; ws2812_frames_left <= 8'd2; end
+                    if (rgb_values_complete_spi) begin ws2812_enable <= 1'b1; ws2812_frames_left <= WS2812_FRAMES; end
                 end
             end
         end
 
-        /* Modulated-aperture envelope: every pop asks the event builder to rebuild
-         * the inactive bank, so the active bank keeps driving us_tx without
-         * a gap.  feed_pop is only true while the builder is idle. */
         if (cs_rise) feed_wr <= feed_wr_spi;
         if (feed_pop) begin
             feed_rd <= feed_rd + 8'd1;
@@ -902,11 +675,6 @@ module umh_fpga_top (
             frame_req_mod <= 1'b1;
         end
 
-        /* MOD_FIXED hand-off.  A mode change rebuilds the inactive bank at
-         * level 0 and drops any queued envelope samples.  mod_level_spi is
-         * static from the SCK edge that raised the toggle, so after the
-         * synchroniser and 8 settle cycles it is read directly, like
-         * rgb_values. */
         if (mod_toggle_sync != mod_toggle_seen) begin
             mod_toggle_seen <= mod_toggle_sync;
             mod_settle <= 4'd8;
@@ -921,29 +689,21 @@ module umh_fpga_top (
             end
         end
 
-        /* WS2812-only update path (no frame building) */
         if (ws2812_toggle_sync != ws2812_toggle_seen) begin
             ws2812_toggle_seen <= ws2812_toggle_sync;
-            /* Allow the final SPI byte and the toggle synchronisers to settle
-             * before taking the RGB snapshot. */
-
-
 
             ws2812_settle <= 4'd15;
-            /* Enable the stream only after the snapshot is valid. */
+
         end else if (ws2812_settle != 4'd0) begin
-            /* RGB is written in the SPI clock domain.  Keep the toggle as
-             * the event marker and wait for the bus to settle before taking
-             * the snapshot in the 64 MHz domain. */
+
             if (ws2812_settle != 4'd1)
                 ws2812_settle <= ws2812_settle - 4'd1;
             if (ws2812_settle == 4'd1) begin
                 ws2812_settle <= 4'd0;
                 accepted_sequence <= accepted_sequence_spi;
                 if (rgb_values_complete_spi) rgb_hold <= rgb_values;
-                /* Enable the stream for two complete frames, then frame_done parks
-                 * the line low again. */
-                if (rgb_values_complete_spi) begin ws2812_enable <= 1'b1; ws2812_frames_left <= 8'd2; end
+
+                if (rgb_values_complete_spi) begin ws2812_enable <= 1'b1; ws2812_frames_left <= WS2812_FRAMES; end
             end
         end
 
@@ -951,14 +711,7 @@ module umh_fpga_top (
             EV_IDLE: begin
                 if (frame_req && !swap_pending) begin
                     frame_req        <= 1'b0;
-                    /* Common-level mode owns the event builder even when the
-                     * request came from a normal FRAME (the aperture load).
-                     * In that case the current common level is used and the
-                     * staging level byte only acts as an enable marker. */
                     build_mod      <= frame_req_mod | mod_active;
-                    /* pending_mod_level is also the persistent common level:
-                     * mode entry writes 0, FIFO pops update it, and an
-                     * aperture FRAME in that mode reuses the latest value. */
                     build_level      <= pending_mod_level;
                     frame_req_mod  <= 1'b0;
                     ev_state         <= EV_CLEAR;
@@ -969,9 +722,6 @@ module umh_fpga_top (
                 end
             end
             EV_CLEAR: begin
-                /* rmw_slot + 1 through the shared adder.  Its carry ends the
-                 * pass with rmw_slot back at 0; ev_ch stayed 0 throughout,
-                 * so staging_q already holds channel 0. */
                 rmw_slot <= ev_sum[7:0];
                 if (ev_sum[8]) ev_state <= EV_LEVEL;
             end
@@ -979,22 +729,17 @@ module umh_fpga_top (
                 ev_state <= EV_LEVEL;
             end
             EV_LEVEL: begin
-                /* Register the enable/common-level decision in its own
-                 * stage, so the falling-slot add starts from registers. */
-                build_level_eff <= event_level;
-                rmw_slot        <= staging_q[15:8];
-                ev_fall         <= 1'b0;
-                ev_state        <= EV_RD;
+                rmw_slot <= staging_q;
+                ev_fall  <= 1'b0;
+                ev_state <= EV_RD;
             end
             EV_RD: begin
-                /* The single EBR read port is shared with the running DDS.
-                 * Stay here until the builder address is actually latched;
-                 * otherwise EV_WR would XOR into a DDS word. */
-                if (ev_rd_grant) ev_state <= EV_WR;
+                if (ev_rd_grant) begin
+                    build_level_eff <= event_level;
+                    ev_state        <= EV_WR;
+                end
             end
             EV_WR: begin
-                /* Pass 1 toggles the rising slot, pass 2 the falling slot,
-                 * pass 3 (wrapped windows only) slot 0. */
                 if (!ev_fall) begin
                     rmw_slot <= ev_sum[7:0];
                     ev_wrap  <= ev_sum[8];
@@ -1017,11 +762,6 @@ module umh_fpga_top (
             default: ev_state <= EV_IDLE;
         endcase
 
-        /* STOP and link loss come after the builder so they win over a
-         * build that finishes in the same cycle; otherwise that build would
-         * set swap_pending and restart the output after the stop.  A WS2812
-         * command may follow STOP in the next SPI transaction, so this block
-         * never touches the LED state. */
         if (stop_event) begin
             stop_toggle_seen <= stop_toggle_sync;
             running       <= 1'b0;
@@ -1034,8 +774,7 @@ module umh_fpga_top (
             swap_pending  <= 1'b0;
             ev_state      <= EV_IDLE;
         end else if (link_timeout) begin
-            /* Link-loss failsafe.  Do not touch stop_toggle_seen: a later
-             * explicit STOP must still be recognised when the MCU reboots. */
+
             running       <= 1'b0;
             frame_req     <= 1'b0;
             frame_req_mod <= 1'b0;
@@ -1048,14 +787,6 @@ module umh_fpga_top (
             rgb_hold      <= 24'd0;
         end
 
-        /* ------------------------------------------------------------------
-         * SPH0641LU4H-1 clock sequencer.
-         *
-         * The clock is held low from power-up, then runs at 200 kHz for
-         * 20 ms (sleep exit plus the 15 ms wake-up specification), and only
-         * then switches to the 4 MHz ultrasonic mode.  64 MHz / 320 =
-         * 200 kHz, 64 MHz / 16 = 4 MHz.
-         * ------------------------------------------------------------------ */
         if (!mic_ultrasonic && !mic_warm) begin
             mic_clock_reg <= 1'b0;
             if (mic_boot_done) begin
@@ -1084,11 +815,7 @@ module umh_fpga_top (
                 mic_warm_half <= mic_warm_half + 8'd1;
             end
         end else begin
-            /* 4 MHz ultrasonic mode.  Phase 4 samples the DATA pins in the
-             * first (rising-edge) half period, phase 12 in the second
-             * (falling-edge) half period.  Netlist mapping: slot 0 = DATA0
-             * rising (U181), slot 1 = DATA0 falling (U180), slot 2 = DATA1
-             * rising (U204), slot 3 = DATA1 falling (U182). */
+
             mic_bc_valid <= 1'b0;
             mic_phase <= (mic_phase == 4'd15) ? 4'd0 : mic_phase + 4'd1;
             if (mic_phase == 4'd0) begin
@@ -1103,30 +830,28 @@ module umh_fpga_top (
             if (mic_phase == 4'd4) begin
                 `MIC_UPDATE(0, mic_data_0)
                 `MIC_UPDATE(2, mic_data_1)
-                if (pcm_ones[0] != 10'h3ff) pcm_ones[0] <= pcm_ones[0] + mic_data_0;
-                if (pcm_ones[2] != 10'h3ff) pcm_ones[2] <= pcm_ones[2] + mic_data_1;
+                pcm_acc <= pcm_acc_next;
                 mic_shift_0_l <= {mic_shift_0_l[14:0], mic_data_0};
                 mic_shift_1_l <= {mic_shift_1_l[14:0], mic_data_1};
             end else if (mic_phase == 4'd12) begin
                 `MIC_UPDATE(1, mic_data_0)
                 `MIC_UPDATE(3, mic_data_1)
-                if (pcm_ones[1] != 10'h3ff) pcm_ones[1] <= pcm_ones[1] + mic_data_0;
-                if (pcm_ones[3] != 10'h3ff) pcm_ones[3] <= pcm_ones[3] + mic_data_1;
-                if (pcm_decim_count == 9'd249) begin
-                    pcm_decim_count <= 9'd0;
+                pcm_acc <= pcm_acc_next;
+                if (pcm_decim_count == 8'd249) begin
+                    pcm_decim_count <= 8'd0;
                     if ((pcm_wr_ptr - pcm_rd_sync2) < 6'd32) begin
-                        pcm_fifo[pcm_wr_ptr[4:0]] <= {{3{pcm_centered[12]}}, pcm_centered} << 6;
+                        pcm_fifo[pcm_wr_ptr[4:0]] <= {pcm_acc_next, 6'b0};
                         pcm_wr_ptr <= pcm_wr_ptr + 6'd1;
                     end
-                    pcm_ones[0] <= 10'd0; pcm_ones[1] <= 10'd0;
-                    pcm_ones[2] <= 10'd0; pcm_ones[3] <= 10'd0;
+
+                    pcm_acc <= PCM_BIAS;
                 end else begin
-                    pcm_decim_count <= pcm_decim_count + 9'd1;
+                    pcm_decim_count <= pcm_decim_count + 8'd1;
                 end
                 mic_shift_0_r <= {mic_shift_0_r[14:0], mic_data_0};
                 mic_shift_1_r <= {mic_shift_1_r[14:0], mic_data_1};
-                mic_sample_count <= mic_sample_count + 5'd1;
-                if (mic_sample_count == 5'd15)
+                mic_sample_count <= mic_sample_count + 4'd1;
+                if (mic_sample_count == 4'd15)
                     mic_latest <= {mic_shift_0_l,
                                    {mic_shift_0_r[14:0], mic_data_0},
                                    mic_shift_1_l,
@@ -1136,9 +861,7 @@ module umh_fpga_top (
             end else if (mic_phase == 4'd13) begin
                 mic_bc_valid <= 1'b0;
                 if (mic_window_count >= 7'd100) begin
-                    /* The counters now contain exactly one LO period.  Hold
-                     * the result until the next complete window; the valid
-                     * pulse and the held value are consumed together. */
+
                     mic_win_i[0] <= 8'sd100 - {mic_xor_i[0], 1'b0};
                     mic_win_q[0] <= 8'sd100 - {mic_xor_q[0], 1'b0};
                     mic_win_i[1] <= 8'sd100 - {mic_xor_i[1], 1'b0};
@@ -1157,14 +880,6 @@ module umh_fpga_top (
             end
         end
 
-        /* ------------------------------------------------------------------
-         * MIC_CONFIG adoption and gate sequence.
-         *
-         * MIC_CONFIG moves the sequencer to state 1.  The next pattern swap
-         * moves it to state 2 and starts gate 0 at mic_cfg_start.  After the
-         * last gate the sequencer returns to state 1 so the next submitted
-         * pattern is measured without another configuration transaction.
-         * ------------------------------------------------------------------ */
         mic_cfg_toggle_meta <= mic_cfg_toggle_spi;
         mic_cfg_toggle_sync <= mic_cfg_toggle_meta;
 
@@ -1177,8 +892,6 @@ module umh_fpga_top (
                 mic_cfg_count   <= mic_cfg_count_w;
                 mic_cfg_width   <= mic_cfg_width_w;
                 mic_cfg_start   <= mic_cfg_hold_spi[23:8];
-                mic_cfg_step    <= (mic_cfg_hold_spi[39:24] < {9'd0, mic_cfg_width_w})
-                                   ? {9'd0, mic_cfg_width_w} : mic_cfg_hold_spi[39:24];
                 mic_cfg_gap     <= (mic_cfg_hold_spi[39:24] > {9'd0, mic_cfg_width_w})
                                    ? (mic_cfg_hold_spi[39:24] - {9'd0, mic_cfg_width_w}) : 16'd0;
                 mic_run_state   <= 2'd1;
@@ -1208,13 +921,7 @@ module umh_fpga_top (
             mic_gate_wait   <= mic_cfg_start;
             mic_done        <= 1'b0;
             mic_saturated   <= 1'b0;
-            /* Re-lock the PDM demodulator to each calibration pattern swap.
-             * The transmit DDS and the 4 MHz PDM clock are both derived from
-             * the same 64 MHz oscillator, but the DDS nominal carrier is
-             * 40000.0066 Hz while the PDM LO is exactly 40 kHz.  Without this
-             * re-lock the relative phase drifts ~2.4 deg/s, so H-matrix
-             * phases are not repeatable and phase calibration is meaningless.
-             * Frame swaps already occur on a transmit-carrier wrap. */
+
             mic_phase        <= 4'd0;
             mic_lo_n         <= 7'd99;
             mic_lo_i_r       <= 1'b1;
@@ -1227,9 +934,6 @@ module umh_fpga_top (
             mic_xor_q[2] <= 7'd0; mic_xor_q[3] <= 7'd0;
         end
 
-        /* Every 40 kHz sample either decrements the inter-gate wait, starts
-         * a gate (its EBR words are cleared first) or launches one read /
-         * add / write-back pass over the eight words of the active gate. */
         if (mic_bc_valid && mic_run_state == 2'd2 && !mic_acc_busy) begin
             if (!mic_gate_active) begin
                 if (mic_gate_wait != 16'd0) begin
@@ -1253,7 +957,7 @@ module umh_fpga_top (
         end
 
         case (mic_acc_state)
-            3'd1: begin  /* clear the eight words of a fresh gate */
+            3'd1: begin
                 mic_ram_we      <= 1'b1;
                 mic_ram_wr_addr <= {mic_acc_gate[5:0], mic_acc_word};
                 mic_ram_wr_data <= 16'd0;
@@ -1264,11 +968,11 @@ module umh_fpga_top (
                     mic_acc_word <= mic_acc_word + 3'd1;
                 end
             end
-            3'd2: begin  /* present the read address; data latches at this edge */
+            3'd2: begin
                 mic_ram_we    <= 1'b0;
                 mic_acc_state <= 3'd3;
             end
-            3'd3: begin  /* registered EBR data is valid: add and write back */
+            3'd3: begin
                 mic_ram_we      <= 1'b1;
                 mic_ram_wr_addr <= {mic_acc_gate[5:0], mic_acc_word};
                 mic_ram_wr_data <= mic_ram_rd_data + mic_acc_addend;
@@ -1285,7 +989,7 @@ module umh_fpga_top (
                     mic_acc_state <= 3'd2;
                 end
             end
-            3'd4: begin  /* gate complete: advance the sequence */
+            3'd4: begin
                 mic_ram_we    <= 1'b0;
                 mic_acc_busy  <= 1'b0;
                 mic_acc_last  <= 1'b0;
@@ -1296,11 +1000,7 @@ module umh_fpga_top (
         endcase
     end
 
-    /* Unconditional registered output: the flop has no clock enable or
-     * asynchronous clear, so nothing depends on LSE's gated-enable
-     * translation.  Slot 0 (wrap_s5) reloads the absolute state, any other
-     * step XORs its toggle mask, and a stopped engine settles at zero because
-     * ev_run_hold_s5 is already zero then.  One LUT4 per channel. */
+    /* Unconditional register, no gated enable or async clear: LSE gated-enable translation once broke us_tx. */
     reg  [83:0] us_tx_next;
     always @* us_tx_next = ev_run_hold_s5 ^ ((wrap_s5 || !running) ? 84'd0 : us_tx);
 
@@ -1324,8 +1024,9 @@ module umh_fpga_top (
         spi_rx_shift = 8'd0; spi_bit_count = 3'd0; spi_byte_count = 9'd0;
         spi_command = 8'd0; spi_version = 8'd0; spi_update_flags = 16'd0;
         spi_extension_length = 16'd0; spi_frame_sequence = 16'd0; accepted_update_flags_spi = 2'd0;
-        spi_expected_length = HEADER_BYTES; spi_channel_index = 7'd0;
-        spi_channel_field = 2'd0; spi_phase_pending = 8'd0; spi_rgb_captured = 2'd0;
+        spi_expected_length = HEADER_BYTES; spi_expected_last = 9'd35;
+        spi_channel_index = 7'd0;
+        spi_channel_field = 2'd0; spi_rgb_captured = 2'd0;
         spi_compact_data = 8'd0; mod_level_spi = 1'b0;
         mod_toggle_spi = 1'b0; feed_wr_spi = 8'd0;
         frame_toggle_spi = 1'b0; stop_toggle_spi = 1'b0; invalid_frame_spi = 1'b0;
@@ -1336,7 +1037,7 @@ module umh_fpga_top (
         ws2812_toggle_meta = 1'b0; ws2812_toggle_sync = 1'b0; ws2812_toggle_seen = 1'b0;
         invalid_frame_meta = 1'b0; invalid_frame_sync = 1'b0;
         pending_sequence = 16'd0; accepted_sequence = 16'd0; frame_settle = 4'd0;
-        rgb_hold = 24'd0; status_hold = 128'd0;
+        rgb_hold = 24'd0; status_hold = 128'd0; status_miso_q = 1'b0;
         ws2812_settle = 4'd0;
         mod_active = 1'b0; pending_mod_level = 8'd0;
         build_level = 8'd0; build_level_eff = 8'd0;
@@ -1359,19 +1060,16 @@ module umh_fpga_top (
         mic_clock_reg = 1'b0;
         mic_shift_0_l = 16'd0; mic_shift_0_r = 16'd0;
         mic_shift_1_l = 16'd0; mic_shift_1_r = 16'd0;
-        mic_sample_count = 5'd0; mic_latest = 64'd0;
-        pcm_decim_count = 9'd0;
-        pcm_ones[0] = 10'd0; pcm_ones[1] = 10'd0;
-        pcm_ones[2] = 10'd0; pcm_ones[3] = 10'd0;
+        mic_sample_count = 4'd0; mic_latest = 64'd0;
+        pcm_decim_count = 8'd0;
+        pcm_acc = PCM_BIAS;
         pcm_wr_ptr = 6'd0; pcm_rd_ptr_spi = 6'd0;
         pcm_rd_sync1 = 6'd0; pcm_rd_sync2 = 6'd0;
         pcm_wr_sync1_spi = 6'd0; pcm_wr_sync2_spi = 6'd0;
         pcm_read_count_latched_spi = 5'd0;
         mic_warm = 1'b0; mic_ultrasonic = 1'b0;
         mic_warm_half = 8'd0; mic_phase = 4'd0;
-        /* Microphone demodulator and gate accumulator.  LSE has no reset, so
-         * every state element is spelled out here: an uninitialised gate
-         * configuration would otherwise leak into the first MIC_READ. */
+
         mic_lo_n = 7'd99; mic_window_count = 7'd0; mic_bc_valid = 1'b0;
         mic_lo_i_r = 1'b1; mic_lo_q_r = 1'b1;
         mic_xor_i[0] = 7'd0; mic_xor_i[1] = 7'd0;
@@ -1383,7 +1081,7 @@ module umh_fpga_top (
         mic_win_q[0] = 8'sd0; mic_win_q[1] = 8'sd0;
         mic_win_q[2] = 8'sd0; mic_win_q[3] = 8'sd0;
         mic_cfg_count = 7'd64; mic_cfg_start = 16'd0;
-        mic_cfg_step = 16'd12; mic_cfg_width = 7'd8; mic_cfg_gap = 16'd4;
+        mic_cfg_width = 7'd8; mic_cfg_gap = 16'd4;
         mic_run_state = 2'd0; mic_done = 1'b0; mic_saturated = 1'b0;
         mic_block_count = 16'd0; mic_gate_index = 7'd0; mic_gate_fill = 7'd0;
         mic_gate_wait = 16'd0; mic_gate_active = 1'b0;
@@ -1394,10 +1092,9 @@ module umh_fpga_top (
         mic_cfg_toggle_spi = 1'b0; mic_cfg_toggle_meta = 1'b0;
         mic_cfg_toggle_sync = 1'b0; mic_cfg_toggle_seen = 1'b0;
         mic_cfg_settle = 4'd0;
-        /* WS2812 starts parked low.  An RGB update enables two complete frames. */
-        /* frame_done then parks it low again; idle is safer for a static LED. */
+
         ws2812_enable = 1'b0;
-        ws2812_frames_left = 8'd0;
+        ws2812_frames_left = 2'd0;
     end
 endmodule
 

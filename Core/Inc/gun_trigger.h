@@ -249,6 +249,7 @@ typedef struct {
    * worst chain below its 3 KiB grant (see the stack table in app_freertos.c). */
   float real_accum[UMH_DEVICE_CHANNEL_COUNT];
   float imag_accum[UMH_DEVICE_CHANNEL_COUNT];
+  int16_t azimuth_q10[UMH_DEVICE_CHANNEL_COUNT];
 } umh_gun_trigger_t;
 
 void gun_trigger_init(umh_gun_trigger_t *trigger);

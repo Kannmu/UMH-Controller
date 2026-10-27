@@ -45,18 +45,13 @@ BUILD_DIRECTORY ?= build
 ######################################
 # Optimization
 ######################################
-# Optimization is switched based upon the DEBUG variable. If set to 1
-# it will be build in debug mode with the Og optimization flag (optimized for debugging).
-# If set to 0 (false) then by default the variable is used in the configuration yaml
-# This can also be overwritten using the environment variable or by overwriting it
-# by calling make with the OPTIMIZATION variable e.g.:
-# make -f STM32Make.make -j 16  OPTIMIZATION=Os
+# make -f STM32Make.make DEBUG=1   -> build/debug,   -Og for debugging
+# make -f STM32Make.make DEBUG=0   -> build/release, OPTIMIZATION (default -O2)
 
 # variable which determines if it is a debug build
 DEBUG ?= 1
 
-# debug flags when debug is defined
-OPTIMIZATION ?= -Og
+OPTIMIZATION ?= -O2
 
 RELEASE_DIRECTORY = $(BUILD_DIRECTORY)/debug
 ifeq ($(DEBUG),1)
@@ -65,7 +60,7 @@ ifeq ($(DEBUG),1)
   $(TARGET) := $(TARGET)-debug
   RELEASE_DIRECTORY := $(BUILD_DIRECTORY)/debug
 else
-  OPTIMIZATION_FLAGS += $(OPTIMIZATION)
+  OPTIMIZATION_FLAGS += $(OPTIMIZATION) -fno-math-errno -fno-trapping-math -g3 -gdwarf-4
   $(TARGET) := $(TARGET)-release
   RELEASE_DIRECTORY := $(BUILD_DIRECTORY)/release
 endif
@@ -111,6 +106,7 @@ Core/Src/syscalls.c \
 Core/Src/sysmem.c \
 Core/Src/system_status.c \
 Core/Src/system_stm32g4xx.c \
+Core/Src/task_stats.c \
 Core/Src/umh_fast_math.c \
 Core/Src/umh_protocol.c \
 Core/Src/us_calibration.c \
@@ -296,6 +292,10 @@ CXXFLAGS = $(MCU) $(CXX_DEFS) $(C_INCLUDES) $(OPTIMIZATION_FLAGS)
 CFLAGS += -Wall -fdata-sections -ffunction-sections 
 ASFLAGS += -Wall -fdata-sections -ffunction-sections 
 CXXFLAGS += -fno-exceptions -fno-rtti 
+
+VOICE_DSP_OBJECTS = $(addprefix $(RELEASE_DIRECTORY)/,gun_voice_dsp.o arm_common_tables.o arm_cfft_f32.o arm_cfft_radix8_f32.o arm_bitreversal2.o arm_rfft_fast_f32.o arm_rfft_fast_init_f32.o)
+$(VOICE_DSP_OBJECTS): CFLAGS += -O3 -fno-math-errno -fno-trapping-math
+$(RELEASE_DIRECTORY)/usb_audio_dsp.o: CFLAGS += -O3 -fno-strict-aliasing
 
 # Generate dependency information
 CFLAGS += -MMD -MP -MF"$(@:%.o=%.d)"

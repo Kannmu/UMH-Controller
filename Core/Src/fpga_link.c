@@ -9,6 +9,7 @@
 #include <string.h>
 
 uint8_t fpga_logical_to_physical[UMH_DEVICE_CHANNEL_COUNT];
+static uint8_t fpga_channel_map_identity = 1u;
 
 static void cs_low(void) { HAL_GPIO_WritePin(FPGA_CS_GPIO_Port, FPGA_CS_Pin, GPIO_PIN_RESET); }
 static void cs_high(void) { HAL_GPIO_WritePin(FPGA_CS_GPIO_Port, FPGA_CS_Pin, GPIO_PIN_SET); }
@@ -17,6 +18,8 @@ static void mark_link_fault(fpga_link_t *link)
 {
   if (link == NULL) return;
   link->running = 0u;
+  link->levels_valid = 0u;
+  link->hold_valid = 0u;
   link->status.status_flags |= FPGA_STATUS_OUTPUT_FAULT;
 }
 
@@ -28,12 +31,17 @@ static void mark_link_fault(fpga_link_t *link)
 #define get_u32(p)     umh_read_u32_le(p)
 
 static void spi_dma_blocking_init(void);
+static uint16_t pack_header(fpga_link_t *link, uint8_t command,
+                            const umh_output_frame_t *frame,
+                            uint16_t extension_length);
 
 void fpga_link_init(fpga_link_t *link, SPI_HandleTypeDef *spi)
 {
   osMutexAttr_t mutex_attributes;
   if (link == NULL) return;
   memset(link, 0, sizeof(*link));
+  link->levels_valid = 0u;
+  link->hold_valid = 0u;
   link->spi = spi;
   memset(&mutex_attributes, 0, sizeof(mutex_attributes));
   mutex_attributes.name = "fpga-link";
@@ -44,6 +52,15 @@ void fpga_link_init(fpga_link_t *link, SPI_HandleTypeDef *spi)
   link->status.fifo_credit = FPGA_FIFO_DEFAULT_CREDIT;
   for (uint16_t map_i = 0u; map_i < UMH_DEVICE_CHANNEL_COUNT; ++map_i)
     fpga_logical_to_physical[map_i] = (uint8_t)map_i;
+  fpga_channel_map_identity = 1u;
+  {
+    umh_output_frame_t phase_frame;
+    memset(&phase_frame, 0, sizeof(phase_frame));
+    phase_frame.update_flags = UMH_FRAME_FLAG_ULTRASOUND;
+    (void)pack_header(link, FPGA_CMD_FRAME_PHASE, &phase_frame, 0u);
+    memcpy(link->phase_header, link->tx, FPGA_PHASE_HEADER_BYTES);
+    link->transaction_sequence = 0u;
+  }
   cs_high();
   spi_dma_blocking_init();
 }
@@ -82,10 +99,9 @@ void fpga_link_calibration_link_end(fpga_link_t *link, uint32_t saved_cr1)
 }
 
 
-/* Try the DMA fast path first; if it ever times out, fall back permanently to
- * the register loop below and report the switch.  Both paths produce exactly
- * the same wire transaction (CS low for the whole frame, full duplex). */
 static uint8_t exchange_use_polling;
+static uint8_t exchange_dma_failures;
+#define FPGA_SPI_DMA_FAILURES_LATCH 3u
 
 /* 2 ms bounds every SPI frame: the longest legal frame (256 B at the /32
  * calibration clock) takes 0.39 ms, and the FPGA link watchdog fires after
@@ -217,6 +233,7 @@ static int exchange_dma(fpga_link_t *link, uint16_t length)
   while ((spi->SR & SPI_SR_BSY) != 0u &&
          (DWT->CYCCNT - start_cycles) <= FPGA_SPI_TIMEOUT_CYCLES) {
   }
+
   /* CS returns high on every path so the FPGA always sees the frame end;
    * a failed DMA frame is retried once by the register path in exchange(). */
   cs_high();
@@ -244,9 +261,16 @@ static int exchange(fpga_link_t *link, uint16_t length)
   link->tx_length = length;
   if (exchange_use_polling == 0u && length > FPGA_SPI_POLL_MAX_BYTES) {
     int dma_result = exchange_dma(link, length);
-    if (dma_result == 0) return 0;
-    exchange_use_polling = 1u;
-    system_status_fault(UMH_FAULT_FPGA_SPI_TIMEOUT, 21u, UMH_FAULT_WARNING);
+    if (dma_result == 0) {
+      exchange_dma_failures = 0u;
+      return 0;
+    }
+    link->levels_valid = 0u;
+    link->hold_valid = 0u;
+    if (++exchange_dma_failures >= FPGA_SPI_DMA_FAILURES_LATCH) {
+      exchange_use_polling = 1u;
+      system_status_fault(UMH_FAULT_FPGA_SPI_TIMEOUT, 21u, UMH_FAULT_WARNING);
+    }
   }
 
   /* HAL_SPI_Init() leaves SPE cleared; the HAL transfer functions enable it
@@ -295,24 +319,19 @@ exchange_timeout:
   return -3;
 }
 
-static uint16_t pack_common(fpga_link_t *link, uint8_t command, const umh_output_frame_t *frame)
+static uint16_t pack_header(fpga_link_t *link, uint8_t command,
+                            const umh_output_frame_t *frame,
+                            uint16_t extension_length)
 {
   uint16_t pos = 0u;
-  uint16_t i;
-  uint16_t extension_length = 0u;
+  uint16_t update = frame != NULL ? frame->update_flags : 0u;
   uint8_t mask[UMH_DEVICE_CHANNEL_BITMAP_BYTES] = {0};
-  uint8_t update = frame != NULL ? (uint8_t)frame->update_flags : 0u;
-  if (link == NULL) return 0u;
-  if (frame != NULL && (update & UMH_FRAME_FLAG_EXTENDED) != 0u) {
-    extension_length = frame->extension_length;
-    if (extension_length > sizeof(frame->extension)) return 0u;
-  }
   link->tx[pos++] = command;
   link->tx[pos++] = FPGA_PROTOCOL_VERSION;
   put_u32(&link->tx[pos], link->transaction_sequence++); pos += 4u;
   put_u32(&link->tx[pos], frame != NULL ? frame->sequence : 0u); pos += 4u;
   put_u64(&link->tx[pos], frame != NULL ? frame->deadline : 0u); pos += 8u;
-  put_u16(&link->tx[pos], frame != NULL ? frame->update_flags : 0u); pos += 2u;
+  put_u16(&link->tx[pos], update); pos += 2u;
   if ((update & UMH_FRAME_FLAG_ULTRASOUND) != 0u) {
     memset(mask, 0xFF, sizeof(mask));
     mask[sizeof(mask) - 1u] = FPGA_ULTRASOUND_BITMAP_LAST_MASK;
@@ -325,16 +344,35 @@ static uint16_t pack_common(fpga_link_t *link, uint8_t command, const umh_output
   link->tx[pos++] = frame != NULL ? frame->digital_mask : 0u;
   link->tx[pos++] = frame != NULL ? frame->digital_state : 0u;
   put_u16(&link->tx[pos], extension_length); pos += 2u;
+  return pos;
+}
+
+static uint16_t pack_common(fpga_link_t *link, uint8_t command, const umh_output_frame_t *frame)
+{
+  uint16_t pos;
+  uint16_t i;
+  uint16_t extension_length = 0u;
+  uint8_t update = frame != NULL ? (uint8_t)frame->update_flags : 0u;
+  if (link == NULL) return 0u;
+  if (frame != NULL && (update & UMH_FRAME_FLAG_EXTENDED) != 0u) {
+    extension_length = frame->extension_length;
+    if (extension_length > sizeof(frame->extension)) return 0u;
+  }
+  pos = pack_header(link, command, frame, extension_length);
   if (frame != NULL && (update & UMH_FRAME_FLAG_ULTRASOUND) != 0u) {
     /* Logical/protocol channel i is element E(i+1).  The FPGA output bit
      * order follows the PCB netlist, so serialization applies the fixed
      * E## -> us_tx bit permutation here, once, for every producer. */
     uint16_t channel_base = pos;
     pos = (uint16_t)(pos + 2u * UMH_DEVICE_CHANNEL_COUNT);
-    for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
-      uint8_t physical = fpga_logical_to_physical[i];
-      link->tx[channel_base + 2u * (uint16_t)physical] = frame->channels[i].phase;
-      link->tx[channel_base + 2u * (uint16_t)physical + 1u] = frame->channels[i].level;
+    if (fpga_channel_map_identity != 0u) {
+      memcpy(&link->tx[channel_base], frame->channels, sizeof(frame->channels));
+    } else {
+      for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
+        uint8_t physical = fpga_logical_to_physical[i];
+        link->tx[channel_base + 2u * (uint16_t)physical] = frame->channels[i].phase;
+        link->tx[channel_base + 2u * (uint16_t)physical + 1u] = frame->channels[i].level;
+      }
     }
   }
   if (frame != NULL && (update & UMH_FRAME_FLAG_RGB) != 0u) {
@@ -349,6 +387,82 @@ static uint16_t pack_common(fpga_link_t *link, uint8_t command, const umh_output
   return pos;
 }
 
+static uint8_t pack_phase_fused(fpga_link_t *link, const umh_output_frame_t *frame)
+{
+  uint16_t i;
+  uint16_t phases;
+  uint32_t pair;
+  if (fpga_channel_map_identity == 0u) {
+    for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
+      if (frame->channels[i].level != link->levels[i]) return 0u;
+      link->tx[FPGA_PHASE_HEADER_BYTES + (uint16_t)fpga_logical_to_physical[i]] =
+          frame->channels[i].phase;
+      link->hold_phases[i] = frame->channels[i].phase;
+    }
+    return 1u;
+  }
+  for (i = 0u; i < (uint16_t)(UMH_DEVICE_CHANNEL_COUNT / 2u); ++i) {
+    memcpy(&pair, &frame->channels[2u * i], sizeof(pair));
+    if ((uint8_t)(pair >> 8) != link->levels[2u * i] ||
+        (uint8_t)(pair >> 24) != link->levels[2u * i + 1u])
+      return 0u;
+    phases = (uint16_t)((pair & 0x000000FFu) | ((pair >> 8) & 0x0000FF00u));
+    memcpy(&link->tx[FPGA_PHASE_HEADER_BYTES + 2u * i], &phases, sizeof(phases));
+    memcpy(&link->hold_phases[2u * i], &phases, sizeof(phases));
+  }
+  return 1u;
+}
+
+static void phase_header_patch(fpga_link_t *link, const umh_output_frame_t *frame)
+{
+  uint32_t transaction = link->transaction_sequence++;
+  memcpy(link->tx, link->phase_header, FPGA_PHASE_HEADER_BYTES);
+  memcpy(&link->tx[2], &transaction, sizeof(transaction));
+  memcpy(&link->tx[6], &frame->sequence, sizeof(frame->sequence));
+  memcpy(&link->tx[10], &frame->deadline, sizeof(frame->deadline));
+  link->tx[32] = frame->digital_mask;
+  link->tx[33] = frame->digital_state;
+}
+
+static uint8_t phase_only_eligible(const fpga_link_t *link,
+                                   const umh_output_frame_t *frame)
+{
+  if (link->levels_valid == 0u) return 0u;
+  if ((frame->update_flags & UMH_FRAME_FLAG_ULTRASOUND) == 0u) return 0u;
+  if ((frame->update_flags & ~UMH_FRAME_FLAG_ULTRASOUND) != 0u) return 0u;
+  if ((link->status.status_flags & FPGA_STATUS_PHASE_ONLY) == 0u) return 0u;
+  return 1u;
+}
+
+static uint8_t hold_match(const fpga_link_t *link, const umh_output_frame_t *frame)
+{
+  uint16_t i;
+  if (link->hold_valid == 0u) return 0u;
+  if ((link->hold_flags & UMH_FRAME_FLAG_ULTRASOUND) == 0u) return 0u;
+  if ((frame->update_flags &
+       (UMH_FRAME_FLAG_DIGITAL | UMH_FRAME_FLAG_EXTENDED)) != 0u)
+    return 0u;
+  for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
+    if (frame->channels[i].phase != link->hold_phases[i]) return 0u;
+    if (frame->channels[i].level != link->levels[i]) return 0u;
+  }
+  if ((frame->update_flags & UMH_FRAME_FLAG_RGB) != 0u &&
+      ((link->hold_flags & UMH_FRAME_FLAG_RGB) == 0u ||
+       memcmp(link->hold_rgb, frame->rgb, sizeof(link->hold_rgb)) != 0))
+    return 0u;
+  return 1u;
+}
+
+static void cache_levels(fpga_link_t *link, const umh_output_frame_t *frame)
+{
+  uint16_t i;
+  for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
+    link->levels[i] = frame->channels[i].level;
+    link->hold_phases[i] = frame->channels[i].phase;
+  }
+  link->levels_valid = 1u;
+}
+
 static int unpack_status(fpga_link_t *link)
 {
   if (link == NULL || link->tx_length < sizeof(fpga_status_wire_t)) return -1;
@@ -361,22 +475,21 @@ static int unpack_status(fpga_link_t *link)
   link->status.accepted_sequence = get_u32(&link->rx[12]);
   if (link->status.protocol_version != FPGA_PROTOCOL_VERSION) {
     link->running = 0u;
+    link->levels_valid = 0u;
+    link->hold_valid = 0u;
     system_status_clear(UMH_SYSTEM_FPGA_READY);
     system_status_set(UMH_SYSTEM_ERROR);
     system_status_fault(UMH_FAULT_FPGA_PROTOCOL, link->status.protocol_version, UMH_FAULT_CRITICAL);
     return -2;
   }
+  if ((link->status.status_flags &
+       (FPGA_STATUS_PHASE_ONLY | FPGA_STATUS_RUNNING)) !=
+      (FPGA_STATUS_PHASE_ONLY | FPGA_STATUS_RUNNING)) {
+    link->levels_valid = 0u;
+    link->hold_valid = 0u;
+  }
   system_status_set(UMH_SYSTEM_FPGA_READY);
   return 0;
-}
-
-static uint8_t fpga_ultrasound_equal(const umh_output_frame_t *held,
-                                     const umh_output_frame_t *frame)
-{
-  if (held == NULL || frame == NULL) return 0u;
-  if ((held->update_flags & UMH_FRAME_FLAG_ULTRASOUND) == 0u ||
-      (frame->update_flags & UMH_FRAME_FLAG_ULTRASOUND) == 0u) return 0u;
-  return memcmp(held->channels, frame->channels, sizeof(frame->channels)) == 0u ? 1u : 0u;
 }
 
 static int fpga_send_rgb_locked(fpga_link_t *link, const umh_rgb_value_t *rgb)
@@ -411,17 +524,27 @@ int fpga_link_submit_allow_hold(fpga_link_t *link, const umh_output_frame_t *fra
 {
   uint16_t length;
   uint8_t frame_has_ultrasound;
+  uint8_t phase_only;
   uint8_t tx_done = 0u;
   if (link == NULL || frame == NULL || link->mutex == NULL) return -1;
   frame_has_ultrasound = (frame->update_flags & UMH_FRAME_FLAG_ULTRASOUND) != 0u;
   if (osMutexAcquire(link->mutex, osWaitForever) != osOK) return -1;
 
+  if (allow_hold != 0u && frame_has_ultrasound != 0u && hold_match(link, frame) != 0u) {
+    if ((uint32_t)(HAL_GetTick() - link->hold_last_tx_tick) >= 10u) {
+      (void)fpga_status_locked(link);
+      link->hold_last_tx_tick = HAL_GetTick();
+    }
+    osMutexRelease(link->mutex);
+    return 0;
+  }
+
   /* RGB-only frames must not command the event builder. */
   if (allow_hold != 0u && frame_has_ultrasound == 0u) {
     if ((frame->update_flags & UMH_FRAME_FLAG_RGB) != 0u &&
         (link->hold_valid == 0u ||
-         (link->hold_frame.update_flags & UMH_FRAME_FLAG_RGB) == 0u ||
-         memcmp(link->hold_frame.rgb, frame->rgb, sizeof(frame->rgb)) != 0)) {
+         (link->hold_flags & UMH_FRAME_FLAG_RGB) == 0u ||
+         memcmp(link->hold_rgb, frame->rgb, sizeof(link->hold_rgb)) != 0)) {
       if (fpga_send_rgb_locked(link, frame->rgb) != 0) {
         osMutexRelease(link->mutex);
         return -4;
@@ -430,37 +553,8 @@ int fpga_link_submit_allow_hold(fpga_link_t *link, const umh_output_frame_t *fra
       tx_done = 1u;
     }
     if ((frame->update_flags & UMH_FRAME_FLAG_RGB) != 0u) {
-      memcpy(link->hold_frame.rgb, frame->rgb, sizeof(link->hold_frame.rgb));
-      link->hold_frame.update_flags |= UMH_FRAME_FLAG_RGB;
-    }
-    if (tx_done == 0u &&
-        (uint32_t)(HAL_GetTick() - link->hold_last_tx_tick) >= 10u) {
-      (void)fpga_status_locked(link);
-      link->hold_last_tx_tick = HAL_GetTick();
-    }
-    osMutexRelease(link->mutex);
-    return 0;
-  }
-
-  /* Hold a static 84-channel image; only re-send on phase/level change. */
-  if (allow_hold != 0u && frame_has_ultrasound != 0u && link->hold_valid != 0u &&
-      fpga_ultrasound_equal(&link->hold_frame, frame) != 0u) {
-    if ((frame->update_flags & UMH_FRAME_FLAG_RGB) != 0u &&
-        ((link->hold_frame.update_flags & UMH_FRAME_FLAG_RGB) == 0u ||
-         memcmp(link->hold_frame.rgb, frame->rgb, sizeof(frame->rgb)) != 0)) {
-      if (fpga_send_rgb_locked(link, frame->rgb) != 0) {
-        osMutexRelease(link->mutex);
-        return -4;
-      }
-      link->hold_last_tx_tick = HAL_GetTick();
-      tx_done = 1u;
-    }
-    {
-      umh_output_channel_t channels[UMH_DEVICE_CHANNEL_COUNT];
-      memcpy(channels, link->hold_frame.channels, sizeof(channels));
-      link->hold_frame = *frame;
-      memcpy(link->hold_frame.channels, channels, sizeof(channels));
-      link->hold_frame.update_flags |= UMH_FRAME_FLAG_ULTRASOUND;
+      memcpy(link->hold_rgb, frame->rgb, sizeof(link->hold_rgb));
+      link->hold_flags |= UMH_FRAME_FLAG_RGB;
     }
     if (tx_done == 0u &&
         (uint32_t)(HAL_GetTick() - link->hold_last_tx_tick) >= 10u) {
@@ -475,17 +569,32 @@ int fpga_link_submit_allow_hold(fpga_link_t *link, const umh_output_frame_t *fra
     osMutexRelease(link->mutex);
     return -1;
   }
-  length = pack_common(link, FPGA_CMD_FRAME, frame);
+  link->hold_valid = 0u;
+  phase_only = phase_only_eligible(link, frame);
+  if (phase_only != 0u) {
+    phase_only = pack_phase_fused(link, frame);
+    if (phase_only != 0u) phase_header_patch(link, frame);
+  }
+  if (phase_only != 0u) {
+    length = (uint16_t)(FPGA_PHASE_HEADER_BYTES + UMH_DEVICE_CHANNEL_COUNT);
+  } else {
+    length = pack_common(link, FPGA_CMD_FRAME, frame);
+  }
   if (length == 0u) { osMutexRelease(link->mutex); return -2; }
   if (exchange(link, length) != 0) { osMutexRelease(link->mutex); return -3; }
   if (unpack_status(link) != 0) { osMutexRelease(link->mutex); return -4; }
+  if (phase_only != 0u) {
+    ++link->phase_frames;
+  } else {
+    if (frame_has_ultrasound != 0u) cache_levels(link, frame);
+    ++link->full_frames;
+  }
   link->running = 1u;
   if (allow_hold != 0u) {
-    link->hold_frame = *frame;
+    link->hold_flags = (uint16_t)(frame->update_flags | UMH_FRAME_FLAG_ULTRASOUND);
+    memcpy(link->hold_rgb, frame->rgb, sizeof(link->hold_rgb));
     link->hold_valid = 1u;
     link->hold_last_tx_tick = HAL_GetTick();
-  } else {
-    link->hold_valid = 0u;
   }
   osMutexRelease(link->mutex);
   return 0;
@@ -509,6 +618,8 @@ int fpga_link_safe_stop(fpga_link_t *link)
   length = pack_common(link, FPGA_CMD_STOP, NULL);
   if (exchange(link, length) != 0) { osMutexRelease(link->mutex); return -2; }
   if (unpack_status(link) != 0) { osMutexRelease(link->mutex); return -3; }
+  link->levels_valid = 0u;
+  link->hold_valid = 0u;
   {
     umh_rgb_value_t black[UMH_DEVICE_RGB_COUNT];
     memset(black, 0, sizeof(black));
@@ -518,7 +629,6 @@ int fpga_link_safe_stop(fpga_link_t *link)
     }
   }
   link->running = 0u;
-  link->hold_valid = 0u;
   osMutexRelease(link->mutex);
   return 0;
 }
@@ -537,8 +647,8 @@ int fpga_link_set_ws2812(fpga_link_t *link, uint8_t r, uint8_t g, uint8_t b)
   if (osMutexAcquire(link->mutex, osWaitForever) != osOK) return -1;
   result = fpga_send_rgb_locked(link, rgb);
   if (result == 0 && link->hold_valid != 0u) {
-    memcpy(link->hold_frame.rgb, rgb, sizeof(rgb));
-    link->hold_frame.update_flags |= UMH_FRAME_FLAG_RGB;
+    memcpy(link->hold_rgb, rgb, sizeof(link->hold_rgb));
+    link->hold_flags |= UMH_FRAME_FLAG_RGB;
   }
   osMutexRelease(link->mutex);
   return result;
@@ -643,8 +753,11 @@ int fpga_link_mod_feed(fpga_link_t *link, const uint8_t *levels, uint8_t count)
   link->tx[1] = FPGA_PROTOCOL_VERSION;
   if (count != 0u) memcpy(&link->tx[2], levels, count);
   if (exchange(link, (uint16_t)(2u + count)) != 0) result = -2;
-  else if (link->rx[0] != FPGA_PROTOCOL_VERSION) result = -4;
-  else result = link->status.mod_fill = link->rx[1];
+  else if (link->rx[0] != FPGA_PROTOCOL_VERSION) {
+    link->levels_valid = 0u;
+    link->hold_valid = 0u;
+    result = -4;
+  } else result = link->status.mod_fill = link->rx[1];
   osMutexRelease(link->mutex);
   return result;
 }

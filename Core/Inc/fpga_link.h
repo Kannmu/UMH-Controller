@@ -9,12 +9,14 @@
 #define FPGA_PROTOCOL_VERSION 1u
 #define FPGA_FIFO_DEFAULT_CREDIT 64u
 #define FPGA_TX_BUFFER_SIZE 256u  /* longest transaction: 36+168+12+32 = 248 */
+#define FPGA_PHASE_HEADER_BYTES 36u
 #define FPGA_ULTRASOUND_BITMAP_LAST_MASK 0x0Fu
 #define FPGA_STATUS_UNDERRUN      (1u << 0)
 #define FPGA_STATUS_OVERFLOW      (1u << 1)
 #define FPGA_STATUS_INVALID_FRAME (1u << 2)
 #define FPGA_STATUS_OUTPUT_FAULT  (1u << 3)
 #define FPGA_STATUS_RUNNING       (1u << 4)
+#define FPGA_STATUS_PHASE_ONLY    (1u << 14)
 /* Diagnostic bit 15: common-level mode is active (one fixed 84-channel phase
  * image, all channels driven at a single streamed amplitude).  STM32 uses it to
  * prove that a new FPGA bitstream understands MOD_FIXED (0x17), so old logic
@@ -62,6 +64,7 @@ typedef enum {
    * already deployed in the field. */
   FPGA_CMD_MOD_FIXED = 0x17u,
   FPGA_CMD_MOD_FEED = 0x1Au,
+  FPGA_CMD_FRAME_PHASE = 0x1Bu,
   FPGA_CMD_MIC_AUDIO_READ = 0x16u,
   FPGA_CMD_MIC_AUDIO_RESET = 0x18u
 } fpga_command_t;
@@ -97,11 +100,18 @@ typedef struct {
   uint32_t transaction_sequence;
   fpga_status_wire_t status;
   uint8_t running;
-  umh_output_frame_t hold_frame;
+  uint16_t hold_flags;
+  umh_rgb_value_t hold_rgb[UMH_DEVICE_RGB_COUNT];
   uint8_t hold_valid;
   uint32_t hold_last_tx_tick;
+  uint8_t hold_phases[UMH_DEVICE_CHANNEL_COUNT];
+  uint8_t phase_header[FPGA_PHASE_HEADER_BYTES];
   osMutexId_t mutex;
   StaticSemaphore_t mutex_memory;
+  uint32_t full_frames;
+  uint32_t phase_frames;
+  uint8_t levels[UMH_DEVICE_CHANNEL_COUNT];
+  uint8_t levels_valid;
 } fpga_link_t;
 
 /* Runtime logical-channel -> us_tx bit permutation.  Initialized to identity

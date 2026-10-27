@@ -38,6 +38,18 @@ extern SPI_HandleTypeDef hspi3;
 
 /* USER CODE BEGIN Private defines */
 
+#ifndef UMH_SPI1_LINK_DIV
+#define UMH_SPI1_LINK_DIV 4
+#endif
+
+#if UMH_SPI1_LINK_DIV == 4
+#define UMH_SPI1_LINK_PRESCALER SPI_BAUDRATEPRESCALER_4
+#elif UMH_SPI1_LINK_DIV == 8
+#define UMH_SPI1_LINK_PRESCALER SPI_BAUDRATEPRESCALER_8
+#else
+#error "UMH_SPI1_LINK_DIV must be 4 or 8"
+#endif
+
 /* USER CODE END Private defines */
 
 void MX_SPI1_Init(void);

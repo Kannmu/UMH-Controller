@@ -2,13 +2,15 @@
 #define FLASH_STORE_H
 
 #include <stdint.h>
+#include "flash_library.h"
 #include "flash_nor.h"
 
 #define FLASH_STORE_MAGIC 0x554D4837u
 #define FLASH_STORE_METADATA_BASE 0u
 #define FLASH_STORE_METADATA_SIZE (64u * 1024u)
 #define FLASH_STORE_OBJECT_BASE FLASH_STORE_METADATA_SIZE
-#define FLASH_STORE_DATA_REGION_SIZE (FLASH_NOR_TOTAL_SIZE - FLASH_STORE_OBJECT_BASE)
+#define FLASH_STORE_DATA_REGION_SIZE \
+  ((8u * 1024u * 1024u) - FLASH_STORE_OBJECT_BASE)
 /* Two erase-aligned banks allow live objects to be copied before the old
  * bank is reclaimed. Playback data is never routed through this store. */
 #define FLASH_STORE_DATA_BANK_SIZE \
@@ -21,6 +23,9 @@
 
 _Static_assert(FLASH_STORE_DATA_BANK_SIZE >= FLASH_NOR_BLOCK_SIZE,
                "flash object bank must contain one erase block");
+_Static_assert(FLASH_STORE_DATA_BANK_BASE(1u) + FLASH_STORE_DATA_BANK_SIZE <=
+               FLASH_LIBRARY_REGION_BASE,
+               "flash store must stay below the sequence library region");
 
 typedef struct __attribute__((packed)) {
   uint32_t magic;

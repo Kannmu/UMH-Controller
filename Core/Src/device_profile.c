@@ -52,7 +52,7 @@ void device_profile_init(umh_device_profile_t *target)
    * to the wire resolution by the renderer. */
   target->phase_bits = 8u;
   target->intensity_bits = 8u;
-  target->max_frame_rate = 20000u;
+  target->max_frame_rate = 14000u;
   target->timebase_hz = UMH_DEVICE_TIMEBASE_HZ;
   target->carrier_hz = 40000u;
   target->sound_speed_um_per_s = 343000000u;

@@ -1,6 +1,7 @@
 /* v7 application tasks and static runtime objects. */
 #include "FreeRTOS.h"
 #include "task.h"
+#include "semphr.h"
 #include "main.h"
 #include "cmsis_os.h"
 #include "usb_device.h"
@@ -15,6 +16,7 @@
 #include "fpga_link.h"
 #include "flash_nor.h"
 #include "flash_store.h"
+#include "flash_library.h"
 #include "eeprom_profile.h"
 #include "oled_ssd1315.h"
 #include "input_events.h"
@@ -36,16 +38,6 @@
 #include "umh_utils.h"
 #include <string.h>
 #include <math.h>
-
-/* Acoustic levitation switch: static single-sided dark-core vortex.
- * Final channel level is 2x the calibration level, clamped to 24..48.
- * The dark core keeps the particle out of the high-pressure ring while
- * leaving enough gradient to capture it against gravity.  The trap z is the
- * vortex focus depth (the bead sits on a table-pinned standing-wave rung);
- * 100 mm is the focus this switch has always emitted. */
-#define UMH_LEVITATION_TRAP_Z_UM 100000
-#define UMH_LEVITATION_LEVEL_MIN 44u
-#define UMH_LEVITATION_LEVEL_MAX 68u
 
 osThreadId_t umh_protocol_task_handle;
 static void abort_aperture_output(void);
@@ -73,6 +65,20 @@ static umh_hologram_engine_t hologram_engine;
 static umh_gun_trigger_t gun_trigger;
 static fpga_link_t fpga_link;
 static flash_store_t flash_store;
+static flash_library_t flash_library;
+static flash_library_reader_t flash_reader;
+static flash_library_writer_t flash_writer;
+static flash_library_ring_sink_t flash_ring_sink;
+static volatile uint8_t flash_play_active;
+static volatile uint8_t flash_play_stop_request;
+static TaskHandle_t storage_task_handle;
+static uint8_t flash_upload_active;
+static uint32_t flash_upload_expected_sequence;
+static uint32_t flash_upload_object_id;
+static uint32_t flash_play_object_id;
+static uint16_t flash_last_result;
+#define UMH_FLASH_PLAY_PREBUFFER 8u
+#define UMH_FLASH_PLAY_HIGH_WATER 16u
 static eeprom_profile_t eeprom_profile;
 static oled_ssd1315_t oled;
 static umh_protocol_parser_t protocol_parser;
@@ -402,18 +408,12 @@ volatile uint8_t  umh_bench_level[UMH_DEVICE_CHANNEL_COUNT];
 volatile float    umh_bench_frame_i[UMH_DEVICE_MIC_COUNT];
 volatile float    umh_bench_frame_q[UMH_DEVICE_MIC_COUNT];
 
-static osMessageQueueId_t storage_queue;
-static StaticQueue_t storage_queue_cb;
-/* Queue items are complete protocol frames.  The message queue copies them
- * directly from the parser frame owned by the protocol task, so no second
- * 2 KiB stack copy is needed on the command path.
- *
- * Depth 1 is enough: a storage response is asynchronous, but the protocol task
- * only accepts another storage command once its own send_result() has failed
- * and the next SLOW_COMMAND has been armed, which the host can only satisfy
- * after it has seen the response.  A single slot therefore holds the only
- * request that can exist and halves this queue's RAM. */
-static uint32_t storage_queue_memory[(sizeof(umh_protocol_frame_t) + sizeof(uint32_t) - 1u) / sizeof(uint32_t)];
+static SemaphoreHandle_t storage_free_sem;
+static SemaphoreHandle_t storage_ready_sem;
+static SemaphoreHandle_t storage_wake_sem;
+static StaticSemaphore_t storage_free_mem;
+static StaticSemaphore_t storage_ready_mem;
+static StaticSemaphore_t storage_wake_mem;
 static umh_protocol_frame_t storage_request_buffer;
 /* Consolidate the 2048 B storage buffers into one union.  response and data
  * are used by different FLASH message types (LIST replies straight into
@@ -494,6 +494,14 @@ static uint8_t block_stream_active;
 static uint32_t block_stream_expected_sequence;
 static volatile uint8_t demo_building;
 static TaskHandle_t render_task_handle;
+static volatile uint8_t render_waiting_for_work;
+
+static void render_wake(void)
+{
+  if (render_waiting_for_work != 0u && render_task_handle != NULL)
+    (void)xTaskNotifyGive(render_task_handle);
+}
+
 static TIM_HandleTypeDef render_timer;
 static volatile uint8_t render_timer_ready;
 
@@ -502,7 +510,8 @@ static umh_fault_code_t fault_code_for_status(umh_status_t status, uint8_t messa
   if (status == UMH_STATUS_IO) {
     if (message_type == UMH_MSG_EEPROM_COMMIT || message_type == UMH_MSG_EEPROM_WRITE)
       return UMH_FAULT_EEPROM_IO;
-    if (message_type >= UMH_MSG_FLASH_LIST && message_type <= UMH_MSG_FLASH_DELETE)
+    if ((message_type >= UMH_MSG_FLASH_LIST && message_type <= UMH_MSG_FLASH_DELETE) ||
+        (message_type >= UMH_MSG_LIB_BEGIN && message_type <= UMH_MSG_LIB_STOP))
       return UMH_FAULT_FLASH_IO;
     return UMH_FAULT_FPGA_OUTPUT;
   }
@@ -529,26 +538,29 @@ static const osThreadAttr_t input_task_attributes = {
  * file, so the worst-case chain of every task entry point is known exactly.
  * Each grant below is that chain plus headroom for the 8-word Cortex-M4
  * exception frame, the ISRs that can pre-empt the task and FreeRTOS
- * bookkeeping.  Leaving every stack at a round kilobyte wasted several KiB of
- * the 112 KiB RAM budget without any measurement behind it.
+ * bookkeeping, and was then checked against the measured stack watermark
+ * (minimum free across the bench loads, bytes) instead of a round kilobyte.
  *
- *   task       worst chain   grant   margin
- *   render          1176 B   4096    x3.5   (frame-critical, kept generous)
- *   protocol        1240 B   3072    x2.5   worst chain is the EEPROM/I2C
- *                                          bring-up in application_init; the
- *                                          PA9 focused-shot path
- *                                          (gun_trigger_emit -> fpga_link_submit)
- *                                          is 928 B, and its accumulation arrays
- *                                          live in the gun_trigger_t, not here
- *   storage          376 B   1024    x2.7
- *   ui               n/a      4096    kept: GUI callbacks arrive through
- *                                          device_gui function pointers, which
- *                                          static analysis cannot follow
- *   input            132 B    512    x3.9
- *   health           124 B    512    x4.1
- *   cal             3708 B   5120    x1.4   (deepest chain in the image)
+ *   task       worst chain   grant   free at worst case
+ *   render          1176 B   2560    1448 B   frame-critical, kept generous
+ *   protocol        1240 B   2560     896 B   worst chain is the EEPROM/I2C
+ *                                            bring-up in application_init; the
+ *                                            PA9 focused-shot path
+ *                                            (gun_trigger_emit -> fpga_link_submit)
+ *                                            is 928 B, and its accumulation
+ *                                            arrays live in the gun_trigger_t,
+ *                                            not here
+ *   storage          376 B    960     796 B   the measured 164 B use never runs
+ *                                            the flash/EEPROM chain, so the
+ *                                            static chain is what sizes it
+ *   ui               n/a     3072    2684 B   GUI callbacks arrive through
+ *                                            device_gui function pointers, which
+ *                                            static analysis cannot follow
+ *   input            132 B    512     356 B
+ *   health           124 B    512     220 B
+ *   cal             3708 B   5120    4936 B   (deepest chain in the image)
  */
-static StackType_t protocol_task_stack[768], render_task_stack[1024], storage_task_stack[256], ui_task_stack[1024], health_task_stack[128];
+static StackType_t protocol_task_stack[640], render_task_stack[640], storage_task_stack[320], ui_task_stack[768], health_task_stack[128];
 static const osThreadAttr_t protocol_task_attributes = {
   .name = "protocol", .cb_mem = &protocol_task_cb, .cb_size = sizeof(protocol_task_cb),
   .stack_mem = protocol_task_stack, .stack_size = sizeof(protocol_task_stack),
@@ -565,7 +577,7 @@ static const osThreadAttr_t render_task_attributes = {
 static const osThreadAttr_t storage_task_attributes = {
   .name = "storage", .cb_mem = &storage_task_cb, .cb_size = sizeof(storage_task_cb),
   .stack_mem = storage_task_stack, .stack_size = sizeof(storage_task_stack),
-  .priority = osPriorityLow
+  .priority = osPriorityAboveNormal
 };
 static const osThreadAttr_t ui_task_attributes = {
   .name = "ui", .cb_mem = &ui_task_cb, .cb_size = sizeof(ui_task_cb),
@@ -574,8 +586,9 @@ static const osThreadAttr_t ui_task_attributes = {
 };
 /* The panel task is deliberately at the same priority as the UI: it only has to
  * keep the 30 ms refresh cadence, and a display fault must never outrank input
- * handling.  Its stack is the GUI render chain (104 B) plus the HAL I2C call. */
-static StackType_t display_task_stack[512];
+ * handling.  Its stack is the GUI render chain (104 B) plus the HAL I2C call;
+ * 1536 B leaves 1276 B free at the measured watermark. */
+static StackType_t display_task_stack[384];
 static const osThreadAttr_t display_task_attributes = {
   .name = "disp", .cb_mem = &display_task_cb, .cb_size = sizeof(display_task_cb),
   .stack_mem = display_task_stack, .stack_size = sizeof(display_task_stack),
@@ -606,12 +619,12 @@ static const osThreadAttr_t health_task_attributes = {
 static void send_response(const umh_protocol_frame_t *request, uint8_t type,
                           const void *payload, uint16_t length);
 static void discard_block_stream(void);
+static void flash_library_storage_process(const umh_protocol_frame_t *frame);
+static void flash_upload_abort(void);
 static void application_init(void);
 static void usb_audio_cancel(void);
 static void abort_aperture_output(void);
 static int gui_demo(void *context);
-static int gui_levitation_toggle(void *context);
-static int gui_defoam_set(void *context);
 static int gui_gun_select(void *context);
 static int gui_gun_exit(void *context);
 
@@ -1057,108 +1070,28 @@ static void calibration_task(void *argument)
 /* Abandon any block being streamed or built.
  *
  * Nineteen call sites used to open-code the same three statements when a
- * command, a demo, a calibration session or a levitation/vortex program took
- * over the output: cancel the parser, drop the stream flag and empty the frame
- * ring.  Collecting them keeps the takeover sequence identical everywhere,
- * which is what stops a half-parsed block from surviving into the next owner.
- * Every site used to be reachable only from the protocol task, so this needs
- * no locking of its own; render_task only ever reads the ring. */
+ * command, a demo or a calibration session took over the output: cancel the
+ * parser, drop the stream flag and empty the frame ring.  Collecting them
+ * keeps the takeover sequence identical everywhere, which is what stops a
+ * half-parsed block from surviving into the next owner.  Every site used to be
+ * reachable only from the protocol task, so this needs no locking of its own;
+ * render_task only ever reads the ring. */
 static void discard_block_stream(void)
 {
   block_parser_cancel(&block_parser);
   block_stream_active = 0u;
+  if (flash_play_active != 0u) {
+    uint32_t wait_ms = 0u;
+    flash_play_stop_request = 1u;
+    if (storage_wake_sem != NULL) (void)xSemaphoreGive(storage_wake_sem);
+    render_wake();
+    while (flash_play_active != 0u && wait_ms < 30u &&
+           xTaskGetCurrentTaskHandle() != storage_task_handle) {
+      osDelay(1u);
+      ++wait_ms;
+    }
+  }
   frame_ring_init(&frame_ring);
-}
-
-static uint8_t levitation_motion_level(void)
-{
-  const eeprom_profile_record_t *record = eeprom_profile_current(&eeprom_profile);
-  uint32_t channel_level = 32u;
-  if (record != NULL && record->cal_meta_valid != 0u && record->cal_level != 0u)
-    channel_level = (uint32_t)record->cal_level * 2u;
-  if (channel_level < UMH_LEVITATION_LEVEL_MIN) channel_level = UMH_LEVITATION_LEVEL_MIN;
-  if (channel_level > UMH_LEVITATION_LEVEL_MAX) channel_level = UMH_LEVITATION_LEVEL_MAX;
-  return (uint8_t)((channel_level * 255u + 64u) / 128u);
-}
-
-static int gui_levitation_toggle(void *context)
-{
-  (void)context;
-  /* Ask the engine, not the status flag: the flag is derived once per render
-   * iteration, so right after a start or stop it still shows the previous
-   * state.  A dark-vortex trap is levitation whichever way it was started. */
-  if (motion_engine_owns_output(&motion_engine) != 0u &&
-      motion_engine_trap_mode(&motion_engine) == UMH_MOTION_TRAP_DARK_VORTEX) {
-    motion_engine_request_stop(&motion_engine);
-    return 0;
-  }
-  if (device_gui_calibration_busy(&device_gui) != 0u || demo_building != 0u ||
-      gun_trigger_owns_output(&gun_trigger) != 0u) return -1;
-  abort_aperture_output();
-  if (motion_engine_owns_output(&motion_engine) != 0u)
-    motion_engine_abort(&motion_engine, &fpga_link);
-  playback_plan_stop(&playback_plan);
-  discard_block_stream();
-  (void)fpga_link_set_ws2812(&fpga_link, 0u, 0u, 0u);
-  if (fpga_link_safe_stop(&fpga_link) != 0) return -1;
-  if (motion_engine_configure_levitation(&motion_engine, levitation_motion_level(),
-                                         UMH_LEVITATION_TRAP_Z_UM) != 0) return -1;
-  if (motion_engine_start(&motion_engine) != 0) {
-    (void)fpga_link_safe_stop(&fpga_link);
-    return -1;
-  }
-  return 0;
-}
-
-static int gui_defoam_set(void *context)
-{
-  /* Row index on the defoam page maps onto the engine's vortex program. */
-  static const uint8_t program_map[2] = {
-    UMH_VORTEX_STEADY, UMH_VORTEX_ALT
-  };
-  uint8_t requested = device_gui.defoam_mode;
-  uint8_t program;
-  (void)context;
-
-  if (requested == DEVICE_GUI_DEFOAM_STOP) {
-    /* Stop button: cut every modulation source at once, whichever task or
-     * host started it, and leave the array silent. */
-    abort_aperture_output();
-    motion_engine_abort(&motion_engine, &fpga_link);
-    playback_plan_stop(&playback_plan);
-    discard_block_stream();
-    (void)fpga_link_set_ws2812(&fpga_link, 0u, 0u, 0u);
-    return fpga_link_safe_stop(&fpga_link) == 0 ? 0 : -1;
-  }
-  if (requested >= 2u) return -1;
-  program = program_map[requested];
-
-  /* Pressing the switch of the program that is already running turns it off;
-   * pressing the other one selects it, which is what turns the first off --
-   * the engine can only emit one vortex program at a time. */
-  if (motion_engine_owns_output(&motion_engine) != 0u &&
-      motion_engine_vortex_program(&motion_engine) == program) {
-    motion_engine_request_stop(&motion_engine);
-    return 0;
-  }
-  if (device_gui_calibration_busy(&device_gui) != 0u || demo_building != 0u ||
-      gun_trigger_owns_output(&gun_trigger) != 0u) return -1;
-
-  /* Mutual exclusion: a running block plan, demo, tactile AM or host motion
-   * program would otherwise keep driving the same 84 channels. */
-  abort_aperture_output();
-  if (motion_engine_owns_output(&motion_engine) != 0u)
-    motion_engine_abort(&motion_engine, &fpga_link);
-  playback_plan_stop(&playback_plan);
-  discard_block_stream();
-  (void)fpga_link_set_ws2812(&fpga_link, 0u, 0u, 0u);
-  if (fpga_link_safe_stop(&fpga_link) != 0) return -1;
-  if (motion_engine_configure_vortex(&motion_engine, program) != 0) return -1;
-  if (motion_engine_start(&motion_engine) != 0) {
-    (void)fpga_link_safe_stop(&fpga_link);
-    return -1;
-  }
-  return 0;
 }
 
 static int gui_demo(void *context)
@@ -1185,8 +1118,8 @@ static int gui_demo(void *context)
 
 
 /* Gun menu selection.  The callback reads the row back out of the GUI, exactly
- * like the WS2812 and defoam actions, because the action signature only carries
- * the context.  gun_trigger_select_mode() refuses while a shot is held; the GUI
+ * like the WS2812 action, because the action signature only carries the
+ * context.  gun_trigger_select_mode() refuses while a shot is held; the GUI
  * then leaves the cursor on the mode that is actually being emitted. */
 static int gui_gun_select(void *context)
 {
@@ -1280,10 +1213,14 @@ static int gun_shot_release(void)
 /* Edge handler: one call per protocol task iteration. */
 static void gun_trigger_poll(void)
 {
+  static uint8_t previous_pressed;
   uint8_t pressed = gun_trigger_pressed(&gun_trigger);
   uint8_t owns = gun_trigger_owns_output(&gun_trigger);
-  if (pressed != 0u) system_status_set(UMH_SYSTEM_TRIGGER);
-  else system_status_clear(UMH_SYSTEM_TRIGGER);
+  if (pressed != previous_pressed) {
+    previous_pressed = pressed;
+    if (pressed != 0u) system_status_set(UMH_SYSTEM_TRIGGER);
+    else system_status_clear(UMH_SYSTEM_TRIGGER);
+  }
   if (pressed != 0u) {
     /* A held shot needs no service here: the render task keeps it emitting. */
     if (owns != 0u) return;
@@ -1391,10 +1328,263 @@ static void send_response(const umh_protocol_frame_t *request, uint8_t type,
 
 static int queue_storage_request(const umh_protocol_frame_t *frame)
 {
-  /* osMessageQueuePut performs the copy into storage_queue_memory directly
-   * from the parser frame, avoiding a temporary >2 KiB stack copy. */
-  if (storage_queue == NULL || frame == NULL) return -1;
-  return osMessageQueuePut(storage_queue, frame, 0u, 0u) == osOK ? 0 : -1;
+  if (storage_free_sem == NULL || storage_ready_sem == NULL || frame == NULL)
+    return -1;
+  if (xSemaphoreTake(storage_free_sem, 0u) != pdTRUE) return -1;
+  memcpy(&storage_request_buffer, frame, sizeof(storage_request_buffer));
+  (void)xSemaphoreGive(storage_ready_sem);
+  if (storage_wake_sem != NULL) (void)xSemaphoreGive(storage_wake_sem);
+  return 0;
+}
+
+static void flash_upload_abort(void)
+{
+  if (flash_upload_active != 0u) {
+    flash_library_writer_abort(&flash_writer);
+    flash_upload_active = 0u;
+  }
+}
+
+static umh_status_t flash_library_status_from_result(int result)
+{
+  switch (result) {
+    case FLASH_LIBRARY_OK: return UMH_STATUS_OK;
+    case FLASH_LIBRARY_PARAM: return UMH_STATUS_BAD_LENGTH;
+    case FLASH_LIBRARY_FULL: return UMH_STATUS_NO_MEMORY;
+    case FLASH_LIBRARY_BUSY: return UMH_STATUS_BUSY;
+    case FLASH_LIBRARY_CORRUPT: return UMH_STATUS_CRC;
+    case FLASH_LIBRARY_IO: return UMH_STATUS_IO;
+    case FLASH_LIBRARY_NOT_FOUND: return UMH_STATUS_INVALID_STATE;
+    default: return UMH_STATUS_INVALID_STATE;
+  }
+}
+
+static void flash_library_status_fill(umh_lib_status_wire_t *wire)
+{
+  const flash_library_stats_t *stats = flash_library_stats(&flash_library);
+  memset(wire, 0, sizeof(*wire));
+  wire->state = flash_upload_active != 0u ? 1u :
+                (flash_play_active != 0u ? 2u : 0u);
+  wire->object_count = (uint8_t)flash_library_object_count(&flash_library);
+  wire->active_bank = flash_library.active_bank;
+  wire->mounted = flash_library.mounted;
+  wire->free_bytes = flash_library_free_bytes(&flash_library);
+  wire->next_generation = flash_library.next_generation;
+  wire->upload_object_id = flash_upload_active != 0u ? flash_upload_object_id : 0u;
+  wire->upload_received = flash_upload_active != 0u ? flash_writer.received_bytes : 0u;
+  if (flash_play_active != 0u) {
+    wire->play_object_id = flash_play_object_id;
+    wire->play_record_count = flash_reader.record_count;
+    wire->play_frame_period_us = flash_reader.frame_period_us;
+    wire->play_cursor = flash_library_reader_cursor(&flash_reader);
+  }
+  wire->replay_frames = stats->replay_frames;
+  wire->page_programs = stats->page_programs;
+  wire->block_erases = stats->block_erases;
+  wire->rotations = stats->rotations;
+  wire->bytes_programmed = stats->bytes_programmed;
+  wire->last_result = flash_last_result;
+}
+
+static umh_status_t flash_library_playback_start(const umh_lib_start_wire_t *wire)
+{
+  const flash_library_entry_t *entry;
+  umh_playback_plan_wire_t plan_wire;
+  umh_status_t status = UMH_STATUS_OK;
+  uint32_t prefill;
+  uint32_t i;
+  uint64_t origin;
+  if (wire->repeat > 1u) return UMH_STATUS_BAD_LENGTH;
+  if (flash_play_active != 0u || flash_play_stop_request != 0u ||
+      flash_upload_active != 0u) return UMH_STATUS_BUSY;
+  if (storage_wake_sem == NULL) return UMH_STATUS_NO_MEMORY;
+  if (aperture_mod_owns_output(&aperture_mod) != 0u ||
+      motion_engine_owns_output(&motion_engine) != 0u ||
+      hologram_engine_owns_output(&hologram_engine) != 0u ||
+      gun_trigger_owns_output(&gun_trigger) != 0u ||
+      device_gui_calibration_busy(&device_gui) != 0u ||
+      demo_building != 0u) return UMH_STATUS_BUSY;
+  if (flash_library.mounted == 0u) return UMH_STATUS_INVALID_STATE;
+  entry = flash_library_object_find(&flash_library, wire->object_id);
+  if (entry == NULL || entry->frame_period_us == 0u || entry->record_count == 0u)
+    return UMH_STATUS_INVALID_STATE;
+  playback_plan_stop(&playback_plan);
+  block_parser_cancel(&block_parser);
+  block_stream_active = 0u;
+  frame_ring_init(&frame_ring);
+  if (fpga_link_safe_stop(&fpga_link) != 0) return UMH_STATUS_IO;
+  (void)fpga_link_set_ws2812(&fpga_link, 0u, 0u, 0u);
+  prefill = entry->record_count < UMH_FLASH_PLAY_PREBUFFER ?
+            entry->record_count : UMH_FLASH_PLAY_PREBUFFER;
+  origin = system_time_us() + (uint64_t)prefill * entry->frame_period_us;
+  if (flash_library_reader_open(&flash_reader, &flash_library, wire->object_id,
+                                wire->repeat, origin) != FLASH_LIBRARY_OK)
+    return UMH_STATUS_IO;
+  for (i = 0u; i < prefill; ++i) {
+    umh_output_frame_t frame;
+    umh_output_frame_t *slot;
+    if (flash_library_reader_read_frame(&flash_reader, i, &frame) != FLASH_LIBRARY_OK) {
+      status = UMH_STATUS_IO;
+      break;
+    }
+    slot = frame_ring_acquire_write(&frame_ring);
+    if (slot == NULL) {
+      status = UMH_STATUS_NO_MEMORY;
+      break;
+    }
+    *slot = frame;
+    if (frame_ring_commit_write(&frame_ring) != 0) {
+      status = UMH_STATUS_NO_MEMORY;
+      break;
+    }
+  }
+  if (status == UMH_STATUS_OK &&
+      flash_library_reader_seek(&flash_reader, prefill) != FLASH_LIBRARY_OK)
+    status = UMH_STATUS_IO;
+  if (status == UMH_STATUS_OK) {
+    memset(&plan_wire, 0, sizeof(plan_wire));
+    plan_wire.block_id = wire->object_id;
+    plan_wire.start_mode = UMH_PLAN_START_IMMEDIATE;
+    plan_wire.repeat_mode = UMH_PLAN_LOOP_STREAM;
+    plan_wire.underrun_policy = UMH_UNDERRUN_REPORT;
+    plan_wire.route = UMH_PLAN_ROUTE_DEFAULT;
+    plan_wire.rate_numerator = 1u;
+    plan_wire.rate_denominator = 1u;
+    plan_wire.start_time = 0u;
+    plan_wire.prebuffer_frames = prefill;
+    if (playback_plan_set(&playback_plan, &plan_wire) != 0 ||
+        playback_plan_start(&playback_plan, system_time_us(),
+                            frame_ring_count(&frame_ring), origin) != 0)
+      status = UMH_STATUS_INVALID_STATE;
+  }
+  if (status != UMH_STATUS_OK) {
+    flash_library_reader_close(&flash_reader);
+    flash_nor_dma_drain();
+    frame_ring_init(&frame_ring);
+    (void)fpga_link_safe_stop(&fpga_link);
+    return status;
+  }
+  flash_play_object_id = wire->object_id;
+  flash_play_stop_request = 0u;
+  flash_play_active = 1u;
+  (void)xSemaphoreGive(storage_wake_sem);
+  render_wake();
+  return UMH_STATUS_OK;
+}
+
+static void flash_library_storage_process(const umh_protocol_frame_t *frame)
+{
+  umh_status_t status = UMH_STATUS_OK;
+  if (frame->header.message_type == UMH_MSG_LIB_BEGIN) {
+    umh_lib_begin_wire_t wire;
+    flash_library_object_info_t info;
+    uint16_t expected;
+    if (flash_play_active != 0u || flash_play_stop_request != 0u ||
+        flash_upload_active != 0u) {
+      status = UMH_STATUS_BUSY;
+    } else if (frame->payload_size < sizeof(wire)) {
+      status = UMH_STATUS_BAD_LENGTH;
+    } else {
+      memcpy(&wire, frame->payload, sizeof(wire));
+      if (wire.level_mode > FLASH_LIBRARY_LEVEL_UNIFORM || wire.repeat > 1u ||
+          wire.record_count == 0u || wire.frame_period_us == 0u ||
+          wire.object_id == 0u) {
+        status = UMH_STATUS_BAD_LENGTH;
+      } else {
+        expected = (uint16_t)(sizeof(wire) +
+                   (wire.level_mode == FLASH_LIBRARY_LEVEL_UNIFORM ?
+                    FLASH_LIBRARY_RECORD_PHASE_BYTES : 0u));
+        if (frame->payload_size != expected) {
+          status = UMH_STATUS_BAD_LENGTH;
+        } else {
+          memset(&info, 0, sizeof(info));
+          info.object_id = wire.object_id;
+          info.record_count = wire.record_count;
+          info.frame_period_us = wire.frame_period_us;
+          info.object_type = FLASH_LIBRARY_OBJECT_SEQUENCE;
+          info.level_mode = wire.level_mode;
+          info.repeat = wire.repeat;
+          if (wire.level_mode == FLASH_LIBRARY_LEVEL_UNIFORM)
+            memcpy(info.level_table, &frame->payload[sizeof(wire)],
+                   FLASH_LIBRARY_RECORD_PHASE_BYTES);
+          status = flash_library_status_from_result(
+              flash_library_writer_begin(&flash_library, &flash_writer, &info));
+          if (status == UMH_STATUS_OK) {
+            flash_upload_active = 1u;
+            flash_upload_object_id = wire.object_id;
+            flash_upload_expected_sequence = frame->header.stream_sequence + 1u;
+          }
+        }
+      }
+    }
+  } else if (frame->header.message_type == UMH_MSG_LIB_DATA) {
+    if (flash_upload_active == 0u) {
+      status = UMH_STATUS_INVALID_STATE;
+    } else if (frame->header.stream_sequence != flash_upload_expected_sequence) {
+      flash_upload_abort();
+      status = UMH_STATUS_BAD_SEQUENCE;
+    } else if (frame->payload_size == 0u ||
+               frame->payload_size > UMH_PROTOCOL_MAX_PAYLOAD) {
+      flash_upload_abort();
+      status = UMH_STATUS_BAD_LENGTH;
+    } else {
+      int result = flash_library_writer_write(&flash_writer, frame->payload,
+                                              frame->payload_size);
+      if (result != FLASH_LIBRARY_OK) {
+        flash_upload_abort();
+        status = flash_library_status_from_result(result);
+      } else {
+        ++flash_upload_expected_sequence;
+      }
+    }
+  } else if (frame->header.message_type == UMH_MSG_LIB_END) {
+    if (flash_upload_active == 0u) {
+      status = UMH_STATUS_INVALID_STATE;
+    } else if (frame->payload_size != 0u) {
+      flash_upload_abort();
+      status = UMH_STATUS_BAD_LENGTH;
+    } else if (frame->header.stream_sequence != flash_upload_expected_sequence) {
+      flash_upload_abort();
+      status = UMH_STATUS_BAD_SEQUENCE;
+    } else {
+      int result = flash_library_writer_finish(&flash_writer);
+      flash_upload_active = 0u;
+      status = flash_library_status_from_result(result);
+    }
+  } else if (frame->header.message_type == UMH_MSG_LIB_STATUS) {
+    if (frame->payload_size != 0u) {
+      status = UMH_STATUS_BAD_LENGTH;
+    } else {
+      umh_lib_status_wire_t wire;
+      flash_library_status_fill(&wire);
+      send_response(frame, UMH_MSG_LIB_STATUS, &wire, (uint16_t)sizeof(wire));
+      return;
+    }
+  } else if (frame->header.message_type == UMH_MSG_LIB_START) {
+    umh_lib_start_wire_t wire;
+    if (frame->payload_size != sizeof(wire)) {
+      status = UMH_STATUS_BAD_LENGTH;
+    } else {
+      memcpy(&wire, frame->payload, sizeof(wire));
+      status = flash_library_playback_start(&wire);
+    }
+  } else if (frame->header.message_type == UMH_MSG_LIB_STOP) {
+    if (frame->payload_size != 0u) {
+      status = UMH_STATUS_BAD_LENGTH;
+    } else {
+      playback_plan_stop(&playback_plan);
+      discard_block_stream();
+      flash_library_reader_close(&flash_reader);
+      flash_nor_dma_drain();
+      flash_play_active = 0u;
+      flash_play_stop_request = 0u;
+      (void)fpga_link_safe_stop(&fpga_link);
+    }
+  } else {
+    status = UMH_STATUS_UNSUPPORTED;
+  }
+  flash_last_result = (uint16_t)(status == UMH_STATUS_OK ? 0u : status);
+  send_result(frame, status, NULL, 0u);
 }
 
 static void storage_process(const umh_protocol_frame_t *frame)
@@ -1403,6 +1593,17 @@ static void storage_process(const umh_protocol_frame_t *frame)
   uint32_t length;
   uint16_t count;
   umh_status_t status = UMH_STATUS_OK;
+  if (frame->header.message_type >= UMH_MSG_LIB_BEGIN &&
+      frame->header.message_type <= UMH_MSG_LIB_STOP) {
+    flash_library_storage_process(frame);
+    return;
+  }
+  if (frame->header.message_type >= UMH_MSG_FLASH_LIST &&
+      frame->header.message_type <= UMH_MSG_FLASH_DELETE &&
+      (flash_play_active != 0u || flash_play_stop_request != 0u)) {
+    send_result(frame, UMH_STATUS_BUSY, NULL, 0u);
+    return;
+  }
   if (frame->header.message_type == UMH_MSG_FLASH_LIST) {
     /* The record list is written straight into the response buffer and framed
      * in place: one 2 KiB buffer for both halves of the reply. */
@@ -1754,17 +1955,17 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       }
       break;
     case UMH_MSG_MOTION_UPLOAD:
-      if (mod_owns != 0u || (system_status_get()->flags & UMH_SYSTEM_VORTEX_MODE_MASK) != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (mod_owns != 0u) { status = UMH_STATUS_BUSY; break; }
       if (motion_engine_upload(&motion_engine, frame->payload, frame->payload_size) != 0)
         status = UMH_STATUS_BAD_LENGTH;
       break;
     case UMH_MSG_MOTION_CONFIG:
-      if (mod_owns != 0u || (system_status_get()->flags & UMH_SYSTEM_VORTEX_MODE_MASK) != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (mod_owns != 0u) { status = UMH_STATUS_BUSY; break; }
       if (motion_engine_configure(&motion_engine, frame->payload, frame->payload_size) != 0)
         status = UMH_STATUS_BAD_LENGTH;
       break;
     case UMH_MSG_MOTION_RATE:
-      if (mod_owns != 0u || (system_status_get()->flags & UMH_SYSTEM_VORTEX_MODE_MASK) != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (mod_owns != 0u) { status = UMH_STATUS_BUSY; break; }
       if (motion_engine_rate(&motion_engine, frame->payload, frame->payload_size) != 0)
         status = UMH_STATUS_BAD_LENGTH;
       break;
@@ -1779,7 +1980,7 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       else { if (motion_engine_uses_rgb(&motion_engine) == 0u) (void)fpga_link_set_ws2812(&fpga_link, 0u, 0u, 0u); if (motion_engine_start(&motion_engine) != 0) status = UMH_STATUS_INVALID_STATE; }
       break;
     case UMH_MSG_MOTION_TARGET:
-      if (mod_owns != 0u || (system_status_get()->flags & UMH_SYSTEM_VORTEX_MODE_MASK) != 0u) { status = UMH_STATUS_BUSY; break; }
+      if (mod_owns != 0u) { status = UMH_STATUS_BUSY; break; }
       if (motion_engine_target(&motion_engine, frame->payload, frame->payload_size) != 0)
         status = UMH_STATUS_BAD_LENGTH;
       break;
@@ -2097,6 +2298,15 @@ static void protocol_frame_received(const umh_protocol_frame_t *frame, void *con
       if (queue_storage_request(frame) == 0) return;
       status = UMH_STATUS_BUSY;
       break;
+    case UMH_MSG_LIB_BEGIN:
+    case UMH_MSG_LIB_DATA:
+    case UMH_MSG_LIB_END:
+    case UMH_MSG_LIB_STATUS:
+    case UMH_MSG_LIB_START:
+    case UMH_MSG_LIB_STOP:
+      if (queue_storage_request(frame) == 0) return;
+      status = UMH_STATUS_BUSY;
+      break;
     case UMH_MSG_MOD_CONFIGURE:
       if (frame->payload_size < sizeof(umh_mod_config_wire_t) ||
           frame->payload_size > (uint16_t)(sizeof(umh_mod_config_wire_t) + 1u +
@@ -2184,6 +2394,7 @@ static void protocol_task(void *argument)
   MX_USB_Device_Init();
   system_status_set(UMH_SYSTEM_CONNECTED);
   for (;;) {
+    uint8_t gun_owns_before;
     count = umh_rx_ring_read(&umh_usb_rx_ring, data, sizeof(data));
     if (count != 0u) umh_protocol_parser_feed(&protocol_parser, data, count);
     else if (umh_usb_audio_stats.queued_samples == 0u)
@@ -2192,7 +2403,10 @@ static void protocol_task(void *argument)
     /* Hardware fire button.  Sampling happens in the input task; the edges are
      * handled here, next to every other output takeover, and the 10 ms notify
      * timeout above bounds the press-to-emission latency when USB is idle. */
+    gun_owns_before = gun_trigger_owns_output(&gun_trigger);
     gun_trigger_poll();
+    if (count != 0u || gun_trigger_owns_output(&gun_trigger) != gun_owns_before)
+      render_wake();
     usb_audio_service();
     system_status_get()->parser_errors = umh_protocol_parser_error_count(&protocol_parser);
     system_status_get()->rx_dropped = umh_usb_rx_ring.dropped_bytes;
@@ -2301,34 +2515,6 @@ void TIM7_IRQHandler(void)
   }
 }
 
-/* Derive the motion-mode bits of the system flags from the engine itself.
- *
- * The OLED and the host BUSY checks read these bits, and the engine can start
- * or finish from several places (GUI callback, host command, a run ending on
- * its own), so this task -- the only place the engine is serviced -- is the
- * single writer.  That also removes the read-modify-write race a per-callback
- * set/clear pair had on the shared flags word. */
-static void update_motion_mode_flags(void)
-{
-  const uint32_t mask = UMH_SYSTEM_MOTION_MODE_MASK;
-  uint32_t current = system_status_get()->flags;
-  uint32_t wanted = 0u;
-  if (motion_engine_owns_output(&motion_engine) != 0u) {
-    switch (motion_engine_vortex_program(&motion_engine)) {
-      case UMH_VORTEX_STEADY: wanted = UMH_SYSTEM_VORTEX_STEADY; break;
-      case UMH_VORTEX_ALT: wanted = UMH_SYSTEM_VORTEX_ALT; break;
-      default:
-        /* Levitation is reported separately from the vortex programs: it is
-         * the same engine, but its own dark-vortex trap. */
-        if (motion_engine_trap_mode(&motion_engine) == UMH_MOTION_TRAP_DARK_VORTEX)
-          wanted = UMH_SYSTEM_LEVITATION;
-        break;
-    }
-  }
-  if ((current & mask) == wanted) return;
-  system_status_modify(mask & ~wanted, wanted);
-}
-
 /* Render-path cycle profile, readable from a debugger as an untyped word array
  * so no DWARF type lookup is involved.
  *   [0] frames submitted          [1] sum loop-entry -> submit-entry cycles
@@ -2336,6 +2522,7 @@ static void update_motion_mode_flags(void)
  *   [4] max of [3]                [5] sum whole-iteration cycles
  *   [6] max of [5]                [7] credit-wait retries */
 volatile uint32_t umh_render_profile[8];
+volatile uint32_t umh_render_burst_yields;
 
 static void render_task(void *argument)
 {
@@ -2350,7 +2537,6 @@ static void render_task(void *argument)
   render_task_handle = xTaskGetCurrentTaskHandle();
   for (;;) {
     uint32_t loop_start_cycles = DWT->CYCCNT;
-    update_motion_mode_flags();
     /* Voice capture and playback are serviced below the static gun branch. */
     /* A held PA9 shot is one static image the FPGA already has: nothing is
      * queued and no other producer may touch the channels.  Only the link needs
@@ -2464,10 +2650,15 @@ static void render_task(void *argument)
       system_status_get()->fpga_depth = fpga_link_status(&fpga_link)->fifo_depth;
       if (hologram_wait_us == 0u) hologram_wait_us = 250u;
       if (hologram_wait_us > 50000u) hologram_wait_us = 50000u;
-      render_wait_until_us(system_time_us() + (uint64_t)hologram_wait_us);
+      render_wait_until_us(now_us + (uint64_t)hologram_wait_us);
       last_time_us = system_time_us();
       render_burst = 0u;
       continue;
+    }
+    if (flash_play_active != 0u &&
+        frame_ring_count(&frame_ring) < UMH_FLASH_PLAY_HIGH_WATER &&
+        storage_wake_sem != NULL) {
+      (void)xSemaphoreGive(storage_wake_sem);
     }
     now_us = system_time_us();
     elapsed_us = now_us - last_time_us;
@@ -2494,13 +2685,15 @@ static void render_task(void *argument)
             umh_render_profile[6] = t_pre + t_submit;
           if (submit_result == 0) {
             (void)frame_ring_release_read(&frame_ring);
+            if (flash_play_active != 0u &&
+                frame_ring_count(&frame_ring) < UMH_FLASH_PLAY_HIGH_WATER &&
+                storage_wake_sem != NULL)
+              (void)xSemaphoreGive(storage_wake_sem);
             playback_plan_frame_submitted(&playback_plan);
-            /* A valid plan that is already behind can make several frames due
-             * at once.  Bound the catch-up burst so a lower-priority I2C/UI
-             * transfer is never starved for its full HAL timeout. */
             if (++render_burst >= 16u) {
               render_burst = 0u;
-              osDelay(1u);
+              ++umh_render_burst_yields;
+              taskYIELD();
             }
             system_status_get()->frame_count = frame_ring_count(&frame_ring);
             system_status_get()->frame_free = frame_ring_free(&frame_ring);
@@ -2546,16 +2739,24 @@ static void render_task(void *argument)
       }
     } else {
       render_burst = 0u;
-      /* Keep the FPGA link alive without paying an SPI transaction on every
-       * 1 ms tick.  The FPGA link watchdog drops the last frame after ~30 ms
-       * without a CS edge, so a 4 ms status cadence keeps the link up and cuts
-       * the idle SPI traffic (and the render task's idle share) by four. */
       uint32_t poll_ms = HAL_GetTick();
-      if ((uint32_t)(poll_ms - render_idle_poll_ms) >= 4u) {
+      if ((uint32_t)(poll_ms - render_idle_poll_ms) >= 8u) {
         render_idle_poll_ms = poll_ms;
         (void)fpga_link_poll_status(&fpga_link);
       }
-      osDelay(1u);
+      render_waiting_for_work = 1u;
+      if (frame_ring_count(&frame_ring) != 0u) {
+        render_waiting_for_work = 0u;
+        continue;
+      }
+      if (flash_play_active != 0u) {
+        render_wait_until_us(system_time_us() + 200u);
+      } else if (render_task_handle != NULL) {
+        (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(8u));
+      } else {
+        osDelay(8u);
+      }
+      render_waiting_for_work = 0u;
     }
     /* Voice playback leaves its own PLAYING flag in place; this tail belongs to
      * the frame-plan path, and a voice shot that has not drained yet must not
@@ -2603,9 +2804,81 @@ static void render_task(void *argument)
 
 static void storage_task(void *argument)
 {
+  uint8_t flash_read_waited = 0u;
   (void)argument;
+  storage_task_handle = xTaskGetCurrentTaskHandle();
   for (;;) {
-    if (osMessageQueueGet(storage_queue, &storage_request_buffer, NULL, osWaitForever) == osOK) storage_process(&storage_request_buffer);
+    if (storage_wake_sem != NULL)
+      (void)xSemaphoreTake(storage_wake_sem, portMAX_DELAY);
+    else
+      (void)xSemaphoreTake(storage_ready_sem, portMAX_DELAY);
+    for (;;) {
+      if (storage_ready_sem != NULL &&
+          xSemaphoreTake(storage_ready_sem, 0u) == pdTRUE) {
+        storage_process(&storage_request_buffer);
+        (void)xSemaphoreGive(storage_free_sem);
+        continue;
+      }
+      if (flash_play_stop_request != 0u) {
+        flash_library_reader_close(&flash_reader);
+        flash_nor_dma_drain();
+        flash_read_waited = 0u;
+        flash_play_active = 0u;
+        flash_play_stop_request = 0u;
+        continue;
+      }
+      if (flash_play_active == 0u ||
+          frame_ring_count(&frame_ring) >= UMH_FLASH_PLAY_HIGH_WATER)
+        break;
+      if (flash_reader.prefetch_in_flight != 0u && flash_read_waited == 0u) {
+        if (flash_nor_wait_dma(20u) != FLASH_NOR_OK) {
+          flash_library_reader_close(&flash_reader);
+          flash_nor_dma_drain();
+          flash_read_waited = 0u;
+          flash_play_active = 0u;
+          flash_play_stop_request = 0u;
+          playback_plan_stop(&playback_plan);
+          (void)fpga_link_safe_stop(&fpga_link);
+          system_status_fault(UMH_FAULT_FLASH_IO, 3u, UMH_FAULT_CRITICAL);
+          continue;
+        }
+        flash_read_waited = 1u;
+        continue;
+      }
+      flash_read_waited = 0u;
+      flash_nor_dma_drain();
+      {
+        int pump_result = flash_library_reader_pump(&flash_reader,
+                                                    flash_library_ring_sink,
+                                                    &flash_ring_sink, 4u);
+        if (pump_result < 0) {
+          flash_library_reader_close(&flash_reader);
+          flash_nor_dma_drain();
+          flash_play_active = 0u;
+          flash_play_stop_request = 0u;
+          playback_plan_stop(&playback_plan);
+          (void)fpga_link_safe_stop(&fpga_link);
+          system_status_fault(UMH_FAULT_FLASH_IO, (uint32_t)(-pump_result),
+                              UMH_FAULT_CRITICAL);
+          continue;
+        }
+        if (pump_result == 0) {
+          if (flash_library_reader_done(&flash_reader) != 0u) {
+            if (frame_ring_count(&frame_ring) == 0u) {
+              flash_library_reader_close(&flash_reader);
+              flash_nor_dma_drain();
+              flash_play_active = 0u;
+              flash_play_stop_request = 0u;
+              playback_plan_stop(&playback_plan);
+              (void)fpga_link_safe_stop(&fpga_link);
+            }
+            break;
+          }
+          if (flash_reader.prefetch_in_flight == 0u) break;
+        }
+        continue;
+      }
+    }
   }
 }
 
@@ -2717,6 +2990,8 @@ static void application_init(void)
     system_status_fault(UMH_FAULT_FPGA_SPI_TIMEOUT, 1u, UMH_FAULT_CRITICAL);
   }
   flash_nor_init(&hspi3);
+  flash_library_init(&flash_library, &hspi3);
+  flash_ring_sink.ring = &frame_ring;
   flash_store_init(&flash_store);
   {
     uint8_t flash_id[3];
@@ -2726,6 +3001,8 @@ static void application_init(void)
     else
       system_status_fault(UMH_FAULT_FLASH_IO, 1u, UMH_FAULT_WARNING);
   }
+  if (flash_library_mount(&flash_library) != FLASH_LIBRARY_OK)
+    system_status_fault(UMH_FAULT_FLASH_IO, 2u, UMH_FAULT_WARNING);
   eeprom_profile_init(&eeprom_profile, &hi2c1);
   {
     int load_result = eeprom_profile_load(&eeprom_profile);
@@ -2745,15 +3022,14 @@ static void application_init(void)
   device_gui_init(&device_gui, &oled, &device_profile, system_status_get(),
                   &playback_plan, &fpga_link, &flash_store, &eeprom_profile,
                   gui_calibration, gui_selftest, gui_demo,
-                  gui_levitation_toggle, gui_defoam_set, gui_ws2812_set,
+                  gui_ws2812_set,
                   gui_gun_select, gui_gun_exit,
                   demo_engine_count(), NULL);
   {
-    const osMessageQueueAttr_t storage_queue_attributes = {
-      .name = "storage", .cb_mem = &storage_queue_cb, .cb_size = sizeof(storage_queue_cb),
-      .mq_mem = storage_queue_memory, .mq_size = sizeof(storage_queue_memory)
-    };
-    storage_queue = osMessageQueueNew(1u, sizeof(umh_protocol_frame_t), &storage_queue_attributes);
+    storage_free_sem = xSemaphoreCreateBinaryStatic(&storage_free_mem);
+    storage_ready_sem = xSemaphoreCreateBinaryStatic(&storage_ready_mem);
+    storage_wake_sem = xSemaphoreCreateBinaryStatic(&storage_wake_mem);
+    if (storage_free_sem != NULL) (void)xSemaphoreGive(storage_free_sem);
   }
   umh_protocol_parser_init(&protocol_parser, protocol_frame_received, NULL);
   render_timer_init();
@@ -2769,6 +3045,12 @@ static void application_init(void)
 void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi)
 {
   if (hspi == fpga_link.spi) fpga_link_spi_txrx_complete(&fpga_link);
+  else flash_nor_dma_complete(hspi);
+}
+
+void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef *hspi)
+{
+  if (hspi != fpga_link.spi) flash_nor_dma_complete(hspi);
 }
 
 void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi)
@@ -2777,5 +3059,7 @@ void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi)
     fpga_link_spi_error(&fpga_link);
     system_status_get()->fpga_errors++;
     system_status_fault(UMH_FAULT_FPGA_SPI_DMA, HAL_SPI_GetError(hspi), UMH_FAULT_CRITICAL);
+  } else {
+    flash_nor_dma_error(hspi);
   }
 }

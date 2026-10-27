@@ -24,29 +24,16 @@
 /* Phase-domain constants. */
 #define UMH_GUN_Q10_PER_TURN 1024.0f
 #define UMH_GUN_DEG_TO_RAD   0.01745329252f
-#define UMH_GUN_BUILD_ID 0x474E0017u
-/* Build identity of this file's gun implementation, readable over SWD.
- *
- * "Is the new firmware really on the board?" is otherwise guesswork: every field
- * of the gun state starts at zero, so a stale image reads as a perfectly
- * plausible idle.  `volatile` matters twice here: it stops the compiler from
- * folding the call into the constant and dropping the load (the value would then
- * exist only in the tool, not in the image), and it makes the cached copy in
- * gun_trigger_build_id_seen readable by the probe.  gun_trigger_init() calls it,
- * so the image always contains it.  Bump UMH_GUN_BUILD_ID when this file
- * changes; the value is "GN" plus a version. */
+#define UMH_GUN_BUILD_ID 0x474E0023u
 volatile uint32_t gun_trigger_build_id(void)
 {
   return UMH_GUN_BUILD_ID;
 }
-/* Set once by gun_trigger_init().  The probe reads this symbol, so it holds the
- * value the running image computed rather than a constant the tool compares
- * against. */
 volatile uint32_t gun_trigger_build_id_seen;
 /* The SWD bench probe (Utiles/umh_gun_probe.py) reads this struct by offset.
  * Pinning the offsets here makes a layout change a compile error instead of a
- * silently wrong dump.  They cover every field the probe decodes; the two
- * accumulation arrays at the end are not part of the wire image. */
+ * silently wrong dump.  They cover every field the probe decodes; the arrays
+ * at the end are not part of the wire image. */
 _Static_assert(offsetof(umh_gun_trigger_t, level) == 4u, "probe offset level");
 _Static_assert(offsetof(umh_gun_trigger_t, mode) == 5u, "probe offset mode");
 _Static_assert(offsetof(umh_gun_trigger_t, collapse_t0_ms) == 8u,
@@ -203,8 +190,7 @@ static int gun_trigger_build(umh_gun_trigger_t *trigger,
        * that forces the on-axis null every hollow mode in this file relies on.
        * It is one full turn for every channel, whatever the radius, so the
        * aperture's ring integral cancels exactly on the axis. */
-      phase_q10 += (int32_t)((atan2f(y, x) * UMH_GUN_VORTEX_TURNS /
-                              UMH_TWO_PI) * UMH_GUN_Q10_PER_TURN);
+      phase_q10 += (int32_t)trigger->azimuth_q10[c];
       if (mode == UMH_GUN_MODE_BESSEL) {
         /* Conical wavefront: every element radiates at the same angle beta, so
          * the contributions interfere into a Bessel beam whose hollow core holds
@@ -277,10 +263,21 @@ static int gun_trigger_mute(umh_gun_trigger_t *trigger, fpga_link_t *link)
 }
 void gun_trigger_init(umh_gun_trigger_t *trigger)
 {
+  const umh_device_profile_t *profile;
+  uint16_t i;
   if (trigger == NULL) return;
   memset(trigger, 0, sizeof(*trigger));
   /* Cache the build id in RAM for the bench probe; see gun_trigger_build_id(). */
   gun_trigger_build_id_seen = gun_trigger_build_id();
+  profile = device_profile_get();
+  if (profile != NULL) {
+    for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
+      float x = (float)profile->coordinates[i].x_um;
+      float y = (float)profile->coordinates[i].y_um;
+      trigger->azimuth_q10[i] = (int16_t)((atan2f(y, x) * UMH_GUN_VORTEX_TURNS /
+                                           UMH_TWO_PI) * UMH_GUN_Q10_PER_TURN);
+    }
+  }
   trigger->raw = gun_pin_pressed();
   /* Start released even if the pin is already low: the debounce then has to see
    * the level UMH_GUN_DEBOUNCE_SAMPLES times before a shot can start, exactly

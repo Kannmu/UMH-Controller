@@ -31,12 +31,16 @@ umh_output_frame_t *frame_ring_acquire_write(umh_frame_ring_t *ring)
 
 int frame_ring_commit_write(umh_frame_ring_t *ring)
 {
-  if (ring == NULL || ring->count >= UMH_DEVICE_FRAME_RING_SLOTS) {
-    if (ring != NULL) ++ring->dropped;
+  if (ring == NULL) return -1;
+  taskENTER_CRITICAL();
+  if (ring->count >= UMH_DEVICE_FRAME_RING_SLOTS) {
+    ++ring->dropped;
+    taskEXIT_CRITICAL();
     return -1;
   }
   ring->write_index = frame_ring_next_index(ring->write_index);
   ++ring->count;
+  taskEXIT_CRITICAL();
   return 0;
 }
 
@@ -49,9 +53,15 @@ umh_output_frame_t *frame_ring_peek_read(umh_frame_ring_t *ring)
 
 int frame_ring_release_read(umh_frame_ring_t *ring)
 {
-  if (ring == NULL || ring->count == 0u) return -1;
+  if (ring == NULL) return -1;
+  taskENTER_CRITICAL();
+  if (ring->count == 0u) {
+    taskEXIT_CRITICAL();
+    return -1;
+  }
   ring->read_index = frame_ring_next_index(ring->read_index);
   --ring->count;
+  taskEXIT_CRITICAL();
   return 0;
 }
 

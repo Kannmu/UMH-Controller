@@ -11,13 +11,9 @@ typedef enum {
   UMH_SYSTEM_CALIBRATION_VALID = 1u << 4,
   UMH_SYSTEM_UNDERRUN = 1u << 5,
   UMH_SYSTEM_ERROR = 1u << 6,
-  UMH_SYSTEM_LEVITATION = 1u << 7,
-  /* The acoustic vortex programs drive the same real-time motion engine as
-   * levitation, so they are reported the same way: the OLED toggles and the
-   * host BUSY checks read these bits instead of a second state variable.  The
-   * bit records which program the engine is emitting. */
-  UMH_SYSTEM_VORTEX_STEADY = 1u << 8,
-  UMH_SYSTEM_VORTEX_ALT = 1u << 9,
+  UMH_SYSTEM_RESERVED_7 = 1u << 7,
+  UMH_SYSTEM_RESERVED_8 = 1u << 8,
+  UMH_SYSTEM_RESERVED_9 = 1u << 9,
   /* The PA9 shot trigger is a hardware input, not a mode: it is reported so a
    * host or the debugger can see the debounced switch state even while another
    * producer still owns the output.  Emission itself shows up in PLAYING. */
@@ -25,18 +21,6 @@ typedef enum {
   UMH_SYSTEM_RECORDING = 1u << 11,
   UMH_SYSTEM_USB_AUDIO = 1u << 12
 } umh_system_flag_t;
-
-/* Set exactly while the motion engine owns the 84-channel output.  Any other
- * producer (block plan, demo, focused AM, calibration) must refuse to start
- * while one of these is set. */
-#define UMH_SYSTEM_MOTION_MODE_MASK (UMH_SYSTEM_LEVITATION | \
-                                     UMH_SYSTEM_VORTEX_STEADY | \
-                                     UMH_SYSTEM_VORTEX_ALT)
-/* Host motion messages (UPLOAD/CONFIG/TARGET/RATE) are refused only while a
- * vortex (defoam) program runs.  A levitation trap may be re-programmed in
- * place, so a host can take over a GUI-started bead without dropping it. */
-#define UMH_SYSTEM_VORTEX_MODE_MASK (UMH_SYSTEM_VORTEX_STEADY | \
-                                     UMH_SYSTEM_VORTEX_ALT)
 
 /* Stable, short identifiers used by the OLED and the USB error counters.
  * Keep these codes semantic: the UI can explain the cause without exposing

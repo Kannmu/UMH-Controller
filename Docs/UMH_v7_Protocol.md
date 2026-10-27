@@ -93,7 +93,7 @@ uint8[payload_length] payload
 
 `DeviceProfile.capability_flags` 的 bit9（`MOTION`）表示固件包含 `motion_engine`。
 该扩展与块播放并列但职责不同：块播放负责已编译的时间线和 `LOOP_RAM/LOOP_STREAM`；
-`motion_engine` 在渲染任务中按输出帧实时合成单个空间点，用于高频声悬浮、
+`motion_engine` 在渲染任务中按输出帧实时合成单个空间点，用于高频轨迹、
 视觉暂留和低延迟手动控制。它复用 `spatial_renderer` 的阵元坐标、校准和
 `level` 语义，也复用 `fpga_link` 的完整 FRAME 事务，不重复任何渲染或 FPGA 逻辑。
 
@@ -129,7 +129,7 @@ uint16 max_accel_mm_s2   跟踪器限幅，DIRECT 模式忽略（16 位字段，
 int16  z_offset_10um     叠加到路径 z
 uint8  level             全局源幅度缩放 0..255
 uint8  trap_mode         0 单焦点，1 轴向双焦点，2 横向双焦点，3 环阵，
-                         4 涡旋，5 双环瓶式
+                         4 涡旋，5 双环瓶式；6 及以上返回 -4
 uint16 trap_radius_10um  半径/间距
 uint8  trap_phase_span   涡旋相位跨度，单位载波相位码
 uint8  palette_count     0..16
@@ -215,14 +215,8 @@ CONFIG 仍是索引调色板、路径速率 1.0。
   （0..1 比例），用于运行中重投影形状。
 * `MOTION_STATUS` 偏移 22 的原保留字段改为 `phase_q16`（当前循环位置 0..65535），
   总长度仍为 52 字节。
-* `trap_mode=6`（暗核涡旋）的聚焦深度改为指令 z（路径 z + `z_offset` 或 LIVE
-  目标），不再固定 100 mm。阵列朝桌面发射时，小球高度由桌面钉住的驻波台阶决定
-  （约 4.6 mm 间隔），聚焦深度只改变各台阶的保持力，不移动台阶。GUI 悬浮开关因此
-  下发 z=100 mm，与之前的固定焦点一致。
-* 暗核涡旋现在同样执行 RGB 调色板合成（此前该分支提前返回，彩色悬浮路径不亮灯）。
-* 主机 `MOTION_UPLOAD/CONFIG/TARGET/RATE` 只在涡旋消泡程序运行时返回 `BUSY`；
-  悬浮陷阱（含 GUI 启动的）可原地重配置，上位机可以接管已悬浮的小球而不掉落。
-  已在运行时不要再发 `MOTION_START`，它会先安全停止输出。
+* 主机 `MOTION_UPLOAD/CONFIG/TARGET/RATE` 可在运行中原地重配置；已在运行时不要
+  再发 `MOTION_START`，它会先安全停止输出。
 
 ### 长路径（v7.4，`capability_flags` bit13 `MOTION_LONG_PATH`）
 
@@ -360,7 +354,7 @@ y −45..+45 mm）在 40 kHz 下的自然焦距（无聚焦时轴向场的最后
 
 ### 枪菜单：6 个发射模式
 
-设备的 UI 有第 12 个页面 `GUN`（OLED 标题 `GUN 12/12`）。**长按最后一个键
+设备的 UI 有第 10 个页面 `GUN`（OLED 标题 `GUN 10/10`）。**长按最后一个键
 （KEY3，返回键）3 s 进入或退出该菜单**：首次启动默认模式 1；进入时定位到模式 1 并把扳机切到模式 1，
 退出时保留最后选择的模式。
 菜单内每行一个模式（`SINGLE FOCUS` / `PLANE WAVE` / `VORTEX L1` / `BESSEL L1` /
@@ -397,7 +391,8 @@ y −45..+45 mm）在 40 kHz 下的自然焦距（无聚焦时轴向场的最后
 会话结束后按键仍按着才发射。
 
 `GET_STATUS` 的 `flags` bit10（`TRIGGER`）是去抖后的按键电平，bit11（`RECORDING`）
-表示枪模式 6 正在采集语音；`PLAYING` 表示输出正在发射。三者在
+表示枪模式 6 正在采集语音；`PLAYING` 表示输出正在发射。bit7..9 为保留位，固件
+恒为 0，主机应忽略。三者在
 `GET_STATUS`/`STATUS` 响应里可直接观察，不需要额外的调试命令。
 
 ## 内置近场耦合相位自校准

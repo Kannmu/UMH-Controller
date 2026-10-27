@@ -6,21 +6,58 @@
 #include <math.h>
 #include <string.h>
 
-static int motion_emit_dark_vortex(umh_motion_engine_t *engine,
-                                   umh_spatial_renderer_t *renderer,
-                                   umh_output_frame_t *frame,
-                                   float cx, float cy, float cz,
-                                   float base_level);
-static int motion_emit_vortex(umh_motion_engine_t *engine,
-                              umh_spatial_renderer_t *renderer,
-                              umh_output_frame_t *frame,
-                              float cx, float cy, float cz,
-                              float base_level);
-
 #define UMH_SAFE_X_UM 100000
 #define UMH_SAFE_Y_UM 100000
 #define UMH_SAFE_Z_MIN_UM 10000
 #define UMH_SAFE_Z_MAX_UM 300000
+
+static uint32_t motion_period_key;
+static uint64_t motion_period_recip;
+
+static uint64_t motion_mulhi(uint64_t a, uint64_t b)
+{
+  uint64_t a0 = a & 0xFFFFFFFFu;
+  uint64_t a1 = a >> 32;
+  uint64_t b0 = b & 0xFFFFFFFFu;
+  uint64_t b1 = b >> 32;
+  uint64_t p0 = a0 * b0;
+  uint64_t p1 = a0 * b1;
+  uint64_t p2 = a1 * b0;
+  uint64_t p3 = a1 * b1;
+  uint64_t mid = (p0 >> 32) + (p1 & 0xFFFFFFFFu) + (p2 & 0xFFFFFFFFu);
+  return p3 + (p1 >> 32) + (p2 >> 32) + (mid >> 32);
+}
+
+static uint64_t motion_mulhi_u32(uint64_t a, uint32_t b)
+{
+  uint64_t lo = (uint64_t)(uint32_t)a * b;
+  uint64_t hi = (a >> 32) * b;
+  return (hi + (lo >> 32)) >> 32;
+}
+
+static uint64_t motion_reciprocal(uint32_t divisor)
+{
+  return divisor > 1u ? UINT64_MAX / (uint64_t)divisor + 1u : 0u;
+}
+
+static uint64_t motion_divide(uint64_t numerator, uint32_t divisor, uint64_t reciprocal)
+{
+  uint64_t quotient;
+  if (divisor <= 1u) return numerator;
+  quotient = motion_mulhi(numerator, reciprocal);
+  if (motion_mulhi_u32(quotient, divisor) != 0u || quotient * divisor > numerator)
+    quotient -= 1u;
+  return quotient;
+}
+
+static uint64_t motion_reciprocal_slot(uint32_t divisor)
+{
+  if (motion_period_key != divisor) {
+    motion_period_recip = motion_reciprocal(divisor);
+    motion_period_key = divisor;
+  }
+  return motion_period_recip;
+}
 
 static uint16_t motion_read_u16(const uint8_t *p)
 {
@@ -249,7 +286,7 @@ static void motion_sample_path(const umh_motion_engine_t *engine, float phase,
       (engine->points[i1].palette & UMH_MOTION_POINT_JUMP) != 0u) {
     /* Per-point zero-transit flag: jump directly to the next stroke/point
      * and hold it for this segment.  Only used by intentional haptics
-     * teleports; levitation paths leave bit7 clear. */
+     * teleports; continuous paths leave bit7 clear. */
     *x = p2x;
     *y = p2y;
     *z = p2z + (float)engine->z_offset_um;
@@ -260,7 +297,7 @@ static void motion_sample_path(const umh_motion_engine_t *engine, float phase,
   if ((engine->flags & UMH_MOTION_FLAG_STEP) != 0u) {
     /* Zero-transit haptics: hold one control point for the whole segment and
      * jump exactly at the segment boundary.  Used by letter writing where
-     * teleporting between strokes is intentional; levitation paths never set
+     * teleporting between strokes is intentional; continuous paths never set
      * this flag. */
     *x = p1x;
     *y = p1y;
@@ -325,7 +362,7 @@ static int motion_emit_sources(umh_motion_engine_t *engine, umh_spatial_renderer
                                float base_level)
 {
   uint8_t count = engine->pattern_count != 0u ? engine->pattern_count : 1u;
-  float per_source = base_level / sqrtf((float)count);
+  float per_source = base_level / umh_sqrtf((float)count);
   uint8_t i;
   if (per_source > 255.0f) per_source = 255.0f;
   if (per_source < 0.0f) per_source = 0.0f;
@@ -368,19 +405,7 @@ static int motion_emit_field(umh_motion_engine_t *engine, umh_spatial_renderer_t
 {
   int result;
   uint8_t i;
-  if (engine->vortex_program != UMH_VORTEX_OFF) {
-    int emitted = motion_emit_vortex(engine, renderer, frame, cx, cy, cz, base_level);
-    /* The alternating program counts its half periods in emitted frames, so
-     * the counter advances with the field and not with the wall clock. */
-    if (emitted == 0) engine->vortex_frames++;
-    return emitted;
-  }
-  /* The dark-vortex trap used to return before the RGB merge, so a coloured
-   * levitation path never lit the bead.  Both emitters now share it. */
-  if (engine->trap_mode == UMH_MOTION_TRAP_DARK_VORTEX)
-    result = motion_emit_dark_vortex(engine, renderer, frame, cx, cy, cz, base_level);
-  else
-    result = motion_emit_sources(engine, renderer, frame, cx, cy, cz, base_level);
+  result = motion_emit_sources(engine, renderer, frame, cx, cy, cz, base_level);
   if (result != 0) return result;
   if ((engine->flags & UMH_MOTION_FLAG_RGB) != 0u && engine->palette_count != 0u) {
     umh_rgb_value_t color[UMH_DEVICE_RGB_COUNT];
@@ -422,10 +447,6 @@ static void motion_finish_stop(umh_motion_engine_t *engine, fpga_link_t *link)
 {
   engine->state = UMH_MOTION_STATE_READY;
   engine->stop_requested = 0u;
-  /* The run is over, so the vortex selection goes with it.  Leaving it set
-   * would keep the engine producing the vortex field on the next start and
-   * would ignore a live target the host programs in the meantime. */
-  engine->vortex_program = UMH_VORTEX_OFF;
   engine->fade_scale = 0.0f;
   engine->fade_step = 0.0f;
   engine->last_service_us = 0u;
@@ -552,7 +573,7 @@ int motion_engine_configure(umh_motion_engine_t *engine, const uint8_t *payload,
         v3->rate_target_x1000 > UMH_MOTION_RATE_UNITY) return -14;
   }
   if (wire->mode > (uint8_t)UMH_MOTION_MODE_LIVE) return -3;
-  if (wire->trap_mode > UMH_MOTION_TRAP_DARK_VORTEX || wire->palette_count > UMH_MOTION_PALETTE_SIZE) return -4;
+  if (wire->trap_mode > UMH_MOTION_TRAP_MODE_MAX || wire->palette_count > UMH_MOTION_PALETTE_SIZE) return -4;
   if (wire->output_rate_hz < UMH_MOTION_MIN_RATE_HZ ||
       wire->output_rate_hz > UMH_MOTION_MAX_RATE_HZ) return -5;
   if (wire->loop_ms < 1u || wire->loop_ms > 60000u) return -6;
@@ -621,10 +642,6 @@ int motion_engine_configure(umh_motion_engine_t *engine, const uint8_t *payload,
    * a moving bead.  start() and stop re-initialise the clock themselves. */
   if (engine->state != UMH_MOTION_STATE_RUNNING) engine->last_service_us = 0u;
   engine->next_due_us = 0u;
-  /* A host config always takes the engine back to ordinary motion: leaving a
-   * vortex program selected here would make the next frame ignore the path or
-   * live target the host just programmed. */
-  engine->vortex_program = UMH_VORTEX_OFF;
   motion_rebuild_pattern(engine);
   if (engine->state == UMH_MOTION_STATE_OFF) engine->state = UMH_MOTION_STATE_READY;
   motion_unlock(engine);
@@ -736,8 +753,6 @@ int motion_engine_start(umh_motion_engine_t *engine)
   engine->submit_sum_cycles = 0u;
   engine->spin_angle = 0.0f;
   engine->palette_spin_phase = 0.0f;
-  /* A run always opens on the +l half period. */
-  engine->vortex_frames = 0u;
   engine->state = UMH_MOTION_STATE_RUNNING;
   motion_unlock(engine);
   return 0;
@@ -770,7 +785,6 @@ void motion_engine_abort(umh_motion_engine_t *engine, fpga_link_t *link)
   engine->stop_requested = 0u;
   engine->fade_scale = 0.0f;
   engine->fade_step = 0.0f;
-  engine->vortex_program = UMH_VORTEX_OFF;
   engine->last_service_us = 0u;
   engine->next_due_us = 0u;
   engine->vel_x_um_s = 0.0f;
@@ -799,12 +813,6 @@ uint8_t motion_engine_trap_mode(const umh_motion_engine_t *engine)
 {
   if (engine == NULL) return 0u;
   return engine->trap_mode;
-}
-
-uint8_t motion_engine_vortex_program(const umh_motion_engine_t *engine)
-{
-  if (engine == NULL) return UMH_VORTEX_OFF;
-  return engine->vortex_program;
 }
 
 uint32_t motion_engine_service(umh_motion_engine_t *engine,
@@ -1047,7 +1055,9 @@ uint32_t motion_engine_service(umh_motion_engine_t *engine,
     engine->next_due_us += (uint64_t)engine->period_us;
     if (engine->next_due_us <= now_us) {
       uint64_t behind = now_us - engine->next_due_us;
-      uint32_t missed = (uint32_t)(behind / (uint64_t)engine->period_us) + 1u;
+      uint32_t period = engine->period_us;
+      uint32_t missed = (uint32_t)motion_divide(behind, period,
+                                                motion_reciprocal_slot(period)) + 1u;
       engine->missed_deadlines += missed;
       engine->next_due_us = now_us + (uint64_t)engine->period_us;
     }
@@ -1109,253 +1119,4 @@ void motion_engine_get_status(const umh_motion_engine_t *engine,
   status->frame_errors = engine->frame_errors;
   status->fps_x100 = engine->fps;
   motion_unlock((umh_motion_engine_t *)engine);
-}
-
-
-/* The dark-vortex focus depth is the commanded z (path z + z_offset, or the
- * LIVE target).  With the array firing at a table, the bead heights are the
- * standing-wave rungs pinned to the table (~4.6 mm apart); the focus depth only
- * changes how strongly each rung holds, not where it is.  Focusing on the
- * table plane gives the strongest lower rungs.  The GUI switch therefore
- * commands z = 100 mm, which is what this emitter hard-coded before. */
-#define UMH_LEVITATION_SPIRAL_TURNS 1.0f
-
-static int motion_emit_dark_vortex(umh_motion_engine_t *engine,
-                                   umh_spatial_renderer_t *renderer,
-                                   umh_output_frame_t *frame,
-                                   float cx, float cy, float cz,
-                                   float base_level)
-{
-  uint16_t i;
-  float wavelength_um;
-  float phase_scale_q10;
-  float magnitude;
-  float focus_z_um;
-  if (engine == NULL || renderer == NULL || renderer->profile == NULL || frame == NULL) return -1;
-  if ((renderer->profile->capability_flags & UMH_PROFILE_CAP_GEOMETRY_VALID) == 0u) return -2;
-  if (renderer->carrier_hz == 0u || renderer->sound_speed_um_per_s == 0u) return -3;
-  if (base_level < 0.0f) base_level = 0.0f;
-  if (base_level > 255.0f) base_level = 255.0f;
-  wavelength_um = (float)renderer->sound_speed_um_per_s / (float)renderer->carrier_hz;
-  /* phase_q10 = distance_um * 1024 / wavelength_um, directly in the LUT
-   * domain.  The old two_pi/(1024/2pi) round trip is removed. */
-  phase_scale_q10 = 1024.0f / wavelength_um;
-  focus_z_um = cz;
-  magnitude = base_level * (1.0f / 255.0f);
-  memset(frame, 0, sizeof(*frame));
-  memset(engine->real_accum, 0, sizeof(engine->real_accum));
-  memset(engine->imag_accum, 0, sizeof(engine->imag_accum));
-  /* The azimuth runs on the CORDIC: newlib atan2f + lroundf cost ~260 us of
-   * the 420 us frame and capped the trap at ~1.5 kHz.  Truncating the final
-   * q10 matches spatial_renderer_accumulate_point. */
-  {
-    const uint8_t hw = umh_cordic_phase_stream_begin() == 0 ? 1u : 0u;
-    for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
-      const umh_element_coordinate_t *c = &renderer->profile->coordinates[i];
-      float ex = (float)c->x_um - cx;
-      float ey = (float)c->y_um - cy;
-      float ez = (float)c->z_um - focus_z_um;
-      float distance = sqrtf(ex * ex + ey * ey + ez * ez);
-      int32_t theta_q10 = hw != 0u ? umh_cordic_phase_stream_q10(ex, ey) :
-          (int32_t)(UMH_LEVITATION_SPIRAL_TURNS * atan2f(ey, ex) * (1024.0f / UMH_TWO_PI));
-      int32_t q10 = theta_q10 + renderer->phase_offset_q10[i] -
-                    (int32_t)(phase_scale_q10 * distance);
-      spatial_renderer_accumulate_q10(renderer, i, q10, magnitude,
-                                      engine->real_accum, engine->imag_accum);
-    }
-  }
-  return spatial_renderer_finalize(renderer, engine->real_accum,
-                                   engine->imag_accum, frame);
-}
-
-/* Acoustic vortex: the same complex accumulation as the dark vortex, but the
- * spiral is wound around the foam-plane focus instead of the trap, and the
- * sign of the winding is the whole program.
- *
- * The field is otherwise constant -- same focus, same amplitude, same level
- * every frame -- so STEADY produces a frame that is bit-identical on every
- * iteration and fpga_link_submit_allow_hold() drops all but the first SPI
- * write.  ALT changes the sign every UMH_VORTEX_ALT_HALF_FRAMES frames, so it
- * costs one write per half period (the first frame of each half) and nothing
- * for the frames inside it.  The level is full on every channel, i.e. the
- * maximum output power this hardware has. */
-static int motion_emit_vortex(umh_motion_engine_t *engine,
-                              umh_spatial_renderer_t *renderer,
-                              umh_output_frame_t *frame,
-                              float cx, float cy, float cz,
-                              float base_level)
-{
-  uint16_t i;
-  float wavelength_um;
-  float phase_scale_q10;
-  float magnitude;
-  float turns;
-  if (engine == NULL || renderer == NULL || renderer->profile == NULL || frame == NULL) return -1;
-  if ((renderer->profile->capability_flags & UMH_PROFILE_CAP_GEOMETRY_VALID) == 0u) return -2;
-  if (renderer->carrier_hz == 0u || renderer->sound_speed_um_per_s == 0u) return -3;
-  if (base_level < 0.0f) base_level = 0.0f;
-  if (base_level > 255.0f) base_level = 255.0f;
-  wavelength_um = (float)renderer->sound_speed_um_per_s / (float)renderer->carrier_hz;
-  phase_scale_q10 = 1024.0f / wavelength_um;
-  turns = (float)UMH_VORTEX_TURNS;
-  /* Time reversal: every other half period the spiral is wound the other way,
-   * so the ring reverses its orbital motion and shears the film in the
-   * opposite direction. */
-  if (engine->vortex_program == UMH_VORTEX_ALT &&
-      ((engine->vortex_frames / UMH_VORTEX_ALT_HALF_FRAMES) & 1u) != 0u)
-    turns = -turns;
-  /* Full amplitude everywhere: a spatial magnitude of 1 becomes wire level
-   * 128 in spatial_renderer_finalize(), which is this hardware's full power. */
-  magnitude = base_level * (1.0f / 255.0f);
-  memset(frame, 0, sizeof(*frame));
-  memset(engine->real_accum, 0, sizeof(engine->real_accum));
-  memset(engine->imag_accum, 0, sizeof(engine->imag_accum));
-  {
-    /* The same CORDIC streaming azimuth as the dark-vortex trap: 84 atan2f
-     * calls per frame disappear from this otherwise static program. */
-    const uint8_t hw = umh_cordic_phase_stream_begin() == 0 ? 1u : 0u;
-    for (i = 0u; i < UMH_DEVICE_CHANNEL_COUNT; ++i) {
-      const umh_element_coordinate_t *c = &renderer->profile->coordinates[i];
-      float ex = (float)c->x_um - cx;
-      float ey = (float)c->y_um - cy;
-      float ez = (float)c->z_um - cz;
-      float distance = sqrtf(ex * ex + ey * ey + ez * ez);
-      /* l turns of phase per turn of azimuth, plus the ordinary focusing
-       * delay, which is what pulls the spiral wavefront down onto the foam.
-       * The CORDIC supplies the azimuth as a fractional turn so the original
-       * lroundf() arithmetic and final frame bytes are preserved. */
-      float theta_turns = hw != 0u ? umh_cordic_phase_stream_turns(ex, ey) :
-          (atan2f(ey, ex) * (1.0f / UMH_TWO_PI));
-      float phase_q10 = (turns * theta_turns * 1024.0f) -
-                        (phase_scale_q10 * distance) +
-                        (float)renderer->phase_offset_q10[i];
-      int32_t q10 = (int32_t)lroundf(phase_q10);
-      spatial_renderer_accumulate_q10(renderer, i, q10, magnitude,
-                                      engine->real_accum, engine->imag_accum);
-    }
-  }
-  return spatial_renderer_finalize(renderer, engine->real_accum,
-                                   engine->imag_accum, frame);
-}
-
-int motion_engine_configure_levitation(umh_motion_engine_t *engine,
-                                       uint8_t level, int32_t trap_z_um)
-{
-  if (engine == NULL) return -1;
-  if (trap_z_um < (int32_t)UMH_SAFE_Z_MIN_UM || trap_z_um > (int32_t)UMH_SAFE_Z_MAX_UM) return -2;
-  if (motion_lock(engine) != 0) return -3;
-  engine->mode = UMH_MOTION_MODE_LIVE;
-  engine->flags = 0u;
-  engine->output_rate_hz = 50u;
-  engine->period_us = 20000u;
-  engine->level = 255u;
-  engine->trap_mode = UMH_MOTION_TRAP_DARK_VORTEX;
-  engine->trap_radius_um = 0;
-  engine->trap_phase_span = 0u;
-  engine->z_offset_um = 0;
-  engine->palette_count = 0u;
-  engine->palette_spin_x10 = 0u;
-  engine->path_spin_mrad_s = 0;
-  engine->ulm_frequency_hz = 0u;
-  engine->ulm_amplitude_um = 0;
-  engine->ulm_axis = 0u;
-  engine->target_valid = 1u;
-  engine->target_x_um = 0.0f;
-  engine->target_y_um = 0.0f;
-  engine->target_z_um = (float)trap_z_um;
-  engine->target_level = level;
-  engine->target_palette = 0u;
-  engine->pos_x_um = 0.0f;
-  engine->pos_y_um = 0.0f;
-  engine->pos_z_um = (float)trap_z_um;
-  engine->vel_x_um_s = 0.0f;
-  engine->vel_y_um_s = 0.0f;
-  engine->vel_z_um_s = 0.0f;
-  engine->current_valid = 1u;
-  engine->last_level = level;
-  engine->last_level_scale = 0.0f;
-  engine->last_palette = 0u;
-  engine->palette_pos = 0.0f;
-  engine->display_flags = 0u;
-  motion_set_rate(engine, 1.0f, 1.0f, 0u);
-  engine->configured = 1u;
-  engine->stop_requested = 0u;
-  engine->last_service_us = 0u;
-  engine->next_due_us = 0u;
-  /* Levitation and the vortex programs are different users of the same engine
-   * and must never be selected at once. */
-  engine->vortex_program = UMH_VORTEX_OFF;
-  motion_rebuild_pattern(engine);
-  engine->state = UMH_MOTION_STATE_READY;
-  motion_unlock(engine);
-  return 0;
-}
-
-int motion_engine_configure_vortex(umh_motion_engine_t *engine, uint8_t program)
-{
-  uint32_t period;
-  float z_um;
-  if (engine == NULL) return -1;
-  if (program < UMH_VORTEX_STEADY || program > UMH_VORTEX_ALT) return -2;
-  if (motion_lock(engine) != 0) return -3;
-
-  /* Both programs radiate a static focus at full amplitude; only the winding
-   * sense of the phase differs, and ALT reverses that twice per period.  The
-   * frame cadence therefore only has to place those edges and feed the link
-   * watchdog, and every other frame is suppressed by the hold optimisation. */
-  period = 1000000u / (uint32_t)UMH_VORTEX_RATE_HZ;
-  if (period == 0u) period = 1u;
-  z_um = (float)UMH_VORTEX_FOCUS_Z_UM;
-
-  /* A plain LIVE program: the target never moves, so the ordinary tracker
-   * holds the focus and the emitter owns the whole phase field. */
-  engine->mode = UMH_MOTION_MODE_LIVE;
-  engine->flags = 0u;
-  engine->output_rate_hz = UMH_VORTEX_RATE_HZ;
-  engine->period_us = period;
-  engine->level = UMH_VORTEX_LEVEL;
-  engine->trap_mode = 0u;
-  engine->trap_radius_um = 0;
-  engine->trap_phase_span = 0u;
-  engine->z_offset_um = 0;
-  engine->palette_count = 0u;
-  engine->palette_spin_x10 = 0u;
-  engine->path_spin_mrad_s = 0;
-  engine->ulm_frequency_hz = 0u;
-  engine->ulm_amplitude_um = 0;
-  engine->ulm_axis = 0u;
-  engine->point_count = 0u;
-  engine->target_valid = 1u;
-  engine->target_x_um = 0.0f;
-  engine->target_y_um = 0.0f;
-  engine->target_z_um = z_um;
-  engine->target_level = UMH_VORTEX_LEVEL;
-  engine->target_palette = 0u;
-  engine->pos_x_um = 0.0f;
-  engine->pos_y_um = 0.0f;
-  engine->pos_z_um = z_um;
-  engine->vel_x_um_s = 0.0f;
-  engine->vel_y_um_s = 0.0f;
-  engine->vel_z_um_s = 0.0f;
-  engine->current_valid = 1u;
-  engine->last_level = UMH_VORTEX_LEVEL;
-  engine->last_level_scale = 0.0f;
-  engine->last_palette = 0u;
-  engine->palette_pos = 0.0f;
-  engine->display_flags = 0u;
-  motion_set_rate(engine, 1.0f, 1.0f, 0u);
-  engine->configured = 1u;
-  engine->stop_requested = 0u;
-  engine->last_service_us = 0u;
-  engine->next_due_us = 0u;
-  engine->fade_scale = 1.0f;
-  engine->fade_step = 0.0f;
-  /* The program is the only thing the emitter reads back; the charge, the
-   * focus and the level are constants of both programs. */
-  engine->vortex_program = program;
-  engine->vortex_frames = 0u;
-  motion_rebuild_pattern(engine);
-  engine->state = UMH_MOTION_STATE_READY;
-  motion_unlock(engine);
-  return 0;
 }

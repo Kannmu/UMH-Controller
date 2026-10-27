@@ -1,5 +1,8 @@
 #include "flash_nor.h"
 #include "main.h"
+#include "FreeRTOS.h"
+#include "semphr.h"
+#include "task.h"
 #include <string.h>
 
 #define CMD_READ_ID       0x9Fu
@@ -17,6 +20,49 @@
 static SPI_HandleTypeDef *flash_spi;
 static uint8_t flash_present;
 static uint8_t flash_dummy[FLASH_NOR_PAGE_SIZE];
+static SemaphoreHandle_t flash_dma_sem;
+static StaticSemaphore_t flash_dma_sem_mem;
+
+static void flash_dma_sem_init(void)
+{
+  if (flash_dma_sem != NULL) return;
+  if (xTaskGetSchedulerState() == taskSCHEDULER_NOT_STARTED) return;
+  flash_dma_sem = xSemaphoreCreateBinaryStatic(&flash_dma_sem_mem);
+}
+
+static void flash_dma_sem_drain(void)
+{
+  if (flash_dma_sem == NULL) return;
+  while (xSemaphoreTake(flash_dma_sem, 0u) == pdTRUE) {
+  }
+}
+
+static void flash_dma_sem_give(void)
+{
+  BaseType_t woken = pdFALSE;
+  if (flash_dma_sem == NULL) return;
+  if (__get_IPSR() != 0u) {
+    (void)xSemaphoreGiveFromISR(flash_dma_sem, &woken);
+    portYIELD_FROM_ISR(woken);
+  } else {
+    (void)xSemaphoreGive(flash_dma_sem);
+  }
+}
+
+void flash_nor_dma_complete(SPI_HandleTypeDef *spi)
+{
+  if (spi != NULL && spi == flash_spi) flash_dma_sem_give();
+}
+
+void flash_nor_dma_error(SPI_HandleTypeDef *spi)
+{
+  if (spi != NULL && spi == flash_spi) flash_dma_sem_give();
+}
+
+void flash_nor_dma_drain(void)
+{
+  flash_dma_sem_drain();
+}
 
 static void cs_low(void) { HAL_GPIO_WritePin(SPI3_CS_GPIO_Port, SPI3_CS_Pin, GPIO_PIN_RESET); }
 static void cs_high(void) { HAL_GPIO_WritePin(SPI3_CS_GPIO_Port, SPI3_CS_Pin, GPIO_PIN_SET); }
@@ -63,6 +109,7 @@ void flash_nor_init(SPI_HandleTypeDef *spi)
 {
   flash_spi = spi;
   flash_present = (spi != NULL) ? 1u : 0u;
+  flash_dma_sem_init();
   cs_high();
   memset(flash_dummy, 0xFF, sizeof(flash_dummy));
 }
@@ -108,18 +155,49 @@ flash_nor_status_t flash_nor_read(uint32_t address, void *data, uint32_t length)
   return FLASH_NOR_OK;
 }
 
+flash_nor_status_t flash_nor_wait_dma(uint32_t timeout_ms)
+{
+  uint32_t start;
+  if (flash_spi == NULL) return FLASH_NOR_IO;
+  flash_dma_sem_init();
+  if (flash_dma_sem == NULL) {
+    start = HAL_GetTick();
+    while (HAL_SPI_GetState(flash_spi) != HAL_SPI_STATE_READY) {
+      if ((HAL_GetTick() - start) > timeout_ms) {
+        (void)HAL_SPI_Abort(flash_spi);
+        return FLASH_NOR_TIMEOUT;
+      }
+    }
+    return HAL_SPI_GetError(flash_spi) == HAL_SPI_ERROR_NONE ? FLASH_NOR_OK :
+           FLASH_NOR_IO;
+  }
+  if (xSemaphoreTake(flash_dma_sem, pdMS_TO_TICKS(timeout_ms)) != pdTRUE) {
+    (void)HAL_SPI_Abort(flash_spi);
+    flash_dma_sem_drain();
+    return FLASH_NOR_TIMEOUT;
+  }
+  if (HAL_SPI_GetState(flash_spi) != HAL_SPI_STATE_READY ||
+      HAL_SPI_GetError(flash_spi) != HAL_SPI_ERROR_NONE) {
+    (void)HAL_SPI_Abort(flash_spi);
+    flash_dma_sem_drain();
+    return FLASH_NOR_IO;
+  }
+  return FLASH_NOR_OK;
+}
+
 flash_nor_status_t flash_nor_read_dma(uint32_t address, void *data, uint32_t length)
 {
   uint8_t command[4];
   uint8_t *dst = (uint8_t *)data;
   uint32_t chunk;
-  uint32_t start;
+  flash_nor_status_t result;
   if (flash_spi == NULL || data == NULL || length == 0u || address >= FLASH_NOR_TOTAL_SIZE ||
       length > FLASH_NOR_TOTAL_SIZE - address) return FLASH_NOR_PARAM;
   while (length != 0u) {
     chunk = length > FLASH_NOR_PAGE_SIZE ? FLASH_NOR_PAGE_SIZE : length;
     command[0] = CMD_FAST_READ;
     address_bytes(&command[1], address);
+    flash_dma_sem_drain();
     cs_low();
     if (HAL_SPI_Transmit(flash_spi, command, sizeof(command), 20u) != HAL_OK ||
         HAL_SPI_Transmit(flash_spi, flash_dummy, 1u, 10u) != HAL_OK ||
@@ -127,15 +205,9 @@ flash_nor_status_t flash_nor_read_dma(uint32_t address, void *data, uint32_t len
       cs_high();
       return FLASH_NOR_IO;
     }
-    start = HAL_GetTick();
-    while (HAL_SPI_GetState(flash_spi) != HAL_SPI_STATE_READY) {
-      if ((HAL_GetTick() - start) > 100u) {
-        (void)HAL_SPI_Abort(flash_spi);
-        cs_high();
-        return FLASH_NOR_TIMEOUT;
-      }
-    }
+    result = flash_nor_wait_dma(100u);
     cs_high();
+    if (result != FLASH_NOR_OK) return result;
     address += chunk;
     dst += chunk;
     length -= chunk;

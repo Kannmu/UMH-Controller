@@ -20,6 +20,58 @@
 static uint8_t hologram_level_lut[UMH_HOLOGRAM_GAMMA_MAX + 1u];
 static uint8_t hologram_level_lut_ready;
 
+static uint32_t hologram_cycle_key;
+static uint32_t hologram_segment_key;
+static uint32_t hologram_period_key;
+static uint64_t hologram_cycle_recip;
+static uint64_t hologram_segment_recip;
+static uint64_t hologram_period_recip;
+
+static uint64_t hologram_mulhi(uint64_t a, uint64_t b)
+{
+  uint64_t a0 = a & 0xFFFFFFFFu;
+  uint64_t a1 = a >> 32;
+  uint64_t b0 = b & 0xFFFFFFFFu;
+  uint64_t b1 = b >> 32;
+  uint64_t p0 = a0 * b0;
+  uint64_t p1 = a0 * b1;
+  uint64_t p2 = a1 * b0;
+  uint64_t p3 = a1 * b1;
+  uint64_t mid = (p0 >> 32) + (p1 & 0xFFFFFFFFu) + (p2 & 0xFFFFFFFFu);
+  return p3 + (p1 >> 32) + (p2 >> 32) + (mid >> 32);
+}
+
+static uint64_t hologram_mulhi_u32(uint64_t a, uint32_t b)
+{
+  uint64_t lo = (uint64_t)(uint32_t)a * b;
+  uint64_t hi = (a >> 32) * b;
+  return (hi + (lo >> 32)) >> 32;
+}
+
+static uint64_t hologram_reciprocal(uint32_t divisor)
+{
+  return divisor > 1u ? UINT64_MAX / (uint64_t)divisor + 1u : 0u;
+}
+
+static uint64_t hologram_divide(uint64_t numerator, uint32_t divisor, uint64_t reciprocal)
+{
+  uint64_t quotient;
+  if (divisor <= 1u) return numerator;
+  quotient = hologram_mulhi(numerator, reciprocal);
+  if (hologram_mulhi_u32(quotient, divisor) != 0u || quotient * divisor > numerator)
+    quotient -= 1u;
+  return quotient;
+}
+
+static uint64_t hologram_reciprocal_slot(uint32_t divisor, uint32_t *key, uint64_t *recip)
+{
+  if (*key != divisor) {
+    *recip = hologram_reciprocal(divisor);
+    *key = divisor;
+  }
+  return *recip;
+}
+
 static void hologram_build_level_lut(void)
 {
   uint32_t i;
@@ -126,17 +178,26 @@ static uint16_t hologram_keyframe_index(const umh_hologram_engine_t *engine,
   uint64_t segment_us;
   uint64_t index;
   uint64_t fraction;
+  uint64_t cycle_recip;
+  uint64_t segment_recip;
+  uint32_t cycle32;
+  uint32_t segment32;
   cycle = hologram_cycle_us(engine);
   if (alpha_x1000 != NULL) *alpha_x1000 = 0u;
   if (engine->keyframes <= 1u || cycle == 0u) return 0u;
-  offset = elapsed_us % cycle;
+  cycle32 = (uint32_t)cycle;
+  cycle_recip = hologram_reciprocal_slot(cycle32, &hologram_cycle_key, &hologram_cycle_recip);
+  offset = elapsed_us - hologram_divide(elapsed_us, cycle32, cycle_recip) * cycle;
   segment_us = (uint64_t)engine->transition_ms * 1000ull;
   if (segment_us == 0u) {
-    index = (offset * (uint64_t)engine->keyframes) / cycle;
+    index = hologram_divide(offset * (uint64_t)engine->keyframes, cycle32, cycle_recip);
     if (index >= (uint64_t)engine->keyframes) index = (uint64_t)engine->keyframes - 1u;
     return (uint16_t)index;
   }
-  index = offset / segment_us;
+  segment32 = (uint32_t)segment_us;
+  segment_recip = hologram_reciprocal_slot(segment32, &hologram_segment_key,
+                                           &hologram_segment_recip);
+  index = hologram_divide(offset, segment32, segment_recip);
   if (index >= (uint64_t)engine->keyframes) index = (uint64_t)engine->keyframes - 1u;
   if (index + 1u >= (uint64_t)engine->keyframes) {
     /* Last keyframe: hold it, or wrap back to the first one. */
@@ -149,13 +210,13 @@ static uint16_t hologram_keyframe_index(const umh_hologram_engine_t *engine,
        * remainder is a dwell on the last keyframe. */
       fraction = offset - index * segment_us;
       if (alpha_x1000 != NULL)
-        *alpha_x1000 = (uint32_t)((fraction * 1000ull) / segment_us);
+        *alpha_x1000 = (uint32_t)hologram_divide(fraction * 1000ull, segment32, segment_recip);
       return (uint16_t)index;
     }
   }
   fraction = offset - index * segment_us;
   if (alpha_x1000 != NULL) {
-    uint32_t alpha = (uint32_t)((fraction * 1000ull) / segment_us);
+    uint32_t alpha = (uint32_t)hologram_divide(fraction * 1000ull, segment32, segment_recip);
     if (alpha > 1000u) alpha = 1000u;
     *alpha_x1000 = alpha;
   }
@@ -217,18 +278,12 @@ static uint8_t hologram_needs_submit(const umh_hologram_engine_t *engine,
                                      uint64_t now_us)
 {
   uint32_t i;
-  uint32_t threshold = engine->keyframes > 1u ? 1u : 0u;
   if (engine->have_last == 0u) return 1u;
+  if (engine->keyframes > 1u) return 1u;
   if (now_us - engine->last_submit_us >=
       (uint64_t)UMH_HOLOGRAM_REFRESH_MS * 1000ull) return 1u;
   for (i = 0u; i < UMH_HOLOGRAM_CHANNELS; ++i) {
-    int32_t dphase = (int32_t)(uint8_t)(phase[i] - engine->last_phase[i]);
-    int32_t dlevel = (int32_t)level[i] - (int32_t)engine->last_level[i];
-    if (dphase > 127) dphase -= 256;
-    else if (dphase < -128) dphase += 256;
-    if (dphase < 0) dphase = -dphase;
-    if (dlevel < 0) dlevel = -dlevel;
-    if (dphase > (int32_t)threshold || dlevel > (int32_t)threshold) return 1u;
+    if (phase[i] != engine->last_phase[i] || level[i] != engine->last_level[i]) return 1u;
   }
   return 0u;
 }
@@ -412,6 +467,31 @@ uint8_t hologram_engine_owns_output(const umh_hologram_engine_t *engine)
           engine->state == UMH_HOLOGRAM_STATE_STOPPING) ? 1u : 0u;
 }
 
+static uint32_t hologram_advance_due(umh_hologram_engine_t *engine, uint64_t now_us,
+                                     uint64_t period)
+{
+  uint64_t due;
+  uint64_t wait;
+  if (engine->next_due_us == 0u || engine->next_due_us == now_us)
+    due = now_us + period;
+  else {
+    due = engine->next_due_us + period;
+    if (due <= now_us) {
+      uint32_t period32 = (uint32_t)period;
+      uint64_t period_recip = hologram_reciprocal_slot(period32, &hologram_period_key,
+                                                       &hologram_period_recip);
+      engine->missed_deadlines +=
+          (uint32_t)hologram_divide(now_us - due, period32, period_recip) + 1u;
+      due = now_us + period;
+    }
+  }
+  engine->next_due_us = due;
+  wait = due > now_us ? due - now_us : 250u;
+  if (wait > 100000u) wait = 100000u;
+  if (wait == 0u) wait = 250u;
+  return (uint32_t)wait;
+}
+
 uint32_t hologram_engine_service(umh_hologram_engine_t *engine, fpga_link_t *link,
                                  uint64_t now_us, uint32_t *wait_us)
 {
@@ -480,8 +560,7 @@ uint32_t hologram_engine_service(umh_hologram_engine_t *engine, fpga_link_t *lin
     if (hologram_needs_submit(engine, phase, level, now_us) == 0u) {
       engine->frames_skipped++;
       hologram_record_service(engine, service_start_cycles);
-      engine->next_due_us = now_us + period;
-      *wait_us = (uint32_t)period;
+      *wait_us = hologram_advance_due(engine, now_us, period);
       hologram_unlock(engine);
       return 0u;
     }
@@ -535,22 +614,7 @@ uint32_t hologram_engine_service(umh_hologram_engine_t *engine, fpga_link_t *lin
     return 0u;
   }
 
-  if (engine->next_due_us == 0u || engine->next_due_us == now_us) {
-    engine->next_due_us = now_us + period;
-  } else {
-    engine->next_due_us += period;
-    if (engine->next_due_us <= now_us) {
-      uint64_t behind = now_us - engine->next_due_us;
-      uint32_t missed = (uint32_t)(behind / period) + 1u;
-      engine->missed_deadlines += missed;
-      engine->next_due_us = now_us + period;
-    }
-  }
-  {
-    uint64_t wait = engine->next_due_us > now_us ? engine->next_due_us - now_us : 250u;
-    *wait_us = wait > 100000u ? 100000u : (uint32_t)wait;
-    if (*wait_us == 0u) *wait_us = 250u;
-  }
+  *wait_us = hologram_advance_due(engine, now_us, period);
   hologram_unlock(engine);
   return 0u;
 }

@@ -25,7 +25,7 @@ static const char *page_title(device_gui_page_t page)
 {
   static const char *const titles[DEVICE_GUI_PAGE_COUNT] = {
     "STATUS", "PLAYBACK", "DEVICE", "CALIB", "STORAGE", "DEBUG", "SYSTEM",
-    "ACOUSTIC", "DEFOAM", "DEMOS", "LED TEST", "GUN"
+    "DEMOS", "LED TEST", "GUN"
   };
   return page < DEVICE_GUI_PAGE_COUNT ? titles[page] : "UMH-84";
 }
@@ -40,8 +40,6 @@ static uint8_t page_item_count(const device_gui_t *gui)
     case DEVICE_GUI_STORAGE: return 6u;
     case DEVICE_GUI_DIAGNOSTICS: return 32u;
     case DEVICE_GUI_SYSTEM: return (uint8_t)(4u + uxTaskGetNumberOfTasks());
-    case DEVICE_GUI_LEVITATION: return 1u;
-    case DEVICE_GUI_DEFOAM: return 5u;
     case DEVICE_GUI_DEMOS: return gui->demo_count;
     case DEVICE_GUI_WS2812_TEST: return 5u;
     case DEVICE_GUI_GUN: return UMH_GUN_MODE_COUNT;
@@ -390,33 +388,6 @@ static void render_demos(device_gui_t *gui)
   }
 }
 
-static void render_levitation(device_gui_t *gui)
-{
-  uint8_t on = gui->status != NULL &&
-                (gui->status->flags & UMH_SYSTEM_LEVITATION) != 0u;
-  line(gui, 0u, "LEVITATE", on != 0u ? "ON" : "OFF");
-}
-
-static void render_defoam(device_gui_t *gui)
-{
-  uint32_t flags = gui->status != NULL ? gui->status->flags : 0u;
-  /* Two switches, only one of which can be on: the engine emits a single
-   * vortex program, so the flags below are mutually exclusive by construction
-   * and turning one on is what turns the other off.  Both wind topological
-   * charge 1; ALT reverses its sign twice per period. */
-  line(gui, 0u, "VORTEX L1", (flags & UMH_SYSTEM_VORTEX_STEADY) != 0u ? "ON" : "OFF");
-  /* There is no '+' glyph in the 5x7 font, so the reversed half of the
-   * alternation is written as the plain "1 -1" pair. */
-  line(gui, 1u, "FLIP 1 -1", (flags & UMH_SYSTEM_VORTEX_ALT) != 0u ? "ON" : "OFF");
-  /* The 5x7 font has no comma glyph, so the working point is written with
-   * spaces: X, Y and Z in mm, the plane both programs focus on. */
-  line(gui, 2u, "FOCUS", "0 0 100MM");
-  line(gui, 3u, "PERIOD", "20MS");
-  /* Stops whichever program is running.  Kept on the last row of the visible
-   * area rather than a sixth one so it never runs under the OK/ERR badge. */
-  line(gui, 4u, "STOP ALL", "PRESS OK");
-}
-
 static void render_ws2812_test(device_gui_t *gui)
 {
   const char *modes[] = {"OFF", "RED", "GREEN", "BLUE", "WHITE"};
@@ -452,8 +423,6 @@ void device_gui_init(device_gui_t *gui, oled_ssd1315_t *oled,
                      device_gui_action_t calibration,
                      device_gui_action_t self_test,
                      device_gui_action_t demo,
-                     device_gui_action_t levitation_toggle,
-                     device_gui_action_t defoam_set,
                      device_gui_action_t ws2812_set,
                      device_gui_action_t gun_select,
                      device_gui_action_t gun_exit,
@@ -464,8 +433,7 @@ void device_gui_init(device_gui_t *gui, oled_ssd1315_t *oled,
   memset(gui, 0, sizeof(*gui));
   gui->oled = oled; gui->profile = profile; gui->status = status; gui->plan = plan;
   gui->fpga = fpga; gui->flash = flash; gui->eeprom = eeprom;
-  gui->demo = demo; gui->levitation_toggle = levitation_toggle;
-  gui->defoam_set = defoam_set;
+  gui->demo = demo;
   gui->ws2812_set = ws2812_set; gui->calibration = calibration;
   gui->self_test = self_test;
   gui->gun_select = gun_select; gui->gun_exit = gun_exit;
@@ -474,7 +442,6 @@ void device_gui_init(device_gui_t *gui, oled_ssd1315_t *oled,
   gui->cursor_y = GUI_BODY_Y + 1u;
   gui->ws2812_mode = 0u;
   gui->ws2812_active = 0u;
-  gui->defoam_mode = DEVICE_GUI_DEFOAM_STOP;
 }
 
 /* Enter or leave the gun menu.
@@ -620,26 +587,6 @@ void device_gui_handle_event(device_gui_t *gui, const input_event_t *event)
     return;
   }
 
-  if (gui->page == DEVICE_GUI_LEVITATION && gui->row == 0u) {
-    int result = gui->levitation_toggle != NULL ? gui->levitation_toggle(gui->action_context) : -1;
-    gui->action_message = result == 0 ? 1u : 2u;
-    gui->message_until = HAL_GetTick() + GUI_MESSAGE_MS;
-    return;
-  }
-
-  if (gui->page == DEVICE_GUI_DEFOAM &&
-      (gui->row <= DEVICE_GUI_VORTEX_ALT || gui->row == DEVICE_GUI_DEFOAM_STOP_ROW)) {
-    int result;
-    /* The callback reads the row back out of the GUI, exactly like the WS2812
-     * action does, because the action signature only carries the context. */
-    gui->defoam_mode = gui->row == DEVICE_GUI_DEFOAM_STOP_ROW ? DEVICE_GUI_DEFOAM_STOP
-                                                             : gui->row;
-    result = gui->defoam_set != NULL ? gui->defoam_set(gui->action_context) : -1;
-    gui->action_message = result == 0 ? 1u : 2u;
-    gui->message_until = HAL_GetTick() + GUI_MESSAGE_MS;
-    return;
-  }
-
   if (gui->page == DEVICE_GUI_WS2812_TEST && gui->row < 4u) {
     int result = -1;
     if (gui->row == 0u) {
@@ -671,11 +618,6 @@ void device_gui_handle_event(device_gui_t *gui, const input_event_t *event)
 uint8_t device_gui_calibration_busy(const device_gui_t *gui)
 {
   return gui != NULL ? gui->calibration_busy : 0u;
-}
-
-uint8_t device_gui_gun_active(const device_gui_t *gui)
-{
-  return gui != NULL && gui->page == DEVICE_GUI_GUN ? 1u : 0u;
 }
 
 void device_gui_calibration_begin(device_gui_t *gui)
@@ -713,8 +655,6 @@ void device_gui_render(device_gui_t *gui, uint32_t now_ms)
     case DEVICE_GUI_STORAGE: render_storage(gui); break;
     case DEVICE_GUI_DIAGNOSTICS: render_diagnostics(gui); break;
     case DEVICE_GUI_SYSTEM: render_system(gui); break;
-    case DEVICE_GUI_LEVITATION: render_levitation(gui); break;
-    case DEVICE_GUI_DEFOAM: render_defoam(gui); break;
     case DEVICE_GUI_DEMOS: render_demos(gui); break;
     case DEVICE_GUI_WS2812_TEST: render_ws2812_test(gui); break;
     case DEVICE_GUI_GUN: render_gun(gui); break;

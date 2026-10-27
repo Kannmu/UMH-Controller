@@ -33,6 +33,12 @@ typedef enum {
   UMH_MSG_FLASH_READ         = 0x51,
   UMH_MSG_FLASH_WRITE        = 0x52,
   UMH_MSG_FLASH_DELETE       = 0x53,
+  UMH_MSG_LIB_BEGIN          = 0x54,
+  UMH_MSG_LIB_DATA           = 0x55,
+  UMH_MSG_LIB_END            = 0x56,
+  UMH_MSG_LIB_STATUS         = 0x57,
+  UMH_MSG_LIB_START          = 0x58,
+  UMH_MSG_LIB_STOP           = 0x59,
   UMH_MSG_ERROR_COUNTERS     = 0x60,
   UMH_MSG_SET_DEMO           = 0x61,
   /* Real-time focus motion generator.  UPLOAD stores a compact path in RAM,
@@ -123,6 +129,47 @@ typedef struct __attribute__((packed)) {
 
 _Static_assert(sizeof(umh_wire_header_t) == UMH_PROTOCOL_HEADER_SIZE,
                "v7 USB header is part of the wire contract");
+
+typedef struct __attribute__((packed)) {
+  uint32_t object_id;
+  uint32_t record_count;
+  uint32_t frame_period_us;
+  uint8_t level_mode;
+  uint8_t repeat;
+  uint16_t reserved;
+} umh_lib_begin_wire_t;
+
+typedef struct __attribute__((packed)) {
+  uint32_t object_id;
+  uint8_t repeat;
+  uint8_t reserved[3];
+} umh_lib_start_wire_t;
+
+typedef struct __attribute__((packed)) {
+  uint8_t state;
+  uint8_t object_count;
+  uint8_t active_bank;
+  uint8_t mounted;
+  uint32_t free_bytes;
+  uint32_t next_generation;
+  uint32_t upload_object_id;
+  uint32_t upload_received;
+  uint32_t play_object_id;
+  uint32_t play_record_count;
+  uint32_t play_frame_period_us;
+  uint32_t play_cursor;
+  uint32_t replay_frames;
+  uint32_t page_programs;
+  uint32_t block_erases;
+  uint32_t rotations;
+  uint32_t bytes_programmed;
+  uint16_t last_result;
+  uint16_t reserved;
+} umh_lib_status_wire_t;
+
+_Static_assert(sizeof(umh_lib_begin_wire_t) == 16u, "lib begin wire size");
+_Static_assert(sizeof(umh_lib_start_wire_t) == 8u, "lib start wire size");
+_Static_assert(sizeof(umh_lib_status_wire_t) == 60u, "lib status wire size");
 
 typedef struct {
   uint8_t bytes[UMH_PROTOCOL_RX_RING_SIZE];

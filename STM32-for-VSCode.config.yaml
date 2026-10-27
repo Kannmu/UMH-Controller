@@ -10,7 +10,7 @@ target: UMH_Controller
 # Can be C or C++
 language: C
 
-optimization: Og
+optimization: O2
 
 # MCU settings
 targetMCU: stm32g4x

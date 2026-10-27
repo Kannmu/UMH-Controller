@@ -34,6 +34,24 @@ static uint8_t watermark_index;
  * task's 512-byte stack, which only has ~200 bytes of margin. */
 static TaskStatus_t task_info;
 
+static uint32_t statistics_share_x100(uint32_t delta, uint32_t window)
+{
+  uint64_t scaled;
+  uint32_t share = 0u;
+  uint32_t bit;
+  if (window == 0u) return 0u;
+  if (delta <= 429496u && window <= 429496u)
+    return (uint32_t)((delta * 10000u) / window);
+  scaled = (uint64_t)delta * 10000u;
+  bit = 8192u;
+  while (bit != 0u) {
+    uint32_t candidate = share + bit;
+    if ((uint64_t)candidate * window <= scaled) share = candidate;
+    bit >>= 1u;
+  }
+  return share;
+}
+
 static void accumulators_clear(void)
 {
   memset(accum_handle, 0, sizeof(accum_handle));
@@ -106,6 +124,30 @@ void umh_task_stats_update(void)
     }
   }  window = total - previous_total;
 
+  if (previous_valid == 0u) {
+    for (i = 0u; i < UMH_TASK_STATS_MAX; ++i) {
+      if (i < count) {
+        raw_now[i] = stats.entries[i].ulRunTimeCounter;
+        previous_handle[i] = stats.entries[i].xHandle;
+        previous_counter[i] = raw_now[i];
+        stats.entries[i].ulRunTimeCounter = 0u;
+      } else {
+        previous_handle[i] = NULL;
+        previous_counter[i] = 0u;
+      }
+    }
+    stats.count = count;
+    stats.window_ms = now_ms - previous_tick_ms;
+    stats.busy_percent_x100 = 0u;
+    stats.samples = accum_windows;
+    stats.avg_busy_x100 = accum_windows != 0u ? accum_busy_sum_x100 / accum_windows : 0u;
+    stats.peak_busy_x100 = accum_busy_peak_x100;
+    previous_tick_ms = now_ms;
+    previous_total = total;
+    previous_valid = 1u;
+    return;
+  }
+
   for (i = 0u; i < count; ++i) {
     TaskStatus_t *entry = &stats.entries[i];
     uint32_t raw = entry->ulRunTimeCounter;
@@ -121,7 +163,7 @@ void umh_task_stats_update(void)
         }
       }
     }
-    if (window != 0u) share = (uint32_t)(((uint64_t)delta * 10000u) / window);
+    if (window != 0u) share = statistics_share_x100(delta, window);
     if (share > 10000u) share = 10000u;
     entry->ulRunTimeCounter = share;
     if (entry->pcTaskName != NULL &&

@@ -56,6 +56,7 @@ Core/Src/us_calibration.c \
 Core/Src/task_stats.c \
 Core/Src/flash_nor.c \
 Core/Src/flash_store.c \
+Core/Src/flash_library.c \
 Core/Src/eeprom_profile.c \
 Core/Src/i2c_bus.c \
 Core/Src/oled_ssd1315.c \
