@@ -8,7 +8,7 @@
 
 #define FPGA_PROTOCOL_VERSION 1u
 #define FPGA_FIFO_DEFAULT_CREDIT 64u
-#define FPGA_TX_BUFFER_SIZE 256u  /* longest transaction: 36+168+12+32 = 248 */
+#define FPGA_TX_BUFFER_SIZE 288u  /* longest transaction: MOD_FEED 2+255 = 257 */
 #define FPGA_PHASE_HEADER_BYTES 36u
 #define FPGA_ULTRASOUND_BITMAP_LAST_MASK 0x0Fu
 #define FPGA_STATUS_UNDERRUN      (1u << 0)
@@ -31,8 +31,8 @@
  * block of drain margin below its 256-entry depth.  The reply's byte 1 is the
  * FIFO fill before the transaction, consumed at one level per two carrier
  * periods (20 kHz). */
-#define FPGA_MOD_BLOCK_MAX      128u
-#define FPGA_MOD_FIFO_DEPTH     256u
+#define FPGA_MOD_BLOCK_MAX      255u
+#define FPGA_MOD_FIFO_DEPTH     1024u
 #define FPGA_MOD_OUTPUT_RATE_HZ 20000u
 
 /* Microphone calibration commands.  MIC_CONFIG carries six extension bytes:
@@ -102,8 +102,6 @@ typedef struct {
    * using tx[] and always reaps the pending frame first. */
   uint8_t tx_frame[FPGA_TX_BUFFER_SIZE];
   uint8_t rx[FPGA_TX_BUFFER_SIZE];
-  volatile uint8_t dma_done;
-  volatile uint8_t dma_error;
   uint16_t tx_length;
   uint32_t transaction_sequence;
   fpga_status_wire_t status;
@@ -149,17 +147,15 @@ int fpga_link_mic_config(fpga_link_t *link, uint8_t gate_count, uint16_t start,
  * FRAME, then MOD_FIXED switches the FPGA event builder to the common-level
  * substitution path.  The amplitude stream itself uses fpga_link_mod_feed(). */
 int fpga_link_mod_begin(fpga_link_t *link, const uint8_t *phases,
-                        const uint8_t *enables, uint32_t sequence);
+                        const uint8_t *enables, uint32_t sequence, uint8_t fast);
 /* Appends count (<= FPGA_MOD_BLOCK_MAX) envelope levels to the FPGA FIFO;
  * count 0 is a 2-byte fill poll.  Returns the fill before the transfer, or < 0. */
-int fpga_link_mod_feed(fpga_link_t *link, const uint8_t *levels, uint8_t count);
-int fpga_link_mod_mode(fpga_link_t *link, uint8_t enable, uint32_t sequence);
+int fpga_link_mod_feed(fpga_link_t *link, const uint8_t *levels, uint16_t count);
+int fpga_link_mod_mode(fpga_link_t *link, uint8_t mode_bits, uint32_t sequence);
 int fpga_link_mic_read(fpga_link_t *link, uint8_t gate, fpga_mic_gate_wire_t *result);
 int fpga_link_mic_audio_reset(fpga_link_t *link);
 int fpga_link_mic_audio_read(fpga_link_t *link, int16_t *samples, uint8_t capacity,
                              uint8_t *actual);
 const fpga_status_wire_t *fpga_link_status(const fpga_link_t *link);
-void fpga_link_spi_txrx_complete(fpga_link_t *link);
-void fpga_link_spi_error(fpga_link_t *link);
 
 #endif

@@ -22,7 +22,6 @@ typedef struct {
   float previous_input;
   float limiter_gain;
   float agc_gain;
-  float quant_error;   /* first-order error feedback on the 8-bit level */
   uint16_t silent_samples;
   uint16_t peak_window_pos;
   uint16_t peak_window_count;

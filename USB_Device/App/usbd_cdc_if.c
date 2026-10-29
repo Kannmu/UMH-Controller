@@ -359,23 +359,6 @@ void umh_usb_tx_init(void)
   umh_usb_tx_active = 0u;
 }
 
-uint8_t umh_usb_tx_enqueue(const uint8_t *data, uint16_t length)
-{
-  uint8_t slot;
-  if (data == NULL || length == 0u || length > UMH_USB_TX_SLOT_SIZE) return 0u;
-  taskENTER_CRITICAL();
-  if (umh_usb_tx_count >= UMH_USB_TX_SLOTS) {
-    taskEXIT_CRITICAL();
-    return 0u;
-  }
-  slot = umh_usb_tx_write;
-  memcpy(umh_usb_tx_pool[slot], data, length);
-  umh_usb_tx_write = (uint8_t)((slot + 1u) % UMH_USB_TX_SLOTS);
-  ++umh_usb_tx_count;
-  taskEXIT_CRITICAL();
-  return 1u;
-}
-
 void umh_usb_tx_service(void)
 {
   uint8_t slot;

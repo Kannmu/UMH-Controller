@@ -1939,7 +1939,7 @@ static int ramp_burst_start(uint8_t channel, uint8_t level, uint8_t ramp_ticks)
                             (uint16_t)ramp_ticks);
     count = (uint8_t)(ramp_ticks + 1u);
   }
-  if (fpga_link_mod_begin(&fpga_link, phases, enables, 0u) != 0) return -2;
+  if (fpga_link_mod_begin(&fpga_link, phases, enables, 0u, 0u) != 0) return -2;
   if (fpga_link_mod_feed(&fpga_link, levels, count) < 0) {
     (void)fpga_link_mod_mode(&fpga_link, 0u, 0u);
     (void)fpga_link_safe_stop(&fpga_link);
@@ -3245,8 +3245,7 @@ static void application_init(void)
 
 void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi)
 {
-  if (hspi == fpga_link.spi) fpga_link_spi_txrx_complete(&fpga_link);
-  else flash_nor_dma_complete(hspi);
+  if (hspi != fpga_link.spi) flash_nor_dma_complete(hspi);
 }
 
 void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef *hspi)
@@ -3257,7 +3256,6 @@ void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef *hspi)
 void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi)
 {
   if (hspi == fpga_link.spi) {
-    fpga_link_spi_error(&fpga_link);
     system_status_get()->fpga_errors++;
     system_status_fault(UMH_FAULT_FPGA_SPI_DMA, HAL_SPI_GetError(hspi), UMH_FAULT_CRITICAL);
   } else {

@@ -158,6 +158,9 @@ static uint8_t render_level(umh_aperture_mod_t *engine)
   if (raw > engine->envelope_ceiling) raw = engine->envelope_ceiling;
   if (live != 0u) commit_interpolated(engine);
   engine->rendered_samples++;
+  /* Unity gain is the steady state for the whole stream, and the Q7 scaling
+   * already reduces to the sample itself there. */
+  if (engine->gain == UMH_MOD_GAIN_ONE) return raw;
   return (uint8_t)(((uint32_t)raw * engine->gain + UMH_MOD_GAIN_ONE / 2u) /
                    UMH_MOD_GAIN_ONE);
 }
@@ -200,6 +203,9 @@ int aperture_mod_configure(umh_aperture_mod_t *engine,
   uint16_t i;
   uint32_t rate;
   uint32_t prebuffer;
+  uint32_t block_max;
+  uint32_t output_rate;
+  uint8_t fast;
   uint8_t extra_count = 0u;
 
   if (engine == NULL || renderer == NULL || link == NULL || payload == NULL) return -1;
@@ -285,8 +291,14 @@ int aperture_mod_configure(umh_aperture_mod_t *engine,
     engine->aperture_enable[i] = frame.channels[i].level != 0u ? 1u : 0u;
   }
 
+  /* The FPGA envelope rate follows the host clock: 20 kHz for every rate the
+   * device has always accepted, 40 kHz only when the host actually asks for
+   * more, because the rebuild pipeline and the SPI stream both double there. */
+  fast = rate > 20000u ? 1u : 0u;
+  output_rate = fast != 0u ? 40000u : 20000u;
+
   if (fpga_link_mod_begin(link, engine->aperture_phase,
-                          engine->aperture_enable, 0u) != 0) {
+                          engine->aperture_enable, 0u, fast) != 0) {
     mod_unlock(engine);
     return -7;
   }
@@ -295,12 +307,27 @@ int aperture_mod_configure(umh_aperture_mod_t *engine,
   engine->renderer = renderer;
   engine->link = link;
   engine->prebuffer_samples = (uint16_t)prebuffer;
-  engine->fill_target = (uint16_t)(prebuffer > UMH_MOD_FIFO_TARGET
-                                       ? prebuffer - UMH_MOD_FIFO_TARGET
+  engine->output_rate_hz = (uint16_t)output_rate;
+  /* Eight refills per prebuffer window, at least one 32-level block and never
+   * more than the FPGA FIFO can hold twice over.  The FIFO only has to cover
+   * the render task's service latency, so the split deliberately favours the
+   * envelope ring: that is the buffer that absorbs a host burst and it has to
+   * stay larger than one 256-sample network packet. */
+  block_max = prebuffer / 8u;
+  if (block_max < 32u) block_max = 32u;
+  if (block_max > FPGA_MOD_BLOCK_MAX) block_max = FPGA_MOD_BLOCK_MAX;
+  engine->block_max = (uint16_t)block_max;
+  engine->fifo_target = (uint16_t)(2u * block_max);
+  if (engine->fifo_target > FPGA_MOD_FIFO_DEPTH / 2u)
+    engine->fifo_target = FPGA_MOD_FIFO_DEPTH / 2u;
+  engine->fill_target = (uint16_t)(prebuffer > engine->fifo_target
+                                       ? prebuffer - engine->fifo_target
                                        : prebuffer / 2u);
+  if (engine->fill_target < prebuffer / 2u) engine->fill_target = (uint16_t)(prebuffer / 2u);
+
   engine->envelope_ceiling =
       (uint8_t)(((uint32_t)config->level * UMH_MOD_MAX_LEVEL + 127u) / 255u);
-  engine->base_step_q16 = (rate << 16) / FPGA_MOD_OUTPUT_RATE_HZ;
+  engine->base_step_q16 = ((uint32_t)rate << 16) / output_rate;
   /* Clear the whole per-session tail (counters, interpolator, servo, gain). */
   memset((uint8_t *)engine + offsetof(umh_aperture_mod_t, frac_q16), 0,
          sizeof(*engine) - offsetof(umh_aperture_mod_t, frac_q16));
@@ -427,14 +454,15 @@ void aperture_mod_service(umh_aperture_mod_t *engine)
     finish_stop_locked(engine);
     system_status_fault(UMH_FAULT_FPGA_OUTPUT, 22u, UMH_FAULT_WARNING);
   }
-  /* The FPGA drains one level per 50 us from its own clock, so the fill
-   * reported by the previous transaction is aged by wall time.  Every accepted
-   * block reports the true fill again, so the estimate cannot drift. */
+  /* The FPGA drains one level per carrier-period pair (50 us at 20 kHz, 25 us
+   * in fast mode) from its own clock, so the fill reported by the previous
+   * transaction is aged by wall time.  Every accepted block reports the true
+   * fill again, so the estimate cannot drift. */
   now_us = (uint32_t)system_time_us();
   fill = engine->level_fill;
   if (fill != 0) {
     int32_t drained = (int32_t)(((uint32_t)(now_us - engine->last_service_us) *
-                                 (uint32_t)FPGA_MOD_OUTPUT_RATE_HZ) / 1000000u);
+                                 (uint32_t)engine->output_rate_hz) / 1000000u);
     fill -= drained;
     if (fill < 0) fill = 0;
   }
@@ -453,20 +481,20 @@ void aperture_mod_service(umh_aperture_mod_t *engine)
     }
     /* Refill only when a whole block still fits below the target.  Feeding
      * every tick would cost one transaction per millisecond; this way the
-     * steady state is FIFO_TARGET / block_max output samples per transaction,
+     * steady state is fifo_target / block_max output samples per transaction,
      * and the hysteresis keeps the fill inside one block of the target. */
-    while (fill + (int)FPGA_MOD_BLOCK_MAX <= (int)UMH_MOD_FIFO_TARGET) {
-      uint8_t count = (uint8_t)((int)UMH_MOD_FIFO_TARGET - fill);
-      uint8_t i;
-      if (count > FPGA_MOD_BLOCK_MAX) count = FPGA_MOD_BLOCK_MAX;
+    while (fill + (int)engine->block_max <= (int)engine->fifo_target) {
+      uint16_t count = (uint16_t)((int)engine->fifo_target - fill);
+      uint16_t i;
+      if (count > engine->block_max) count = engine->block_max;
       for (i = 0u; i < count; ++i) engine->pending_block[i] = render_level(engine);
       {
         int reply = fpga_link_mod_feed(engine->link, engine->pending_block, count);
         if (reply < 0) {
-          engine->pending_count = count;
+          engine->pending_count = (uint8_t)count;
           break;
         }
-        fill = reply + count;
+        fill = reply + (int)count;
       }
     }
   }

@@ -863,7 +863,7 @@ static int wait_for_credit(fpga_link_t *link)
 }
 
 int fpga_link_mod_begin(fpga_link_t *link, const uint8_t *phases,
-                          const uint8_t *enables, uint32_t sequence)
+                          const uint8_t *enables, uint32_t sequence, uint8_t fast)
 {
   umh_output_frame_t frame;
   uint16_t i;
@@ -889,7 +889,7 @@ int fpga_link_mod_begin(fpga_link_t *link, const uint8_t *phases,
   result = fpga_link_submit(link, &frame);
   if (result != 0) return result;
 
-  result = fpga_link_mod_mode(link, 1u, sequence + 1u);
+  result = fpga_link_mod_mode(link, (uint8_t)(1u | (fast != 0u ? 2u : 0u)), sequence + 1u);
   if (result != 0) {
     (void)fpga_link_safe_stop(link);
     return result;
@@ -921,7 +921,7 @@ int fpga_link_mod_begin(fpga_link_t *link, const uint8_t *phases,
   return 0;
 }
 
-int fpga_link_mod_feed(fpga_link_t *link, const uint8_t *levels, uint8_t count)
+int fpga_link_mod_feed(fpga_link_t *link, const uint8_t *levels, uint16_t count)
 {
   int result;
   if (link == NULL || link->mutex == NULL || count > FPGA_MOD_BLOCK_MAX ||
@@ -939,17 +939,22 @@ int fpga_link_mod_feed(fpga_link_t *link, const uint8_t *levels, uint8_t count)
     link->levels_valid = 0u;
     link->hold_valid = 0u;
     result = -4;
-  } else result = link->status.mod_fill = link->rx[1];
+  } else {
+    /* The fill is 10 bits wide: byte 1 carries the low eight, the two spare
+     * bits of the status word's last byte carry the top two.  Older images
+     * leave byte 14 zero, so a 256-entry FIFO still decodes identically. */
+    result = link->status.mod_fill =
+        (uint16_t)((uint16_t)link->rx[1] | ((uint16_t)(link->rx[14] & 0x03u) << 8));
+  }
   osMutexRelease(link->mutex);
   return result;
 }
 
-int fpga_link_mod_mode(fpga_link_t *link, uint8_t enable, uint32_t sequence)
+int fpga_link_mod_mode(fpga_link_t *link, uint8_t mode_bits, uint32_t sequence)
 {
   uint8_t attempt;
-  int result = compact_mod_command(link, FPGA_CMD_MOD_FIXED,
-                                     enable != 0u ? 1u : 0u, sequence);
-  if (result != 0 || enable == 0u) return result;
+  int result = compact_mod_command(link, FPGA_CMD_MOD_FIXED, mode_bits, sequence);
+  if (result != 0 || (mode_bits & 0x01u) == 0u) return result;
   /* The status word in the compact transaction is latched before CS falls,
    * so poll until the new bitstream confirms that MOD_FIXED=1 was adopted.
    * Old FPGA images silently ignore the compact command; without this check
@@ -1100,5 +1105,3 @@ const fpga_status_wire_t *fpga_link_status(const fpga_link_t *link)
   return link != NULL ? &link->status : NULL;
 }
 
-void fpga_link_spi_txrx_complete(fpga_link_t *link) { if (link != NULL) link->dma_done = 1u; }
-void fpga_link_spi_error(fpga_link_t *link) { if (link != NULL) link->dma_error = 1u; }

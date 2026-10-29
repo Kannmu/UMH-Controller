@@ -67,15 +67,15 @@ module umh_mic_iq_ram (
 endmodule
 
 module umh_level_fifo (
-    input  wire       wr_clk,
-    input  wire       we,
-    input  wire [7:0] wr_addr,
-    input  wire [7:0] wr_data,
-    input  wire       rd_clk,
-    input  wire [7:0] rd_addr,
-    output reg  [7:0] rd_data
+    input  wire        wr_clk,
+    input  wire        we,
+    input  wire [9:0]  wr_addr,
+    input  wire [7:0]  wr_data,
+    input  wire        rd_clk,
+    input  wire [9:0]  rd_addr,
+    output reg  [7:0]  rd_data
 );
-    (* syn_ramstyle = "block_ram" *) reg [7:0] mem [0:255];
+    (* syn_ramstyle = "block_ram" *) reg [7:0] mem [0:1023];
     always @(posedge wr_clk) if (we) mem[wr_addr] <= wr_data;
     always @(posedge rd_clk) rd_data <= mem[rd_addr];
 endmodule
@@ -137,10 +137,10 @@ module umh_fpga_top (
     reg  [1:0]  accepted_update_flags_spi;
     reg  [6:0]  spi_channel_index;
     reg         spi_channel_page;
-    reg         spi_compact_data;
-    reg         mod_level_spi;
+    reg  [1:0]  spi_compact_data;
+    reg  [1:0]  mod_level_spi;
     reg         mod_toggle_spi;
-    reg  [7:0]  feed_wr_spi;
+    reg  [9:0]  feed_wr_spi;
     reg         frame_toggle_spi, stop_toggle_spi, invalid_frame_spi, ws2812_toggle_spi;
     reg  [23:0] rgb_values;
     reg  [1:0]  spi_rgb_captured;
@@ -358,6 +358,7 @@ module umh_fpga_top (
     reg  [23:0] rgb_hold;
 
     reg         mod_active;
+    reg         mod_fast;
     reg  [7:0]  pending_mod_level;
     reg  [7:0]  build_level;
     reg         build_mod;
@@ -365,11 +366,21 @@ module umh_fpga_top (
     reg         mod_toggle_meta, mod_toggle_sync, mod_toggle_seen;
     reg  [3:0]  mod_settle;
 
-    reg  [7:0]  feed_wr, feed_rd;
+    reg  [9:0]  feed_wr, feed_rd;
     wire [7:0]  feed_q;
-    wire [7:0]  feed_fill = feed_wr - feed_rd;
+    wire [9:0]  feed_fill = feed_wr - feed_rd;
 
-    wire        feed_pop = wrap_s2 && mod_active && build_idle &&
+    /* Slow mode pops one level per two carrier periods (20 kHz envelope) and
+     * only while the event builder is completely idle, which gives the rebuild
+     * a whole extra period of slack.  Fast mode pops on every carrier period
+     * (40 kHz envelope); it needs the rebuild to finish inside one period, so
+     * it is only enabled when the host streams at the higher rate.  In both
+     * modes the pop waits for the previous build to leave EV_IDLE, and the
+     * bank swap happens on the same edge, so the build always targets the
+     * inactive bank. */
+    wire        mod_pop_ready = mod_fast ? ((ev_state == EV_IDLE) && !frame_req)
+                                         : build_idle;
+    wire        feed_pop = wrap_s2 && mod_active && mod_pop_ready &&
                             (feed_wr != feed_rd);
     umh_level_fifo level_fifo (
         .wr_clk(spi1_sck), .we(feed_we), .wr_addr(feed_wr_spi), .wr_data(spi_rx_byte),
@@ -403,12 +414,13 @@ module umh_fpga_top (
                                     16'h5000;
 
     wire [127:0] status_word = {
-        8'h01, feed_fill,
+        8'h01, feed_fill[7:0],
         fifo_credit_wire[7:0],  fifo_credit_wire[15:8],
         fifo_depth_wire[7:0],   fifo_depth_wire[15:8],
         status_flags_wire[7:0], status_flags_wire[15:8],
         fpga_time[7:0], fpga_time[15:8], fpga_time[23:16], fpga_time[31:24],
-        accepted_sequence[7:0], accepted_sequence[15:8], 16'd0
+        accepted_sequence[7:0], accepted_sequence[15:8],
+        {feed_fill[9:8], 6'd0, 8'd0}
     };
 
     /* 128:1 status read mux terminates on a flop: full SCK period to settle. */
@@ -479,7 +491,7 @@ module umh_fpga_top (
                 end else if (!spi_mod_feed) begin
                     case (spi_byte_count)
                         16'd2: begin
-                            spi_compact_data <= spi_rx_byte[0];
+                            spi_compact_data <= spi_rx_byte[1:0];
                             if (spi_command == 8'h16) pcm_read_count_latched_spi <= pcm_read_count;
                         end
                         16'd6:  spi_frame_sequence[7:0]   <= spi_rx_byte;
@@ -576,7 +588,7 @@ module umh_fpga_top (
         end
     end
 
-    always @(posedge spi1_sck) if (feed_we) feed_wr_spi <= feed_wr_spi + 8'd1;
+    always @(posedge spi1_sck) if (feed_we) feed_wr_spi <= feed_wr_spi + 10'd1;
 
     always @(posedge fpga_clk) begin
         pcm_rd_sync1 <= pcm_rd_ptr_spi;
@@ -692,7 +704,8 @@ module umh_fpga_top (
         end else if (mod_settle != 4'd0) begin
             mod_settle <= mod_settle - 4'd1;
             if (mod_settle == 4'd1) begin
-                mod_active <= mod_level_spi;
+                mod_active <= mod_level_spi[0];
+                mod_fast   <= mod_level_spi[1];
                 pending_mod_level <= 8'd0;
                 feed_rd <= feed_wr;
                 frame_req <= 1'b1;
@@ -781,6 +794,7 @@ module umh_fpga_top (
             frame_settle  <= 4'd0;
             mod_settle  <= 4'd0;
             mod_active    <= 1'b0;
+            mod_fast      <= 1'b0;
             pending_mod_level <= 8'd0;
             swap_pending  <= 1'b0;
             ev_state      <= EV_IDLE;
@@ -792,6 +806,7 @@ module umh_fpga_top (
             frame_settle  <= 4'd0;
             mod_settle  <= 4'd0;
             mod_active    <= 1'b0;
+            mod_fast      <= 1'b0;
             pending_mod_level <= 8'd0;
             swap_pending  <= 1'b0;
             ev_state      <= EV_IDLE;
@@ -1037,8 +1052,8 @@ module umh_fpga_top (
         spi_expected_last = 9'd35; expected_valid = 1'b0;
         spi_channel_index = 7'd0;
         spi_channel_page = 1'b0; spi_rgb_captured = 2'd0;
-        spi_compact_data = 1'b0; mod_level_spi = 1'b0;
-        mod_toggle_spi = 1'b0; feed_wr_spi = 8'd0;
+        spi_compact_data = 2'b0; mod_level_spi = 2'b0;
+        mod_toggle_spi = 1'b0; feed_wr_spi = 10'd0;
         frame_toggle_spi = 1'b0; stop_toggle_spi = 1'b0; invalid_frame_spi = 1'b0;
         ws2812_toggle_spi = 1'b0;
         rgb_values = 24'd0; rgb_values_complete_spi = 1'b0; status_bit_index = 9'd0;
@@ -1049,7 +1064,7 @@ module umh_fpga_top (
         pending_sequence = 16'd0; accepted_sequence = 16'd0; frame_settle = 4'd0;
         rgb_hold = 24'd0; status_hold = 128'd0; status_miso_q = 1'b0;
         ws2812_settle = 4'd0;
-        mod_active = 1'b0; pending_mod_level = 8'd0;
+        mod_active = 1'b0; mod_fast = 1'b0; pending_mod_level = 8'd0;
         build_level = 8'd0; build_level_eff = 8'd0;
         build_mod = 1'b0; frame_req_mod = 1'b0;
         mod_toggle_meta = 1'b0;

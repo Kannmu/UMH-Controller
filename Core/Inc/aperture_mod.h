@@ -39,20 +39,21 @@
 #define UMH_MOD_RING_SIZE 2048u
 #define UMH_MOD_RING_MASK (UMH_MOD_RING_SIZE - 1u)
 #define UMH_MOD_MIN_RATE_HZ 8000u
-#define UMH_MOD_MAX_RATE_HZ 20000u
+#define UMH_MOD_MAX_RATE_HZ 40000u
 /* The level FIFO in front of the FPGA is part of the same pipe, so the usable
  * ring depth is one FIFO behind the requested prebuffer.  Reserving it here
  * (a) makes the clock servo's zero-error point coincide with the fill that the
  * stream actually settles at, instead of biasing the playback rate by
- * FIFO_TARGET * UMH_MOD_FILL_GAIN_PPM forever, and (b) stops a prebuffer that
+ * fifo_target * UMH_MOD_FILL_GAIN_PPM forever, and (b) stops a prebuffer that
  * leaves no room for one FPGA block from overflowing the ring. */
 #define UMH_MOD_MAX_PREBUFFER (UMH_MOD_RING_SIZE - 2u * FPGA_MOD_BLOCK_MAX)
-/* FIFO fill kept ahead of the FPGA (11.2 ms at 20 kHz).  Refills happen only
- * when a whole block fits below the target, so the steady state is one
- * transaction every FIFO_TARGET / block_max output samples instead of one per
- * service tick: 156 transactions/s at 128 levels, and the FIFO never drops
- * below one block (6.4 ms) before the next refill is due. */
-#define UMH_MOD_FIFO_TARGET 224u
+/* Block length and FIFO target are derived per session from the prebuffer: the
+ * pipe budget is what the host asked for, and the split has to leave the ring
+ * at least one block of margin.  block = prebuffer/4 (32..255) gives four
+ * refills per prebuffer window, fifo_target = 2*block keeps the level FIFO
+ * between one and two blocks full.  With the 512-sample default that is a
+ * 128-level block every 6.4 ms; a 1024 or larger prebuffer doubles the block
+ * and halves the transaction rate again. */
 /* Gain ramp (Q7) used for start, underrun, refill and stop, so every
  * transition is a smooth fade instead of a step in the common amplitude. */
 #define UMH_MOD_GAIN_ONE 128u
@@ -88,12 +89,12 @@ _Static_assert((UMH_MOD_RING_SIZE & (UMH_MOD_RING_SIZE - 1u)) == 0u,
                "envelope ring size must be a power of two");
 _Static_assert(UMH_MOD_RX_HEADROOM < UMH_MOD_RING_SIZE,
                "RX headroom must fit inside the envelope ring");
-/* Refills are only issued when a whole block fits below the target, so the
- * FIFO fill itself never exceeds it; that is the only bound the RTL needs. */
-_Static_assert(UMH_MOD_FIFO_TARGET <= FPGA_MOD_FIFO_DEPTH,
-               "level FIFO target must fit in the FPGA level FIFO");
-_Static_assert(FPGA_MOD_BLOCK_MAX <= UMH_MOD_FIFO_TARGET,
-               "one block must fit below the level FIFO target");
+/* The derived split only ever uses two blocks of FIFO, so a block must fit in
+ * half the FIFO and four blocks must fit in the ring. */
+_Static_assert(FPGA_MOD_BLOCK_MAX <= FPGA_MOD_FIFO_DEPTH / 2u,
+               "one block must fit twice into the FPGA level FIFO");
+_Static_assert(FPGA_MOD_BLOCK_MAX <= UMH_MOD_RING_SIZE / 4u,
+               "one block must fit four times into the envelope ring");
 _Static_assert(UMH_MOD_GAIN_ONE % UMH_MOD_GAIN_STEP == 0u,
                "gain ramp must land exactly on 0 and UMH_MOD_GAIN_ONE");
 _Static_assert(UMH_MOD_FILL_GROUP == 8u,
@@ -115,6 +116,7 @@ typedef enum {
 #define UMH_MOD_STATUS_UNDERRUN   (1u << 4)
 
 #define UMH_MOD_CONFIG_PLANE_WAVE (1u << 0)
+
 
 /* MOD_CONFIGURE wire payload.  Coordinates are signed micrometres, the envelope
  * rate is the host's sample rate for the amplitude stream, and the source
@@ -189,6 +191,9 @@ typedef struct {
   volatile uint16_t ring_tail;
   uint16_t prebuffer_samples;
   uint16_t fill_target;         /* ring occupancy the clock servo regulates to */
+  uint16_t fifo_target;         /* level FIFO fill the refill loop holds */
+  uint16_t block_max;           /* levels per MOD_FEED, from the prebuffer */
+  uint16_t output_rate_hz;      /* FPGA envelope rate: 20000 or 40000 */
   uint8_t envelope_ceiling;
   uint32_t base_step_q16;       /* host rate / FPGA output rate, Q16 */
 
